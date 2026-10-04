@@ -1,0 +1,6 @@
+node_modules
+lib
+.cache
+.test-data
+.pnpm-store
+pnpm-lock.yaml
