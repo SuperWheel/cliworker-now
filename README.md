@@ -112,3 +112,5 @@ DSH='/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh'
 ## 页面图标设计素材
 
 五类 CLI 的透明扁平图标、亮暗预览及生成提示词见 [图标说明](doc/assets/cli-icons/v1/README.md)。目前为设计交付，尚未接入运行界面。
+
+项目自身的蓝色扁平标识见 [CLI Worker Now 图标](doc/assets/project-icon/v1/README.md)，为透明 PNG 设计稿。

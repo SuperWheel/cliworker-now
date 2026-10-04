@@ -1,0 +1,11 @@
+Use case: logo-brand.
+Asset type: a single original project icon for "CLI Worker Now", a desktop plugin that displays multiple CLI agent conversations in grouped sidebar cards.
+Primary request: design a refined FLAT app symbol conveying a main terminal alongside multiple child agent conversations. It must be its own recognizable identity, not an imitation of OpenAI, Claude, Kimi, Google or DeepSeek logos.
+
+Design: one cohesive compact three-panel symbol on a square transparent canvas. A tall, softly rounded blue terminal panel occupies the left approximately 60% of the mark. On its right, two smaller softly rounded agent panels are stacked vertically, with equal narrow transparent gutters between all three shapes. The left terminal contains a bold white terminal chevron > and a short white underscore, precisely balanced and strongly legible. Each right panel contains just one short thick white horizontal stroke suggesting a conversation. The parent terminal and two child panels make one balanced rounded-square overall silhouette, inspired by the project's parent/child page structure. NO extra connecting lines, no additional nodes, no tiny decoration, no actual words.
+Style: immaculate minimalist flat graphic, crisp vector-like edges rendered to PNG, solid opaque color fields, consistent gentle corner radii and geometric spacing, professional developer software identity. Clear silhouette at 24px and 32px.
+Color palette: parent panel uniform DeepSeek-Harness-compatible blue #4176E6. Both right child panels uniform softer blue #75A0F0. Terminal glyph and two short chat strokes opaque white. Exactly these flat colors; no gradients, texture or lighting.
+Composition: centered optical balance, symbol occupies about 82% of square canvas, equal generous transparent outer margins. Entire mark visible, no clipping.
+Background: genuinely transparent alpha, all gutters and exterior fully transparent. The panels themselves are the icon, NOT an additional backdrop or app-tile frame.
+Avoid: 3D, shadows, bevel, gloss, grain, glow, perspective, thin hairlines, complex diagrams, typography, letters C/W/N, brand names, watermark, mockup board, checkerboard baked into pixels, solid background, extra enclosing square.
+Output: ONE finished standalone flat transparent project icon, no variations or accompanying labels.

@@ -98,3 +98,5 @@
 - 基于官方参考素材制作 Antigravity、Codex、Claude Code、Kimi、MiMo Code 的透明扁平 PNG。Kimi 按宿主亮暗主题切换深浅 K 字，其余共用单图。
 - MiMo 使用官方像素字标提炼的 M 适配图，不宣称为官方独立图标。本阶段只交付素材，不改变运行界面、协议或已安装版本。
 - 素材、原始来源、生成提示词和实际尺寸预览见 [图标说明](assets/cli-icons/v1/README.md)。
+
+项目独立图标适配稿：使用主终端与两个子会话块组成的蓝色扁平标识，透明背景，见 [项目图标 v1](assets/project-icon/v1/README.md)。尚未接入运行界面。

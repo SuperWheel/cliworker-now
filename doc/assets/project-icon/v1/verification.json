@@ -1,0 +1,17 @@
+{
+  "file": "cliworker-now.png",
+  "size": [
+    1254,
+    1254
+  ],
+  "mode": "RGBA",
+  "transparent_pixels": 865546,
+  "transparent_corners": true,
+  "visible_bounds_alpha128": [
+    173,
+    220,
+    1081,
+    1030
+  ],
+  "verification": "Image generated and visually inspected; PNG alpha inspected, no runtime integration or small-size UI test performed."
+}
