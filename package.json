@@ -33,7 +33,11 @@
     "lib",
     "!lib/*.tsbuildinfo",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "lib/typert.host.js",
+    "lib/typert.host.d.ts",
+    "lib/typert.remote-client.js",
+    "lib/typert.remote-client.d.ts"
   ],
   "dsh": {
     "bundle": {
