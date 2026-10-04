@@ -4,6 +4,13 @@ DeepSeek Harness 的 Antigravity CLI 实时侧栏插件。模型先由你选择�
 
 兼容基线：macOS、Harness **0.2.0-rc.2**、Antigravity CLI **1.2.16**、Node ≥22.19。
 
+## v0.1.1 体验更新
+
+- 切换子 Agent 保留各自未发送的草稿（仅当前面板内存，关闭面板或刷新后不保留）。
+- 连接失败保留已收到的记录，点击“重新连接”恢复订阅，不会重新执行任务。
+- 向上查看历史时不强制滚动，可点击“回到最新消息”。
+- 中断原因持续可见；未建立 CLI 会话时明确提示重新派遣。工具缺少最终状态时显示“本轮已结束/中断”，不伪造工具成功。
+
 ## 本地构建
 
 ```sh
@@ -12,6 +19,8 @@ pnpm build
 pnpm typecheck
 pnpm test
 ```
+
+开发中可先运行 `pnpm build:preview`，将 `.cache/preview-package` 安装到隔离 profile 验收；这不会替换 Desktop 链接的 `lib`。确认无运行中的任务后，再运行正式构建更新本机版本。
 
 构建自动生成原生 Typert RPC 和浏览器 bundle，不需要 Harness 源码仓库。依赖版本与锁文件随仓库保存。
 

@@ -167,7 +167,12 @@ describe('private durable storage', () => {
     const restored = new WorkerStorage(directory)
     cleanups.push(() => restored.close())
     expect(restored.workers.get(worker.id)?.status).toBe('interrupted')
+    expect(restored.history(worker.id).at(-1)?.state).toBe('interrupted')
     expect(statSync(join(directory, `${worker.id}.worker.json`)).mode & 0o777).toBe(0o600)
+    restored.close()
+    const reopened = new WorkerStorage(directory)
+    cleanups.push(() => reopened.close())
+    expect(reopened.history(worker.id)).toHaveLength(1)
   })
   it('recovers only a torn tail and preserves sequence', () => {
     const { root, project } = paths()
@@ -182,7 +187,8 @@ describe('private durable storage', () => {
     const restored = new WorkerStorage(directory)
     cleanups.push(() => restored.close())
     restored.append(worker, { kind: 'assistant', text: 'two' })
-    expect(restored.history(worker.id).map((e) => e.seq)).toEqual([1, 2])
+    expect(restored.history(worker.id).map((e) => e.seq)).toEqual([1, 2, 3])
+    expect(restored.history(worker.id)[1]).toMatchObject({ kind: 'status', state: 'interrupted' })
     expect(readFileSync(path, 'utf8')).not.toContain('broken')
   })
   it('rejects broad workspaces and leaves prompt as a single argv value', () => {
@@ -220,7 +226,8 @@ describe('scheduler, cancellation and session continuity', () => {
     expect(() => runtime.get('other', a.worker.id)).toThrow('belong')
     backend.calls[0].stdout.write(result('original'))
     backend.calls[0].end()
-    await a.done
+    const firstOutcome = await a.done
+    const firstRunId = firstOutcome.runId
     const b = runtime.submit(
       'p',
       project,
@@ -235,6 +242,8 @@ describe('scheduler, cancellation and session continuity', () => {
     expect(backend.calls[1].spec.argv).toContain('original')
     expect(backend.calls[1].spec.argv).toContain('fixture-model')
     expect(b.worker.mode).toBe('accept-edits')
+    expect(firstOutcome).toMatchObject({ status: 'completed', runId: firstRunId, lastResult: 'answer' })
+    expect(b.worker.runId).not.toBe(firstRunId)
     backend.calls[1].stdout.write(result('original'))
     backend.calls[1].end()
     await b.done
@@ -295,4 +304,28 @@ it('does not repeat earlier streamed steps when final response aggregates them',
   ].map((e, i) => ({ ...e, runId: 'r', seq: i + 1, time: '' }))
   const rows = foldEvents(events as import('../src/shared/types.ts').WorkerEvent[])
   expect(rows.filter((e) => e.kind === 'assistant').map((e) => e.text)).toEqual(['Working.', 'Done.'])
+})
+
+it('marks unfinished tools at run end without inventing a successful CLI tool result', () => {
+  const events = [
+    { kind: 'tool', step: 1, text: 'done tool', state: 'DONE' },
+    { kind: 'tool', step: 2, text: 'interrupted tool', state: 'ACTIVE' },
+    { kind: 'status', text: '用户已停止任务', state: 'interrupted' },
+  ].map((e, i) => ({
+    ...e,
+    seq: i + 1,
+    time: '',
+    runId: 'first',
+  })) as import('../src/shared/types.ts').WorkerEvent[]
+  const rows = foldEvents(events)
+  expect(rows[0].runStatus).toBeUndefined()
+  expect(rows[1]).toMatchObject({ state: 'ACTIVE', runStatus: 'interrupted' })
+  expect(events[1]).not.toHaveProperty('runStatus')
+  // v0.1.0 stores did not write structured terminal status events.
+  expect(foldEvents(events.slice(0, 2), { runId: 'first', status: 'interrupted' })[1].runStatus).toBe(
+    'interrupted',
+  )
+  expect(
+    foldEvents(events.slice(0, 2), { runId: 'other', status: 'interrupted' })[1].runStatus,
+  ).toBeUndefined()
 })

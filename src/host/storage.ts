@@ -89,6 +89,7 @@ export class WorkerStorage {
           worker.status = 'interrupted'
           worker.error = '上次 Harness 运行中断；可继续原会话'
           this.save(worker)
+          this.append(worker, { kind: 'status', text: worker.error, state: 'interrupted' })
         }
       }
     } catch (error) {

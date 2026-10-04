@@ -43,6 +43,8 @@ export interface TimelineItem {
   time: string
   state?: string
   detail?: string
+  /** Run ended without a final tool status; the observed CLI state stays intact. */
+  runStatus?: WorkerStatus
 }
 export interface WorkerSnapshot {
   workers: Worker[]
@@ -55,10 +57,28 @@ export const active = (status: WorkerStatus) =>
   status === 'queued' || status === 'running' || status === 'stopping'
 
 /** Fold repeated step updates without duplicating streamed text or the final response. */
-export function foldEvents(events: readonly WorkerEvent[]): TimelineItem[] {
+export function foldEvents(
+  events: readonly WorkerEvent[],
+  endedRun?: { runId: string; status: WorkerStatus },
+): TimelineItem[] {
   const rows: TimelineItem[] = []
   const steps = new Map<string, TimelineItem>()
+  const markEnded = (runId: string, status: WorkerStatus) => {
+    for (const row of rows) {
+      if (
+        row.kind === 'tool' &&
+        row.id.startsWith(runId + ':') &&
+        ['ACTIVE', 'RUNNING', 'PENDING', 'QUEUED', 'IN_PROGRESS'].includes(row.state ?? '')
+      )
+        row.runStatus = status
+    }
+  }
   for (const event of events) {
+    if (event.kind === 'status') {
+      const terminal = event.state ?? event.text
+      if (terminal === 'completed' || terminal === 'failed' || terminal === 'interrupted')
+        markEnded(event.runId, terminal)
+    }
     if (event.kind === 'result') {
       const lastAssistant = rows.findLast(
         (row) => row.kind === 'assistant' && row.id.startsWith(event.runId + ':'),
@@ -103,5 +123,6 @@ export function foldEvents(events: readonly WorkerEvent[]): TimelineItem[] {
       rows.push(row)
     }
   }
+  if (endedRun) markEnded(endedRun.runId, endedRun.status)
   return rows
 }

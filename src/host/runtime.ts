@@ -59,7 +59,12 @@ export class WorkerRuntime {
   snapshot(parent: string, selected?: string): WorkerSnapshot {
     const workers = [...this.storage.workers.values()].filter((w) => w.parentSessionId === parent)
     const worker = selected ? this.get(parent, selected) : undefined
-    const timeline = worker ? foldEvents(this.storage.history(worker.id)) : []
+    const timeline = worker
+      ? foldEvents(
+          this.storage.history(worker.id),
+          active(worker.status) ? undefined : { runId: worker.runId, status: worker.status },
+        )
+      : []
     return {
       workers,
       selected: worker,
@@ -134,7 +139,7 @@ export class WorkerRuntime {
   stop(parent: string, id: string): Promise<Worker> {
     const worker = this.get(parent, id)
     const task = this.tasks.get(id)
-    if (!task) return Promise.resolve(worker)
+    if (!task) return Promise.resolve(structuredClone(worker))
     if (worker.status !== 'stopping') {
       worker.status = 'stopping'
       this.storage.save(worker)
@@ -175,7 +180,7 @@ export class WorkerRuntime {
     worker.updatedAt = new Date().toISOString()
     try {
       this.storage.save(worker)
-      this.storage.append(worker, { kind: 'status', text: error ?? status })
+      this.storage.append(worker, { kind: 'status', text: error ?? status, state: status })
     } catch (error) {
       worker.status = 'failed'
       worker.error = `状态持久化失败：${String(error)}`
@@ -184,7 +189,9 @@ export class WorkerRuntime {
       this.tasks.delete(worker.id)
       this.running.delete(task)
       this.changed()
-      task.settle(worker)
+      // A later followup mutates the live worker. Completion consumers must retain
+      // the exact outcome of this run, including its runId and response.
+      task.settle(structuredClone(worker))
       this.drain()
     }
   }
