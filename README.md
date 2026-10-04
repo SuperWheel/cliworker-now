@@ -108,3 +108,7 @@ DSH='/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh'
 - `pnpm smoke:stop`：真实 CLI 启动带 PID 标记的 Node 工具子进程，停止后验证该 PID 已退出。消耗 CLI 额度。
 
 - `node --import tsx scripts/smoke-multi.ts`：需事先确认模型和额度，验证新增 CLI 首轮/续聊。证据与运行数据仅保存在 `.test-data/`；不会自动修复账户或更改订阅。
+
+## 页面图标设计素材
+
+五类 CLI 的透明扁平图标、亮暗预览及生成提示词见 [图标说明](doc/assets/cli-icons/v1/README.md)。目前为设计交付，尚未接入运行界面。

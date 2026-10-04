@@ -1,0 +1,110 @@
+{
+  "antigravity": {
+    "file": "antigravity.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "mode": "RGBA",
+    "transparent_pixels": 1245679,
+    "transparent_corners": true,
+    "visible_bounds_alpha128": [
+      146,
+      190,
+      1107,
+      1064
+    ],
+    "alpha_250_255": 314260,
+    "display_scale": 1.044
+  },
+  "codex": {
+    "file": "codex.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "mode": "RGBA",
+    "transparent_pixels": 899739,
+    "transparent_corners": true,
+    "visible_bounds_alpha128": [
+      148,
+      174,
+      1116,
+      1111
+    ],
+    "alpha_250_255": 661743,
+    "display_scale": 1.036
+  },
+  "claude-code": {
+    "file": "claude-code.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "mode": "RGBA",
+    "transparent_pixels": 1004969,
+    "transparent_corners": true,
+    "visible_bounds_alpha128": [
+      64,
+      104,
+      1190,
+      1166
+    ],
+    "alpha_250_255": 467282,
+    "display_scale": 0.891
+  },
+  "kimi-light": {
+    "file": "kimi-light.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "mode": "RGBA",
+    "transparent_pixels": 1356044,
+    "transparent_corners": true,
+    "visible_bounds_alpha128": [
+      315,
+      240,
+      1078,
+      996
+    ],
+    "alpha_250_255": 202563,
+    "display_scale": 1.315
+  },
+  "kimi-dark": {
+    "file": "kimi-dark.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "mode": "RGBA",
+    "transparent_pixels": 1352043,
+    "transparent_corners": true,
+    "visible_bounds_alpha128": [
+      313,
+      237,
+      1081,
+      996
+    ],
+    "alpha_250_255": 204024,
+    "display_scale": 1.306
+  },
+  "mimo-code": {
+    "file": "mimo-code.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "mode": "RGBA",
+    "transparent_pixels": 1125994,
+    "transparent_corners": true,
+    "visible_bounds_alpha128": [
+      199,
+      241,
+      1055,
+      1008
+    ],
+    "alpha_250_255": 419878,
+    "display_scale": 1.172
+  }
+}
