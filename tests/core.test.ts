@@ -440,3 +440,39 @@ it('mixed CLI writers share the directory lock and followup retains its original
   expect((await resumed.done).status).toBe('interrupted')
   expect(backend.calls[2].terminated).toBe(true)
 })
+
+it('idle worker model changes preserve the conversation and cannot race a queued turn', async () => {
+  const { runtime, backend, project } = setup()
+  const first = runtime.submit('parent', project, 'one', 'hello', pref, 'plan')
+  await tick()
+  backend.calls[0]!.stdout.write(result('retained-id'))
+  backend.calls[0]!.end()
+  await first.done
+  runtime.configureWorker('parent', first.worker.id, { model: 'next-model', effort: 'low' })
+  expect(runtime.get('parent', first.worker.id).conversationId).toBe('retained-id')
+  expect(() => runtime.configureWorker('other', first.worker.id, pref)).toThrow()
+  expect(() => runtime.configureWorker('parent', first.worker.id, { cli: 'codex', ...pref })).toThrow()
+  const second = runtime.submit('parent', project, 'one', 'followup', pref, 'plan', first.worker.id)
+  expect(() => runtime.configureWorker('parent', first.worker.id, pref)).toThrow('本轮结束')
+  await tick()
+  expect(backend.calls[1]!.spec.argv).toContain('next-model')
+  expect(backend.calls[1]!.spec.argv).toContain('retained-id')
+  backend.calls[1]!.stdout.write(result('retained-id'))
+  backend.calls[1]!.end()
+  await second.done
+})
+
+it('run timing uses persisted per-turn events and survives a sliced timeline', () => {
+  const rows = foldEvents([
+    { seq: 1, runId: 'first', time: '2026-10-04T00:00:00Z', kind: 'user', text: 'one' },
+    { seq: 2, runId: 'first', time: '2026-10-04T00:00:03Z', kind: 'assistant', text: 'answer' },
+    { seq: 3, runId: 'first', time: '2026-10-04T00:00:04Z', kind: 'status', text: 'completed' },
+    { seq: 4, runId: 'second', time: '2026-10-04T01:00:00Z', kind: 'user', text: 'two' },
+  ])
+  expect(rows[1]).toMatchObject({
+    runStartedAt: '2026-10-04T00:00:00Z',
+    runEndedAt: '2026-10-04T00:00:04Z',
+    runOutcome: 'completed',
+  })
+  expect(rows[3]?.runEndedAt).toBeUndefined()
+})

@@ -99,6 +99,16 @@ export class WorkerRuntime {
       hasNewer: end < timeline.length,
     }
   }
+  configureWorker(parent: string, id: string, preference: Preference): Worker {
+    if (this.disposed) throw new Error('CLI Worker is shutting down')
+    const worker = this.get(parent, id)
+    if (active(worker.status)) throw new Error('请等待本轮结束后再修改模型与强度')
+    if (cliOf(worker.preference) !== cliOf(preference)) throw new Error('已有会话不能切换 CLI')
+    const updated = { ...worker, preference: { ...preference } }
+    this.storage.save(updated)
+    this.changed()
+    return updated
+  }
   submit(
     parent: string,
     project: string,
@@ -144,6 +154,7 @@ export class WorkerRuntime {
     worker.jobId = undefined
     this.storage.save(worker)
     this.storage.append(worker, { kind: 'user', text: prompt })
+    this.storage.append(worker, { kind: 'status', text: 'queued', state: 'queued' })
     let settle!: (worker: Worker) => void
     const done = new Promise<Worker>((resolve) => {
       settle = resolve

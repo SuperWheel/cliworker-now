@@ -57,7 +57,13 @@ export class AgyProtocol {
     if (this.result) throw new Error('Unexpected event after CLI result')
     this.id(value.conversation_id)
     if (value.event === 'init') {
-      this.emit({ kind: 'status', text: 'CLI 已连接', detail: JSON.stringify(value.init ?? {}) })
+      this.emit({
+        kind: 'status',
+        text: 'CLI 已连接',
+        detail: JSON.stringify(value.init ?? {}),
+        observedModel:
+          record(value.init) && typeof value.init.model === 'string' ? value.init.model : undefined,
+      })
     } else if (value.event === 'step_update') {
       const step = value.step_update
       if (!record(step)) throw new Error('Invalid step_update payload')

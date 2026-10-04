@@ -14,25 +14,30 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   IconCopyOutlineRegular: () => createElement('svg'),
   IconChevronDownOutlineRegular: () => createElement('svg'),
   MarkdownText: ({ text }: any) => createElement('div', {}, text),
-  Menu: ({ anchor, open, items, onSelect }: any) =>
+  MenuItemButton: ({ children, onSelect, disabled }: any) =>
+    createElement('button', { onClick: onSelect, disabled }, children),
+  Menu: ({ anchor, open, items = [], onSelect, children }: any) =>
     createElement(
       'div',
       {},
       anchor,
       open &&
-        items.map((item: any) =>
-          createElement(
-            'div',
-            { key: item.id },
-            item.text ?? item.label,
-            item.submenu?.map((sub: any) =>
-              createElement(
-                'button',
-                { key: sub.id, 'aria-label': `${item.label} ${sub.label}`, onClick: () => onSelect(sub.id) },
-                sub.label,
-              ),
+        createElement(
+          'div',
+          {},
+          items.map((item: any) =>
+            createElement(
+              'button',
+              {
+                key: item.id,
+                'aria-label': item.id,
+                disabled: item.disabled,
+                onClick: () => onSelect(item.id),
+              },
+              item.text ?? item.label,
             ),
           ),
+          children,
         ),
     ),
   Input: forwardRef(({ icon, className, ...props }: any, ref) =>
@@ -491,9 +496,10 @@ it('keeps metadata out of child header and stops through the integrated composer
   expect(t.followup).not.toHaveBeenCalled()
 })
 
-it('model menu saves only new-worker defaults and preserves current CLI conversation configuration', async () => {
+it('model menu updates an idle worker without dispatching or changing project defaults', async () => {
   const t = await setup()
-  const configure = vi.fn().mockResolvedValue({ ok: true, value: '{}' })
+  const configureWorker = vi.fn().mockResolvedValue({ ok: true, value: '{}' })
+  const configure = vi.fn()
   Object.assign(t.api.cliworker, {
     catalogForCli: vi
       .fn()
@@ -501,16 +507,32 @@ it('model menu saves only new-worker defaults and preserves current CLI conversa
         ok: true,
         value: JSON.stringify({ models: [{ id: 'next-model', efforts: ['low'] }] }),
       }),
+    configureWorker,
     configure,
   })
   await t.click('模型与强度')
-  expect(t.text()).toContain('当前会话 · 配置固定')
-  expect(t.text()).toContain('新任务默认值 · 不改变当前会话')
-  await t.click('next-model low')
-  expect(configure).toHaveBeenCalledWith(
+  await t.click('model')
+  await act(async () => {
+    t.r.root
+      .findAllByType('button')
+      .find((b) => b.findAll((n) => n.type === 'span' && n.children.includes('next-model')).length > 0)!
+      .props.onClick()
+  })
+  expect(configureWorker).toHaveBeenCalledWith(
     'parent',
+    'a',
     JSON.stringify({ cli: 'antigravity', model: 'next-model', effort: 'low' }),
   )
+  expect(configure).not.toHaveBeenCalled()
   expect(t.followup).not.toHaveBeenCalled()
-  expect(t.text()).toContain('fixture')
+})
+it('model catalog failure is recoverable and never appears as a raw transport option', async () => {
+  const t = await setup()
+  Object.assign(t.api.cliworker, {
+    catalogForCli: vi.fn().mockRejectedValue(new Error('transport failure: HTTP 404')),
+  })
+  await t.click('模型与强度')
+  expect(t.text()).toContain('插件服务尚未更新')
+  expect(t.text()).not.toContain('HTTP 404')
+  expect(t.text()).not.toContain('transport failure')
 })

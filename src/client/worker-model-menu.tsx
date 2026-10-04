@@ -1,14 +1,26 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Button,
+  Input,
   Menu,
+  MenuItemButton,
   IconChevronDownOutlineRegular,
   type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { cliOf, effortLabel, type ModelChoice, type Preference, type Worker } from '../shared/types.ts'
+import {
+  active,
+  cliOf,
+  CLI_LABELS,
+  effortLabel,
+  type ModelChoice,
+  type Preference,
+  type Worker,
+} from '../shared/types.ts'
+import { modelName } from '../shared/models.ts'
 import { value, type API } from './workers.ts'
+import { operationMessage } from './operation-error.ts'
 
-/** Existing CLI conversation preferences are immutable; edits apply only to new workers. */
+/** Native menu primitive with the same model / effort drill-in flow as Harness ModelSelect. */
 export function WorkerModelMenu({
   worker,
   api,
@@ -22,9 +34,12 @@ export function WorkerModelMenu({
 }) {
   const cli = cliOf(worker.preference)
   const [open, setOpen] = useState(false)
-  const [catalog, setCatalog] = useState<{ models: ModelChoice[]; preference?: Preference }>()
+  const [pane, setPane] = useState<'root' | 'model' | 'effort'>('root')
+  const [catalog, setCatalog] = useState<{ models: ModelChoice[] }>()
   const [error, setError] = useState('')
+  const [attempt, retry] = useState(0)
   const [saving, setSaving] = useState(false)
+  const [query, setQuery] = useState('')
   const alive = useRef(true)
   useEffect(() => {
     alive.current = true
@@ -42,72 +57,79 @@ export function WorkerModelMenu({
         if (!cancelled) setCatalog(JSON.parse(value(result)))
       })
       .catch((e) => {
-        if (!cancelled) setError(String(e))
+        if (!cancelled) setError(operationMessage(e))
       })
     return () => {
       cancelled = true
     }
-  }, [open, api, sessionId, cli])
-  const choices = new Map<string, Preference>()
-  const items: MenuEntry[] = [
-    { type: 'label', id: 'current-label', text: '当前会话 · 配置固定' },
-    { id: 'current', label: `${worker.preference.model} · ${effortLabel(worker.preference.effort)}` },
-    ...(worker.observedModel && worker.observedModel !== worker.preference.model
-      ? [{ type: 'label' as const, id: 'observed', text: `CLI 实际模型：${worker.observedModel}` }]
-      : []),
-    { type: 'separator', id: 'divider' },
-    { type: 'label', id: 'default-label', text: '新任务默认值 · 不改变当前会话' },
-  ]
-  for (const [mi, model] of (catalog?.models ?? []).entries()) {
-    const submenu = (model.efforts ?? ['default']).map((effort, ei) => {
-      const id = `default-${mi}-${ei}`
-      choices.set(id, { cli: cliOf(worker.preference), model: model.id, effort })
-      return { id, label: effortLabel(effort), disabled: saving }
-    })
-    items.push({ id: `model-${mi}`, label: model.id, submenu, disabled: saving })
+  }, [open, api, sessionId, cli, attempt])
+  const name = modelName(worker.preference)
+  const chosen = catalog?.models.find(
+    (m) => m.id === name || Object.values(m.variants ?? {}).includes(worker.preference.model),
+  )
+  const locked = disabled || saving || active(worker.status)
+  const close = () => {
+    if (!saving) {
+      setOpen(false)
+      setPane('root')
+      setQuery('')
+    }
   }
-  if (!catalog && !error) items.push({ type: 'label', id: 'loading', text: '正在读取 CLI 模型…' })
-  if (error) items.push({ type: 'label', id: 'error', text: error })
-  const selectedIds = [
-    'current',
-    ...[...choices]
-      .filter(([, p]) => p.model === catalog?.preference?.model && p.effort === catalog?.preference?.effort)
-      .map(([id]) => id),
-  ]
+  const save = async (next: Preference) => {
+    if (locked) return
+    setSaving(true)
+    setError('')
+    try {
+      value(await api.cliworker.configureWorker(sessionId, worker.id, JSON.stringify(next)))
+      if (alive.current) {
+        setOpen(false)
+        setPane('root')
+        setQuery('')
+      }
+    } catch (e) {
+      if (alive.current) setError(operationMessage(e))
+    } finally {
+      if (alive.current) setSaving(false)
+    }
+  }
+  const cell = (label: string, text: string) => (
+    <span className="cwn-model-cell">
+      <span>{label}</span>
+      <span className="cwn-model-cell-value">{text}</span>
+      <span aria-hidden="true">›</span>
+    </span>
+  )
+  const items: MenuEntry[] =
+    pane === 'root'
+      ? [
+          { id: 'model', label: cell('模型', name), disabled: locked },
+          {
+            id: 'effort',
+            label: cell('思考强度', effortLabel(worker.preference.effort)),
+            disabled: locked || !chosen,
+          },
+        ]
+      : pane === 'effort'
+        ? (chosen?.efforts ?? []).map((e) => ({ id: e, label: effortLabel(e), disabled: locked }))
+        : []
   return (
     <Menu
       open={open}
       portal
-      compact
       align="end"
       side="top"
       className="cwn-model-menu"
+      listClassName="cwn-model-popover"
       items={items}
-      selectedIds={selectedIds}
-      onClose={() => setOpen(false)}
+      selectedId={pane === 'effort' ? worker.preference.effort : undefined}
+      onClose={close}
       onSelect={(id) => {
-        const next = choices.get(id)
-        if (!next) {
-          setOpen(false)
+        if (pane === 'root') {
+          setPane(id as 'model' | 'effort')
           return
         }
-        setSaving(true)
-        setError('')
-        void api.cliworker
-          .configure(sessionId, JSON.stringify(next))
-          .then((result) => {
-            value(result)
-            if (alive.current) {
-              setCatalog((old) => (old ? { ...old, preference: next } : old))
-              setOpen(false)
-            }
-          })
-          .catch((e) => {
-            if (alive.current) setError(String(e))
-          })
-          .finally(() => {
-            if (alive.current) setSaving(false)
-          })
+        if (pane === 'effort' && chosen?.efforts?.includes(id as Preference['effort']))
+          void save({ cli, model: chosen.id, effort: id as Preference['effort'] })
       }}
       anchor={
         <Button
@@ -115,18 +137,68 @@ export function WorkerModelMenu({
           variant="ghost"
           size="sm"
           className="cwn-compose-model"
-          disabled={disabled || saving}
+          disabled={locked}
           aria-label="模型与强度"
           aria-haspopup="menu"
           aria-expanded={open}
-          onClick={() => setOpen(!open)}
-          title={`当前会话：${worker.preference.model} · ${effortLabel(worker.preference.effort)}`}
+          onClick={() => (open ? close() : setOpen(true))}
+          title={
+            active(worker.status)
+              ? '本轮结束后可以修改模型与强度'
+              : `${name} · ${effortLabel(worker.preference.effort)}`
+          }
         >
-          <span>{worker.preference.model}</span>
+          <span>{name}</span>
           <span className="cwn-model-effort">{effortLabel(worker.preference.effort)}</span>
           <IconChevronDownOutlineRegular size={12} />
         </Button>
       }
-    />
+    >
+      {pane !== 'root' && <MenuItemButton onSelect={() => setPane('root')}>‹ 返回</MenuItemButton>}
+      {pane === 'model' && (
+        <>
+          <Input
+            className="cwn-model-search"
+            aria-label="搜索模型"
+            placeholder="搜索模型"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <div className="cwn-model-provider">{CLI_LABELS[cli]}</div>
+          {catalog?.models
+            .filter((m) => `${m.id} ${m.label}`.toLowerCase().includes(query.toLowerCase()))
+            .map((m) => (
+              <MenuItemButton
+                key={m.id}
+                disabled={locked}
+                onSelect={() => {
+                  const effort = m.efforts?.includes(worker.preference.effort)
+                    ? worker.preference.effort
+                    : m.efforts?.[0]
+                  if (effort) void save({ cli, model: m.id, effort })
+                }}
+              >
+                <span className="cwn-model-cell">
+                  <span>{m.id}</span>
+                  {m.id === chosen?.id && <span aria-hidden="true">✓</span>}
+                </span>
+              </MenuItemButton>
+            ))}
+        </>
+      )}
+      {!catalog && !error && (
+        <div className="cwn-model-provider" role="status">
+          正在读取 CLI 模型…
+        </div>
+      )}
+      {error && (
+        <div className="cwn-model-feedback" role="status">
+          {error}
+          <Button type="button" variant="ghost" size="sm" onClick={() => retry((n) => n + 1)}>
+            重试
+          </Button>
+        </div>
+      )}
+    </Menu>
   )
 }

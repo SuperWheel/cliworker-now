@@ -1,3 +1,4 @@
+import { resolveModel } from '../shared/models.ts'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { z as validate } from 'zod'
@@ -228,9 +229,8 @@ export class CliWorkerService extends TypertRemoteService {
         signal.throwIfAborted()
         effort = selection.answers.find((a) => a.id === 'cliworker_effort')?.selected[0] as typeof effort
       }
-      const preference = preferenceSchema.parse({ cli, model, effort })
+      const preference = resolveModel(preferenceSchema.parse({ cli, model, effort }), models)
       validatePreference(preference, catalog)
-      if (!models.some((item) => item.id === preference.model)) throw new Error('请选择列表中的模型')
       this.runtime.storage.setPreference(project, preference)
       return preference
     })()
@@ -489,16 +489,44 @@ export class CliWorkerService extends TypertRemoteService {
   async configure(parentSessionId: string, selection: string, signal: AbortSignal): Promise<string> {
     try {
       const agent = await this.parent(parentSessionId)
-      const preference = preferenceSchema.parse(JSON.parse(selection))
+      let preference = preferenceSchema.parse(JSON.parse(selection))
       const project = this.project(agent)
-      validatePreference(
-        preference,
-        await catalogFor(cliOf(preference), this.ctx.subprocess, this.options, project, signal),
-      )
+      const catalog = await catalogFor(cliOf(preference), this.ctx.subprocess, this.options, project, signal)
+      validatePreference(preference, catalog)
+      preference = resolveModel(preference, catalog.models)
       signal.throwIfAborted()
       this.runtime.storage.setPreference(project, preference)
       this.runtime.changed()
       return JSON.stringify(preference)
+    } catch (error) {
+      throw failure(error)
+    }
+  }
+  /** @param parentSessionId - Owning session. @param workerId - Idle worker. @param selection - JSON preference. @param signal - Caller lifetime. @returns Saved worker configuration. */
+  @Remote('configureWorker')
+  async configureWorker(
+    parentSessionId: string,
+    workerId: string,
+    selection: string,
+    signal: AbortSignal,
+  ): Promise<string> {
+    try {
+      const agent = await this.parent(parentSessionId)
+      const worker = this.runtime.get(agent.id, workerId)
+      const preference = preferenceSchema.parse(JSON.parse(selection))
+      if (cliOf(preference) !== cliOf(worker.preference)) throw new Error('已有会话不能切换 CLI')
+      const catalog = await catalogFor(
+        cliOf(preference),
+        this.ctx.subprocess,
+        this.options,
+        worker.project,
+        signal,
+      )
+      validatePreference(preference, catalog)
+      signal.throwIfAborted()
+      return JSON.stringify(
+        this.runtime.configureWorker(agent.id, workerId, resolveModel(preference, catalog.models)),
+      )
     } catch (error) {
       throw failure(error)
     }

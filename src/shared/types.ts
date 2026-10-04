@@ -33,6 +33,8 @@ export interface ModelChoice {
   id: string
   label: string
   efforts?: Effort[]
+  /** Exact CLI model IDs for the supported effort variants. */
+  variants?: Partial<Record<Effort, string>>
 }
 export interface Worker {
   id: string
@@ -71,6 +73,9 @@ export interface TimelineItem {
   detail?: string
   /** Run ended without a final tool status; the observed CLI state stays intact. */
   runStatus?: WorkerStatus
+  runStartedAt?: string
+  runEndedAt?: string
+  runOutcome?: WorkerStatus
 }
 export interface WorkerSnapshot {
   workers: Worker[]
@@ -159,6 +164,21 @@ export function foldEvents(
       rows.push(row)
     }
   }
+  // Use full persisted events before pagination. Duration includes admission/queue time.
+  const timing = new Map<string, { runStartedAt?: string; runEndedAt?: string; runOutcome?: WorkerStatus }>()
+  for (const event of events) {
+    const run = timing.get(event.runId) ?? {}
+    if (event.kind === 'user' && !run.runStartedAt) run.runStartedAt = event.time
+    if (
+      event.kind === 'status' &&
+      ['completed', 'failed', 'interrupted'].includes(event.state ?? event.text)
+    ) {
+      run.runEndedAt = event.time
+      run.runOutcome = (event.state ?? event.text) as WorkerStatus
+    }
+    timing.set(event.runId, run)
+  }
+  for (const row of rows) Object.assign(row, timing.get(row.id.split(':')[0]!))
   if (endedRun) markEnded(endedRun.runId, endedRun.status)
   return rows
 }

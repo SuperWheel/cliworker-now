@@ -81,7 +81,7 @@ v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的�
 ## 11. v0.2.0 多 CLI Worker
 
 - 用户要求本轮扩展 Codex、Claude Code、Kimi、MiMo。共享任务树、生命周期、分页、停止和续聊；CLI 专属行为集中在 `host/adapters.ts` 与 `host/cli-protocol.ts`。
-- Preference 增加可选 cli。旧记录缺少 cli 时明确解释为 antigravity，旧偏好文件路径保持不变；其他 CLI 使用项目路径与 cli 的组合哈希。已有 worker 的 CLI、模型、强度固定，续聊不能切换执行器。
+- Preference 增加可选 cli。旧记录缺少 cli 时明确解释为 antigravity，旧偏好文件路径保持不变；其他 CLI 使用项目路径与 cli 的组合哈希。已有 worker 的 CLI 固定；v0.3.3 起空闲时可修改模型/强度，续聊仍沿用原会话 ID，不能切换执行器。
 - 四个工具保持不变，start 增加 cli 参数，提示规则按用户明确点名路由。主对话首次先选模型，再选择该模型支持的强度；仅一个值时明确沿用该值。配置校验发生在派遣前，不静默替换模型。
 - Codex：本机 models_cache.json 提供模型和 reasoning levels；缓存不是远端可用性保证。exec --json，续聊精确 resume ID；read-only/workspace-write 与 approval_policy=never 显式覆盖，不使用全权限 bypass。
 - Claude Code：官方 sonnet/opus 别名，强度来自本机 --help。-p --verbose --output-format stream-json，acceptEdits/plan，--resume 精确 ID。保留权限检查，permission_denials 使运行失败。CLI init 报告的实际模型另行展示，防止本机别名映射掩盖真实提供商模型。
@@ -108,7 +108,7 @@ v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的�
 - 页面状态由当前 parentSessionId 内的 selected workerId 控制；空值为总览。返回恢复列表滚动位置与键盘焦点，进入子级聚焦返回按钮；草稿仍只在面板内存中保存。
 - 总览保留搜索与状态筛选，CLI 分组可折叠；列表保留稳定创建顺序。标题、元数据左侧对齐，长标题/模型省略，完整文本可悬停查看。
 - 子级通过原 Gateway watch/history/followup/stop 接口工作；不改 Host、会话协议或进程权限。历史页、断线重连、持久化错误和无法续聊提示继续保留。
-- 标题右侧原生 details 菜单展示 CLI、任务模式、实际模型差异、复制最新结果和默认设置。输入框固定显示会话模型，不提供不能兑现的模型切换、附件或新增动作。
+- 标题右侧原生 details 菜单展示 CLI、任务模式、实际模型差异、复制最新结果和默认设置。输入框显示会话模型；v0.3.3 起允许空闲时切换已验证型号，不提供 CLI 不支持的附件或权限按钮。
 - 样式使用 Harness 的语义主题 token 与原生 Button；不保存独立主题。Kimi 根据宿主 body[data-ds-dark-theme] 切换原图，全部七张 PNG 构建时内联，卸载仍清理注册和样式。
 - 根容器与对话内容分别限制滚动；屏幕阅读器标签在消息内定位，避免输入框聚焦时引发宿主面板外层滚动。
 
@@ -128,3 +128,11 @@ v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的�
 - 当前会话模型/强度与 CLI 实际模型明确展示；模型目录不会根据快照对象更新反复请求，仅在菜单打开或执行器改变时读取。
 - 消息气泡采用 native xl 圆角、10px/16px 内边距、82% 最大宽度；时间固定中文 24 小时制，复制控件在下方。助手文本交给原生 MarkdownText，禁用原始 HTML 的宿主渲染器承担转义；复制仍使用原文。
 - 搜索框高 38px，保持 border-l3 的半像素中性描边，聚焦不加蓝色光圈。卡片和搜索描边与新会话按钮使用同一语义色。底部信息行只显示可核查状态，缺失的 token/速度/上下文不补造。
+
+## v0.3.3 配置与呈现修订
+
+- `ModelChoice.variants` 保存各强度到真实 CLI ID 的映射；Antigravity 只依据 `agy models` 的 ID 后缀及名称括号共同识别变体，不凭模型名称猜测支持等级。存储与执行保留真实 ID，界面展示去重的家族 ID。
+- `configureWorker(parentSessionId, workerId, selection)` 查询真实目录、校验归属与 CLI，最后同步检查空闲状态并持久化；运行中拒绝。配置修改不修改过往事件、结果或会话 ID，不修改项目默认值，不启动进程。续聊执行新配置。
+- 原生 ModelSelect 内部绑定主 Agent 的模型服务，不可拿来改 CLI 会话；复用原生 Menu/Input 与其布局 token 实现“模型 / 思考强度”入口、模型检索和等级列表。
+- 从完整事件序列计算每轮起止时间，在历史分页前附着到逻辑行；耗时为任务提交到终态，含队列与 CLI 启动。运行中按秒更新；终态固定。过程折叠位于回复之前，只展示 CLI 实际公开的工具/状态/诊断，不推断内部思考。
+- Desktop 的本地链接更新必须完整重启宿主，不能以插件目录的版本号或刷新按钮代替 Host API 验收。验收必须实际加载目录、保存当前 worker 配置并观察恢复结果。

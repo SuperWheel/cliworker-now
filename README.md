@@ -9,7 +9,7 @@ DeepSeek Harness 的多 CLI 实时侧栏插件，支持 Antigravity、Codex、Cl
 - 主会话 CLI 入口采用浅色扁平按钮，设置/发送/复制使用 Harness 原生图标；搜索框高 38px，输入聚焦不出现蓝色描边。
 - 用户消息与回复的时间、复制操作移到消息下方；Agent 回复使用原生安全 Markdown 渲染。原始复制文本保持不变。
 - 续聊框沿用原生 composer 的尺寸、圆角、底栏和蓝色圆形发送按钮；取消手动拖高，内容自动增高至上限后内部滚动。
-- 点击模型与强度打开原生菜单，可查看当前会话配置与实际模型，并设置同 CLI 的新任务默认模型/强度。已有 CLI 会话仍固定原配置，菜单明确标注这一点。
+- 点击模型与强度打开原生菜单，两项入口分别选择模型和思考强度。本轮结束后可修改当前会话模型/强度，下一轮续聊使用新配置并保留会话 ID。
 - 输入框下方只显示真实任务状态和 CLI 名称；CLI 未提供的 token、速度、上下文用量不仿造。
 
 ## v0.3.1 原生样式同步
@@ -31,7 +31,7 @@ DeepSeek Harness 的多 CLI 实时侧栏插件，支持 Antigravity、Codex、Cl
 
 | CLI | 核验版本 | 模型与强度 | 当前验收状态 |
 | --- | --- | --- | --- |
-| Antigravity | 1.2.16 | 动态模型列表、原有强度 | 原功能保留与回归通过 |
+| Antigravity | 1.2.16 | 动态目录合并模型，强度仅为已存在的变体 | 原功能保留与回归通过 |
 | Codex | 0.160.0 | 本机模型缓存及各模型 reasoning levels | 真实首轮和续聊通过 |
 | Claude Code | 2.1.176 | sonnet / opus 别名，CLI 支持的 effort | 真实首轮和续聊通过；本机 sonnet 映射到 GLM |
 | Kimi Code | 0.42.0 | 本机配置模型；强度沿用 CLI 配置 | 协议回归通过；真实请求被订阅权限 403 阻止 |
@@ -91,13 +91,13 @@ DSH='/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh'
 
 > 用 Antigravity 帮我检查这个项目的测试失败原因。
 
-主 Agent 根据工具描述与系统提示规则调用 `cliworker_start`。首次出现 Harness 原生问题卡片，先选择该 CLI 模型，再选择模型支持的思考强度，确认后才会启动任务。取消不会启动任务。模型是否支持所选强度由 CLI 验证，不会静默替换参数。
+主 Agent 根据工具描述与系统提示规则调用 `cliworker_start`。首次出现 Harness 原生问题卡片，先选择该 CLI 模型，再选择模型支持的思考强度，确认后才会启动任务。取消不会启动任务。模型强度仅来自 CLI 实际目录或已公开能力，不提供推测等级。
 
 - **默认设置**：按项目路径与 CLI 保存，影响之后新建的相同 CLI 子 Agent。
 - **子 Agent 总览**：当前主对话下所有直接子 Agent，按 CLI 分组；点击进入对话，用左上角箭头返回。
 - **工具记录**：点击展开参数、输出摘要或错误。显示 CLI 实际公开的事件，不展示不存在的内部推理。
 - **停止**：等待进程及受管理子进程退出后显示中断。
-- **继续**：本轮结束后输入下一项任务，沿用原模型、强度和 `conversation_id`。
+- **继续**：本轮结束后输入下一项任务，使用当前已保存的模型、强度并沿用原 `conversation_id`。
 - 关闭侧栏不会停止后台任务。完成结果通过 Harness Jobs 返回父 Agent。
 
 四个主 Agent 工具：`cliworker_start`、`cliworker_status`、`cliworker_followup`、`cliworker_stop`。自然语言识别由主 Agent 完成；插件不拦截任意 shell 调用，也不接管外部启动的 CLI。
@@ -135,3 +135,11 @@ DSH='/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh'
 ## 页面图标设计素材
 
 五类 CLI 图标见 [图标说明](doc/assets/cli-icons/v1/README.md)，项目使用 [会话可见 Logo v3](doc/assets/project-icon/v3/README.md)。已按用户提供的素材包原样接入 `src/client/assets/`，构建时内联到浏览器包，不依赖外部图片服务。此前方案保留作设计历史。
+
+## v0.3.3 模型菜单与接口修复
+
+- Antigravity 的 `-low/-medium/-high` 变体在界面中合并，选择强度后映射回真实 CLI ID。Flash 当前支持 low/medium/high；Pro 仅 low/high；未公开等级的型号显示“沿用 CLI 配置”，不发送 `--effort`。
+- 会话内选择器修改当前空闲 worker；默认设置仍只影响此项目之后的新任务。运行中不能修改配置或切换 CLI。
+- 每轮显示真实耗时（含排队与启动时间），可展开 CLI 已公开的工作记录。没有公开的思考内容不会生成或补写。
+- 发送按钮使用 Harness 0.2.0-rc.2 InputBar 的同一 SVG 路径、34px 圆形样式和主题 token。模型选择使用原生 Menu，并按 ModelSelect 的两项入口和列表样式适配 CLI 目录；不能直接使用其绑定 Harness 主模型的内部状态。
+- **升级本地链接插件后，确认无活动任务，完整退出并重新打开 Desktop。** 插件页“刷新”只刷新目录并不足以重新加载 Host 接口。已定位并验证：旧 Host + 新 Client 会导致 `catalogForCli` HTTP 404，完整重启后模型查询恢复。加载失败时提供中文说明和重试，不把原始 HTTP 堆栈混入对话或模型选项。

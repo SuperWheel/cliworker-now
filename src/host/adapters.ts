@@ -1,3 +1,4 @@
+import { groupAgyModels, resolveModel } from '../shared/models.ts'
 import { readFileSync, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -81,11 +82,8 @@ export async function catalogFor(
   if (cli === 'antigravity')
     return {
       cli,
-      models: (await discoverModels(backend, config, cwd, signal)).map((m) => ({
-        ...m,
-        efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-      })),
-      notice: 'Antigravity 原生沙箱；自动执行项目任务。模型与强度兼容性由 CLI 最终校验。',
+      models: groupAgyModels(await discoverModels(backend, config, cwd, signal)),
+      notice: '模型与强度来自 agy models；未公开强度的模型沿用 CLI 配置。',
     }
   if (cli === 'codex') {
     const cache = JSON.parse(
@@ -188,9 +186,7 @@ export function parseMimoModels(output: string): ModelChoice[] {
 }
 export function validatePreference(preference: Preference, catalog: Catalog): void {
   if (cliOf(preference) !== catalog.cli) throw new Error('CLI 配置不匹配')
-  const model = catalog.models.find((m) => m.id === preference.model)
-  if (!model || !model.efforts?.includes(preference.effort))
-    throw new Error('模型或思考强度已不可用，请重新选择')
+  resolveModel(preference, catalog.models)
 }
 export function workerArguments(
   executable: string,

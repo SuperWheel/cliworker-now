@@ -1,5 +1,8 @@
+import { ConversationTimeline } from './conversation-timeline.tsx'
+import { modelName } from '../shared/models.ts'
+import { operationMessage } from './operation-error.ts'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Button, Input, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   active,
   CLI_IDS,
@@ -16,8 +19,6 @@ import { useWorkers, value, type API } from './workers.ts'
 import { CopyText } from './copy-text.tsx'
 import { BrandIcon, Glyph } from './icons.tsx'
 import { WorkerModelMenu } from './worker-model-menu.tsx'
-
-const markdownLabels = { code: { copyLabel: '复制', copiedLabel: '已复制' }, footnotes: '脚注' }
 
 const status: Record<WorkerStatus, string> = {
   queued: '排队中',
@@ -139,7 +140,7 @@ function SessionPanel({
     try {
       await action(isCurrent)
     } catch (e) {
-      if (alive.current) setErrors((old) => ({ ...old, [origin]: String(e) }))
+      if (alive.current) setErrors((old) => ({ ...old, [origin]: operationMessage(e) }))
     } finally {
       pendingAction.current = false
       if (alive.current) setBusy(false)
@@ -196,12 +197,13 @@ function SessionPanel({
       const data = JSON.parse(value(await api.cliworker.catalogForCli(sessionId, cli)))
       if (!isCurrent()) return
       setCatalog(data)
-      const next = data.preference?.model ?? data.models[0]?.id ?? ''
+      const savedModel = data.preference ? modelName(data.preference) : ''
+      const next = data.models.find((m: ModelChoice) => m.id === savedModel)?.id ?? data.models[0]?.id ?? ''
       setModel(next)
       setEffort(
-        data.preference?.effort ??
-          data.models.find((m: ModelChoice) => m.id === next)?.efforts?.[0] ??
-          'default',
+        data.models.find((m: ModelChoice) => m.id === next)?.efforts?.includes(data.preference?.effort)
+          ? data.preference.effort
+          : (data.models.find((m: ModelChoice) => m.id === next)?.efforts?.[0] ?? 'default'),
       )
     })
   }
@@ -348,6 +350,15 @@ function SessionPanel({
               ))}
             </select>
           </label>
+          {error && (
+            <div className="cwn-notice" role="status">
+              {error}
+              <Button type="button" size="sm" variant="ghost" onClick={() => void loadCatalog(settingsCli)}>
+                重试
+              </Button>
+            </div>
+          )}
+          {busy && !catalog && <p role="status">正在读取 CLI 模型…</p>}
           <p>{catalog?.notice}</p>
           <p>仅影响此项目、此 CLI 之后新建的子 Agent，已有会话保留原配置。</p>
           <Button type="submit" size="sm" variant="primary" disabled={busy || !model || !catalog}>
@@ -444,7 +455,7 @@ function SessionPanel({
                             </span>
                           </span>
                           <span className="cwn-worker-meta">
-                            <span title={w.preference.model}>{w.preference.model}</span>
+                            <span title={w.preference.model}>{modelName(w.preference)}</span>
                             <span className="cwn-meta-divider" aria-hidden="true">
                               ·
                             </span>
@@ -489,8 +500,8 @@ function SessionPanel({
           正在连接并恢复记录…
         </div>
       )}
-      {error && (
-        <div role="alert" className="cwn-error">
+      {error && !settings && (
+        <div role="alert" className="cwn-notice">
           {error}
         </div>
       )}
@@ -560,59 +571,7 @@ function SessionPanel({
               </Button>
             </div>
           )}
-          {displayedTimeline.map((item) =>
-            item.kind === 'tool' || item.kind === 'diagnostic' ? (
-              <details className="cwn-tool" key={item.id}>
-                <summary>
-                  <Glyph name="tool" /> <span className="cwn-tool-title">{item.text}</span>
-                  <small
-                    title={item.runStatus ? `CLI 最后状态：${item.state}；未收到最终工具状态` : undefined}
-                  >
-                    {item.runStatus
-                      ? item.runStatus === 'interrupted'
-                        ? '本轮已中断'
-                        : '本轮已结束'
-                      : item.state}
-                  </small>
-                </summary>
-                <pre>
-                  {typeof item.detail === 'string' ? item.detail : JSON.stringify(item.detail, null, 2)}
-                </pre>
-              </details>
-            ) : item.kind === 'status' ? (
-              <div className="cwn-status" key={item.id}>
-                {status[item.text as WorkerStatus] ?? item.text}
-              </div>
-            ) : (
-              <article key={item.id} className={`cwn-message ${item.kind}`}>
-                <div className={item.kind === 'assistant' ? 'cwn-markdown' : 'cwn-text'}>
-                  {item.kind === 'assistant' ? (
-                    <MarkdownText text={item.text} labels={markdownLabels} />
-                  ) : (
-                    item.text
-                  )}
-                </div>
-                <div className="cwn-message-label">
-                  <span className="cwn-sr-only">
-                    {item.kind === 'user' ? '你' : worker ? CLI_LABELS[cliOf(worker.preference)] : 'CLI'}
-                  </span>
-                  {item.kind === 'assistant' && item.text && (
-                    <CopyText text={item.text} label="复制回复" iconOnly />
-                  )}
-                  <time>
-                    {new Date(item.time).toLocaleTimeString('zh-CN', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      hour12: false,
-                    })}
-                  </time>
-                  {item.kind === 'user' && item.text && (
-                    <CopyText text={item.text} label="复制消息" iconOnly />
-                  )}
-                </div>
-              </article>
-            ),
-          )}
+          <ConversationTimeline items={displayedTimeline} worker={worker} />
         </div>
       )}
       {selected && !history && !following && worker && (
@@ -655,7 +614,7 @@ function SessionPanel({
                 worker={worker}
                 api={api}
                 sessionId={sessionId}
-                disabled={busy || unavailable}
+                disabled={busy || unavailable || !!running}
               />
               {running ? (
                 <Button
@@ -675,17 +634,15 @@ function SessionPanel({
                   <Glyph name="stop" />
                 </Button>
               ) : (
-                <Button
+                <button
                   type="submit"
-                  variant="primary"
-                  size="sm"
                   className="cwn-send"
                   aria-label="继续对话"
                   title="继续对话"
                   disabled={!canResume || busy || !prompt.trim()}
                 >
                   <Glyph name="send" />
-                </Button>
+                </button>
               )}
             </div>
           </div>

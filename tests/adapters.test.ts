@@ -274,3 +274,29 @@ it('Kimi tool-only EOF is not mistaken for a completed answer', () => {
   parser.end()
   expect(parser.result).toBeUndefined()
 })
+
+it('Antigravity families expose only advertised variants and map them to exact execution IDs', async () => {
+  const { groupAgyModels, resolveModel, modelName } = await import('../src/shared/models.ts')
+  const models = groupAgyModels([
+    { id: 'gemini-3.8-flash-high', label: 'Gemini 3.8 Flash (High)' },
+    { id: 'gemini-3.8-flash-low', label: 'Gemini 3.8 Flash (Low)' },
+    { id: 'gemini-3.8-flash-medium', label: 'Gemini 3.8 Flash (Medium)' },
+    { id: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)' },
+    { id: 'gemini-3.1-pro-low', label: 'Gemini 3.1 Pro (Low)' },
+    { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Thinking)' },
+  ])
+  expect(models.map((m) => m.id)).toEqual(['gemini-3.8-flash', 'gemini-3.1-pro', 'claude-sonnet-4-6'])
+  expect(models[0]?.efforts).toEqual(['low', 'medium', 'high'])
+  expect(models[1]?.efforts).toEqual(['low', 'high'])
+  expect(models[2]?.efforts).toEqual(['default'])
+  const preference = resolveModel({ model: 'gemini-3.8-flash', effort: 'high' }, models)
+  expect(preference.model).toBe('gemini-3.8-flash-high')
+  expect(modelName(preference)).toBe('gemini-3.8-flash')
+  expect(resolveModel({ model: 'gemini-3.8-flash-low', effort: 'low' }, models).model).toBe(
+    'gemini-3.8-flash-low',
+  )
+  expect(() => resolveModel({ model: 'gemini-3.1-pro', effort: 'medium' }, models)).toThrow()
+  expect(
+    workerArguments('agy', '/p', { model: 'claude-sonnet-4-6', effort: 'default' }, 'plan', 'x', 1000),
+  ).not.toContain('--effort')
+})

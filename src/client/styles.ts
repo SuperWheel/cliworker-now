@@ -56,3 +56,15 @@ export const nativeChatStyles = `
 .cwn-compose-cli{margin-left:auto}
 @container(max-width:320px){.cwn-feed{padding:14px 16px}.cwn-compose{padding-left:8px;padding-right:8px}.cwn-model-effort{display:none}}
 `
+
+export const modelPickerStyles = `
+.cwn-progress{margin:12px 0 16px;padding-bottom:12px;border-bottom:.5px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary);font-size:var(--dsh-content-font-size,14px);line-height:22px}
+.cwn-progress>summary{display:flex;gap:6px;align-items:center;cursor:pointer;list-style:none}.cwn-progress>summary::-webkit-details-marker{display:none}.cwn-progress-chevron{display:inline-flex;transform:rotate(90deg)}.cwn-progress-chevron svg{width:12px;height:12px}.cwn-progress[open] .cwn-progress-chevron{transform:rotate(-90deg)}
+.cwn-process-body{padding-top:12px;display:grid;gap:8px}.cwn-process-note{margin:0;font-size:var(--dsh-content-font-size-secondary,13px);color:var(--dsw-alias-label-tertiary)}.cwn-process-event{font-size:var(--dsh-content-font-size-secondary,13px)}
+
+.cwn-model-popover{width:max-content;min-width:min(240px,calc(100vw - 32px));max-width:min(420px,calc(100vw - 32px));max-height:min(360px,calc(100vh - 96px));padding:4px;color:var(--dsw-alias-label-primary);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-prominent)}
+.cwn-model-popover button[role=menuitem]{min-height:34px;padding:5px 7px;font-size:13px;font-weight:400;line-height:20px;border-radius:var(--dsw-radius-md)}
+.cwn-model-cell{display:flex;align-items:center;gap:6px;width:100%;min-width:0}.cwn-model-cell>span:first-child{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cwn-model-cell-value{color:var(--dsw-alias-label-tertiary);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:230px}
+.cwn-model-search{background:transparent!important;border:0!important;box-shadow:none!important;padding:5px 7px!important;margin:2px 0 3px;height:auto!important}.cwn-model-search input{font-size:12px!important;padding:0!important}.cwn-model-provider,.cwn-model-feedback{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary);padding:8px}.cwn-model-feedback{max-width:280px;white-space:normal}
+.cwn .cwn-send{padding:0;min-width:34px;min-height:34px;flex:none}.cwn .cwn-send svg{width:16px;height:16px}
+`
