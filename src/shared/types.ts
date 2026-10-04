@@ -53,6 +53,16 @@ export interface WorkerSnapshot {
   revision: number
   truncated: boolean
 }
+/** A bounded, frozen reading page; indexes/count refer to the moment it was read. */
+export interface HistoryPage {
+  workerId: string
+  items: TimelineItem[]
+  start: number
+  end: number
+  total: number
+  hasOlder: boolean
+  hasNewer: boolean
+}
 export const active = (status: WorkerStatus) =>
   status === 'queued' || status === 'running' || status === 'stopping'
 

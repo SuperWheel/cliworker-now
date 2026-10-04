@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
-import { active, EFFORTS, type ModelChoice, type Preference, type WorkerStatus } from '../shared/types.ts'
+import {
+  active,
+  EFFORTS,
+  type ModelChoice,
+  type Preference,
+  type WorkerStatus,
+  type HistoryPage,
+} from '../shared/types.ts'
 import { useWorkers, value, type API } from './workers.ts'
+import { CopyText } from './copy-text.tsx'
 
 const status: Record<WorkerStatus, string> = {
   queued: '排队',
@@ -42,6 +50,10 @@ function SessionPanel({
   clearSubmitted: (id: string, submitted: string) => void
 }) {
   const [selected, select] = useState('')
+  const [query, setQuery] = useState(''),
+    [filter, setFilter] = useState('all')
+  const [historyPage, setHistoryPage] = useState<HistoryPage>()
+  const history = historyPage?.workerId === selected ? historyPage : undefined
   const { snapshot, error: streamError, connecting, reconnect } = useWorkers(api, sessionId, selected)
   const [errors, setErrors] = useState<Record<string, string>>({}),
     [busy, setBusy] = useState(false)
@@ -72,10 +84,14 @@ function SessionPanel({
   useEffect(() => {
     stick.current = true
     setFollowing(true)
+    setHistoryPage(undefined)
   }, [selected])
   useEffect(() => {
-    if (stick.current && feed.current) feed.current.scrollTop = feed.current.scrollHeight
-  }, [snapshot.timeline, selected])
+    if (!history && stick.current && feed.current) feed.current.scrollTop = feed.current.scrollHeight
+  }, [snapshot.timeline, selected, history])
+  useEffect(() => {
+    if (history && feed.current) feed.current.scrollTop = 0
+  }, [history])
   async function perform(action: (isCurrent: () => boolean) => Promise<void>) {
     if (pendingAction.current) return
     pendingAction.current = true
@@ -96,9 +112,43 @@ function SessionPanel({
   const unavailable = connecting || !!streamError
   const canResume = worker?.conversationId && !running && !unavailable
   const jumpToLatest = () => {
+    setHistoryPage(undefined)
     stick.current = true
     setFollowing(true)
     if (feed.current) feed.current.scrollTop = feed.current.scrollHeight
+  }
+  const visibleWorkers = snapshot.workers.filter((w) => {
+    const matches = `${w.title} ${w.preference.model} ${w.preference.effort}`
+      .toLowerCase()
+      .includes(query.trim().toLowerCase())
+    return (
+      matches &&
+      (filter === 'all' ||
+        (filter === 'active'
+          ? active(w.status)
+          : filter === 'attention'
+            ? w.status === 'failed' || w.status === 'interrupted'
+            : w.status === 'completed'))
+    )
+  })
+  const displayedTimeline = history?.items ?? snapshot.timeline
+  const loadHistory = (direction: 'before' | 'after') => {
+    const anchor = direction === 'before' ? displayedTimeline[0]?.id : displayedTimeline.at(-1)?.id
+    if (!worker || !anchor) return
+    void perform(async (isCurrent) => {
+      const page: HistoryPage = JSON.parse(
+        value(await api.cliworker.history(sessionId, worker.id, anchor, direction)),
+      )
+      if (!isCurrent()) return
+      if (page.workerId !== worker.id) throw new Error('收到不匹配的历史记录')
+      if (!page.items.length) {
+        jumpToLatest()
+        return
+      }
+      stick.current = false
+      setFollowing(false)
+      setHistoryPage(page)
+    })
   }
   return (
     <section className="cwn" aria-label="CLI Worker Now">
@@ -170,8 +220,39 @@ function SessionPanel({
         <summary>
           主对话 <span>{snapshot.workers.length} 个子 Agent</span>
         </summary>
+        <div className="cwn-filters">
+          <input
+            type="search"
+            aria-label="筛选子 Agent"
+            placeholder="搜索任务或模型…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <select aria-label="任务状态筛选" value={filter} onChange={(e) => setFilter(e.target.value)}>
+            <option value="all">全部状态</option>
+            <option value="active">进行中</option>
+            <option value="completed">已完成</option>
+            <option value="attention">失败 / 中断</option>
+          </select>
+        </div>
+        {(query || filter !== 'all') && (
+          <div className="cwn-filter-info">
+            <span>{visibleWorkers.length ? `${visibleWorkers.length} 个匹配任务` : '没有匹配的任务'}</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setQuery('')
+                setFilter('all')
+              }}
+            >
+              清除筛选
+            </Button>
+          </div>
+        )}
         <div role="navigation" aria-label="子 Agent">
-          {snapshot.workers.map((w) => (
+          {visibleWorkers.map((w) => (
             <button
               key={w.id}
               className={`cwn-worker ${w.id === selected ? 'is-selected' : ''}`}
@@ -195,6 +276,12 @@ function SessionPanel({
             <span>{worker.preference.effort}</span>
             <span>{worker.mode === 'plan' ? 'CLI 规划' : '可编辑'}</span>
           </div>
+          {worker.lastResult && (
+            <CopyText key={`${worker.id}:${worker.runId}`} text={worker.lastResult} label="复制最新结果" />
+          )}
+          {!visibleWorkers.some((w) => w.id === selected) && (
+            <p className="cwn-resume-hint">当前查看的任务不在筛选结果中。</p>
+          )}
         </div>
       )}
       {streamError && (
@@ -224,10 +311,42 @@ function SessionPanel({
           {worker.error}
         </div>
       )}
+      {history && (
+        <div className="cwn-history-nav" aria-label="历史翻页">
+          <span>
+            历史记录 {history.start + 1}–{history.end} · 读取时共 {history.total} 条
+          </span>
+          <div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy || unavailable || !history.hasOlder}
+              onClick={() => loadHistory('before')}
+            >
+              更早记录
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy || unavailable || !history.hasNewer}
+              onClick={() => loadHistory('after')}
+            >
+              较新记录
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={jumpToLatest}>
+              返回实时
+            </Button>
+          </div>
+          <small>历史页保持静止，返回实时可查看最新进展。</small>
+        </div>
+      )}
       <div
         className="cwn-feed"
         ref={feed}
         onScroll={() => {
+          if (history) return
           const el = feed.current!
           stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
           setFollowing(stick.current)
@@ -247,12 +366,21 @@ function SessionPanel({
             <p>首次运行先选择模型与思考强度，过程会实时显示在这里。</p>
           </div>
         )}
-        {snapshot.truncated && (
-          <p className="cwn-notice">
-            显示最近 {snapshot.timeline.length} 条记录；完整事件保存在本机私有状态目录。
-          </p>
+        {!history && snapshot.truncated && (
+          <div className="cwn-history-start">
+            <span>当前显示最近 {snapshot.timeline.length} 条记录</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy || unavailable}
+              onClick={() => loadHistory('before')}
+            >
+              查看更早记录
+            </Button>
+          </div>
         )}
-        {snapshot.timeline.map((item) =>
+        {displayedTimeline.map((item) =>
           item.kind === 'tool' || item.kind === 'diagnostic' ? (
             <details className="cwn-tool" key={item.id}>
               <summary>
@@ -282,11 +410,12 @@ function SessionPanel({
                 </time>
               </div>
               <div className="cwn-text">{item.text}</div>
+              {item.kind === 'assistant' && item.text && <CopyText text={item.text} label="复制回复" />}
             </article>
           ),
         )}
       </div>
-      {!following && worker && (
+      {!history && !following && worker && (
         <div className="cwn-jump">
           <Button type="button" size="sm" variant="outline" onClick={jumpToLatest}>
             ↓ 回到最新消息
@@ -299,9 +428,10 @@ function SessionPanel({
           onSubmit={(e) => {
             e.preventDefault()
             if (!prompt.trim() || !canResume || busy) return
-            void perform(async () => {
+            void perform(async (isCurrent) => {
               value(await api.cliworker.followup(sessionId, worker.id, prompt))
               clearSubmitted(worker.id, prompt)
+              if (isCurrent()) jumpToLatest()
             })
           }}
         >

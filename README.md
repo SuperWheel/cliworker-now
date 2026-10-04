@@ -4,6 +4,13 @@ DeepSeek Harness 的 Antigravity CLI 实时侧栏插件。模型先由你选择�
 
 兼容基线：macOS、Harness **0.2.0-rc.2**、Antigravity CLI **1.2.16**、Node ≥22.19。
 
+## v0.1.2 历史与任务查找
+
+- 超出实时显示上限后，点击“查看更早记录”翻阅历史；每页最多 200 条，支持前后翻页和“返回实时”。历史页保持静止，后台任务照常运行。
+- 任务树可按标题、模型、强度和状态筛选；筛选不会自动切换、停止任务或清空草稿。
+- “复制回复”复制那条消息；“复制最新结果”复制该子 Agent 最新一轮完成结果，保留原始文本。复制失败会提示手动选择文本。
+- 任务列表按创建时间保持稳定顺序，重启后不会因磁盘文件顺序改变排列。
+
 ## v0.1.1 体验更新
 
 - 切换子 Agent 保留各自未发送的草稿（仅当前面板内存，关闭面板或刷新后不保留）。
@@ -60,7 +67,7 @@ DSH='/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh'
 
 Harness 规划模式或只读权限下拒绝启动；在允许执行的会话中，`read_only` 工具参数使用 Antigravity 原生 plan 模式。CLI 原生沙箱与自动执行参数沿用参考 skill 的行为，它不等同于 Harness 的完整进程沙箱。
 
-私有状态默认在 `$DSH_HOME/cliworker-now`（通常 `~/.dsh/cliworker-now`），目录 0700，文件 0600。包括项目默认值、任务索引、顺序事件和各轮原始 stdout/stderr；日志可能含项目内容，不应提交到 Git。界面展示最近 1000 条逻辑记录，原始数据保留在本机。宿主重启后，遗留运行标记为中断；不会自动重跑。相同状态目录不允许两个宿主同时拥有。
+私有状态默认在 `$DSH_HOME/cliworker-now`（通常 `~/.dsh/cliworker-now`），目录 0700，文件 0600。包括项目默认值、任务索引、顺序事件和各轮原始 stdout/stderr；日志可能含项目内容，不应提交到 Git。实时界面默认展示最近 1000 条逻辑记录，较早记录可按页翻阅；原始数据保留在本机。宿主重启后，遗留运行标记为中断；不会自动重跑。相同状态目录不允许两个宿主同时拥有。
 
 可通过配置覆盖 `executable`、`stateDirectory`、`maxConcurrent`、`timeoutMs`、`graceMs`、`maxLineBytes`、`maxRunBytes`、`maxTimelineItems`。默认单轮 30 分钟、16 MiB 输出；超过限制终止并明确报错。
 

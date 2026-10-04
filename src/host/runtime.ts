@@ -8,6 +8,8 @@ import {
   type TaskMode,
   type Worker,
   type WorkerSnapshot,
+  type HistoryPage,
+  type TimelineItem,
 } from '../shared/types.ts'
 import { AgyProtocol } from './protocol.ts'
 import { spawnManagedAgent } from './managed-agent.ts'
@@ -57,20 +59,43 @@ export class WorkerRuntime {
     return worker
   }
   snapshot(parent: string, selected?: string): WorkerSnapshot {
-    const workers = [...this.storage.workers.values()].filter((w) => w.parentSessionId === parent)
+    const workers = [...this.storage.workers.values()]
+      .filter((w) => w.parentSessionId === parent)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
     const worker = selected ? this.get(parent, selected) : undefined
-    const timeline = worker
-      ? foldEvents(
-          this.storage.history(worker.id),
-          active(worker.status) ? undefined : { runId: worker.runId, status: worker.status },
-        )
-      : []
+    const timeline = worker ? this.timeline(worker) : []
     return {
       workers,
       selected: worker,
       timeline: timeline.slice(-this.config.maxTimelineItems),
       revision: this.revision,
       truncated: timeline.length > this.config.maxTimelineItems,
+    }
+  }
+  private timeline(worker: Worker): TimelineItem[] {
+    return foldEvents(
+      this.storage.history(worker.id),
+      active(worker.status) ? undefined : { runId: worker.runId, status: worker.status },
+    )
+  }
+  history(parent: string, workerId: string, anchor: string, direction: string): HistoryPage {
+    const worker = this.get(parent, workerId)
+    if (direction !== 'before' && direction !== 'after') throw new Error('Invalid history direction')
+    if (!anchor || anchor.length > 256) throw new Error('缺少有效的历史记录位置，请返回实时记录')
+    const timeline = this.timeline(worker)
+    const index = timeline.findIndex((item) => item.id === anchor)
+    if (index < 0) throw new Error('历史记录位置已不可用，请返回实时记录后重试')
+    // Row identity remains stable when later events append or a streamed step grows.
+    const end = direction === 'before' ? index : Math.min(timeline.length, index + 201)
+    const start = direction === 'before' ? Math.max(0, end - 200) : index + 1
+    return {
+      workerId,
+      items: timeline.slice(start, end),
+      start,
+      end,
+      total: timeline.length,
+      hasOlder: start > 0,
+      hasNewer: end < timeline.length,
     }
   }
   submit(

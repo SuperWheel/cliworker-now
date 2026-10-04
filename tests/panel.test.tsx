@@ -3,10 +3,12 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, expect, it, vi } from 'vitest'
 import { Panel } from '../src/client/panel.tsx'
 import type { API, Snapshot } from '../src/client/workers.ts'
-import type { Worker } from '../src/shared/types.ts'
+import type { Worker, HistoryPage } from '../src/shared/types.ts'
 
+const clipboard = vi.hoisted(() => vi.fn().mockResolvedValue(true))
 // Only the native button skin is replaced; actual Panel, hooks and stream consumer run.
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
+  writeClipboard: clipboard,
   Button: ({ children, variant: _variant, size: _size, ...props }: any) =>
     createElement('button', props, children),
 }))
@@ -68,7 +70,9 @@ const deferred = () => {
   return { promise, resolve, reject }
 }
 async function setup() {
+  clipboard.mockReset().mockResolvedValue(true)
   const streams: Stream[] = []
+  const history = vi.fn()
   const followup = vi.fn().mockResolvedValue({ ok: true, value: '{}' })
   const api = {
     $stream: () => {
@@ -76,7 +80,7 @@ async function setup() {
       streams.push(s)
       return s
     },
-    cliworker: { followup },
+    cliworker: { followup, history },
   } as unknown as API
   const feed = { scrollTop: 0, scrollHeight: 1400, clientHeight: 300 }
   let r!: ReactTestRenderer
@@ -134,7 +138,22 @@ async function setup() {
       r.root.findByProps({ className: 'cwn-compose' }).props.onSubmit({ preventDefault() {} })
     })
   }
-  return { r, streams, api, followup, feed, push, text, input, edit, click, select, submit }
+  return {
+    r,
+    streams,
+    api,
+    followup,
+    history,
+    feed,
+    push,
+    snapshot,
+    text,
+    input,
+    edit,
+    click,
+    select,
+    submit,
+  }
 }
 it('preserves each worker draft and hides old content while switching', async () => {
   const t = await setup()
@@ -232,4 +251,78 @@ it('changing parent session hides prior worker and ignores old stream updates', 
   })
   expect(t.text()).not.toContain('Worker a')
   expect(t.text()).not.toContain('answer-a')
+})
+
+const oldPage = (workerId = 'a'): HistoryPage => ({
+  workerId,
+  items: [{ id: 'old-row', kind: 'assistant', text: 'historical answer', time: '2026-10-04T00:00:00Z' }],
+  start: 0,
+  end: 1,
+  total: 2,
+  hasOlder: false,
+  hasNewer: true,
+})
+it('keeps historical content and reading position stable while live snapshots arrive', async () => {
+  const t = await setup()
+  await act(async () => {
+    t.streams.at(-1)!.push({ ...t.snapshot('a'), truncated: true })
+  })
+  t.history.mockResolvedValue({ ok: true, value: JSON.stringify(oldPage()) })
+  await t.click('查看更早记录')
+  expect(t.history).toHaveBeenCalledWith('parent', 'a', 'message-a', 'before')
+  expect(t.text()).toContain('historical answer')
+  t.feed.scrollTop = 40
+  await t.push('a', 10)
+  expect(t.text()).not.toContain('answer-a')
+  expect(t.feed.scrollTop).toBe(40)
+  await t.click('返回实时')
+  expect(t.text()).toContain('answer-a')
+  expect(t.text()).not.toContain('historical answer')
+  expect(t.followup).not.toHaveBeenCalled()
+})
+it('ignores a delayed history page after changing workers', async () => {
+  const t = await setup(),
+    result = deferred()
+  await act(async () => {
+    t.streams.at(-1)!.push({ ...t.snapshot('a'), truncated: true })
+  })
+  t.history.mockReturnValue(result.promise)
+  await t.click('查看更早记录')
+  await t.select('b')
+  await t.push('b')
+  await act(async () => {
+    result.resolve({ ok: true, value: JSON.stringify(oldPage()) })
+  })
+  expect(t.text()).not.toContain('historical answer')
+  expect(t.text()).toContain('answer-b')
+})
+it('filters task list without changing selection or drafts', async () => {
+  const t = await setup()
+  await t.edit('draft remains')
+  await act(async () => {
+    t.r.root.findByProps({ 'aria-label': '筛选子 Agent' }).props.onChange({ target: { value: 'worker B' } })
+  })
+  const list = () => t.r.root.findByProps({ 'aria-label': '子 Agent' }).findAllByType('button')
+  expect(list()).toHaveLength(1)
+  expect(t.text()).toContain('当前查看的任务不在筛选结果中')
+  expect(t.input().props.value).toBe('draft remains')
+  await act(async () => {
+    t.r.root.findByProps({ 'aria-label': '任务状态筛选' }).props.onChange({ target: { value: 'active' } })
+  })
+  expect(list()).toHaveLength(0)
+  expect(t.text()).toContain('没有匹配的任务')
+  await t.click('清除筛选')
+  expect(list()).toHaveLength(2)
+  expect(t.input().props.value).toBe('draft remains')
+})
+it('copies the exact current result and reports clipboard refusal honestly', async () => {
+  const t = await setup()
+  await t.push('a', 2, { lastResult: 'exact result\n' })
+  await t.click('复制最新结果')
+  expect(clipboard).toHaveBeenLastCalledWith('exact result\n')
+  expect(t.text()).toContain('已复制')
+  clipboard.mockResolvedValue(false)
+  await t.click('复制回复')
+  expect(clipboard).toHaveBeenLastCalledWith('answer-a')
+  expect(t.text()).toContain('复制失败，请选择文本手动复制')
 })

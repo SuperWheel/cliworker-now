@@ -329,3 +329,61 @@ it('marks unfinished tools at run end without inventing a successful CLI tool re
     foldEvents(events.slice(0, 2), { runId: 'other', status: 'interrupted' })[1].runStatus,
   ).toBeUndefined()
 })
+
+describe('history pages from durable events', () => {
+  it('can reach the beginning of a conversation beyond the default 1000-row live limit', () => {
+    const { runtime, storage, project } = setup()
+    const worker = makeWorker(project)
+    worker.status = 'completed'
+    storage.save(worker)
+    for (let i = 0; i < 1250; i++) storage.append(worker, { kind: 'user', text: `long row ${i}` })
+    const live = runtime.snapshot('parent', worker.id)
+    expect(live.timeline).toHaveLength(1000)
+    expect(live.timeline[0].text).toBe('long row 250')
+    const page = runtime.history('parent', worker.id, live.timeline[0].id, 'before')
+    const first = runtime.history('parent', worker.id, page.items[0].id, 'before')
+    expect([...first.items, ...page.items, ...live.timeline].map((i) => i.text)).toEqual(
+      Array.from({ length: 1250 }, (_, i) => `long row ${i}`),
+    )
+  })
+  it('walks beyond the live tail in both directions without overlaps while new rows append', () => {
+    const { runtime, storage, project } = setup({ maxTimelineItems: 10 })
+    const worker = makeWorker(project)
+    worker.status = 'completed'
+    storage.save(worker)
+    for (let i = 0; i < 450; i++) storage.append(worker, { kind: 'user', text: `row ${i}` })
+    const live = runtime.snapshot('parent', worker.id)
+    expect(live.truncated).toBe(true)
+    expect(live.timeline).toHaveLength(10)
+    const page = runtime.history('parent', worker.id, live.timeline[0].id, 'before')
+    expect([page.start, page.end, page.items.length]).toEqual([240, 440, 200])
+    const older = runtime.history('parent', worker.id, page.items[0].id, 'before')
+    expect([older.start, older.end]).toEqual([40, 240])
+    storage.append(worker, { kind: 'user', text: 'newly arrived' })
+    const newer = runtime.history('parent', worker.id, older.items.at(-1)!.id, 'after')
+    expect(newer.items.map((i) => i.id)).toEqual(page.items.map((i) => i.id))
+    expect(page.total).toBe(450)
+    expect(newer.total).toBe(451)
+    const beginning = runtime.history('parent', worker.id, older.items[0].id, 'before')
+    expect(beginning.hasOlder).toBe(false)
+    expect(beginning.items[0].text).toBe('row 0')
+    const tail = runtime.history('parent', worker.id, page.items.at(-1)!.id, 'after')
+    expect(tail.hasNewer).toBe(false)
+    expect(tail.items.at(-1)?.text).toBe('newly arrived')
+    expect(runtime.history('parent', worker.id, beginning.items[0].id, 'before').items).toEqual([])
+  })
+  it('rejects foreign owners, cursors and invalid direction without exposing records', () => {
+    const { runtime, storage, project } = setup()
+    const a = makeWorker(project),
+      b = makeWorker(project)
+    storage.save(a)
+    storage.save(b)
+    storage.append(a, { kind: 'user', text: 'only a' })
+    storage.append(b, { kind: 'user', text: 'only b' })
+    const anchor = runtime.snapshot('parent', a.id).timeline[0].id
+    expect(() => runtime.history('other-parent', a.id, anchor, 'before')).toThrow('belong')
+    expect(() => runtime.history('parent', b.id, anchor, 'before')).toThrow('不可用')
+    expect(() => runtime.history('parent', a.id, anchor, 'sideways')).toThrow('direction')
+    expect(() => runtime.history('parent', a.id, '', 'before')).toThrow('有效')
+  })
+})

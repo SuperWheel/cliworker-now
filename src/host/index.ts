@@ -381,6 +381,20 @@ export class CliWorkerService extends TypertRemoteService {
       lifetime.removeEventListener('abort', notify)
     }
   }
+  /** @param parentSessionId - Owning parent session. @param workerId - Worker identity. @param anchor - Stable logical row ID, excluded from the result. @param direction - before or after. @returns JSON historical page, at most 200 rows. */
+  @Remote('history')
+  async history(
+    parentSessionId: string,
+    workerId: string,
+    anchor: string,
+    direction: string,
+  ): Promise<string> {
+    try {
+      return JSON.stringify(this.runtime.history(parentSessionId, workerId, anchor, direction))
+    } catch (error) {
+      throw failure(error)
+    }
+  }
   /** @param parentSessionId - Parent session identity. @param signal - Caller lifetime. @returns JSON model catalog and project preference. */
   @Remote('catalog')
   async catalog(parentSessionId: string, signal: AbortSignal): Promise<string> {
