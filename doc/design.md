@@ -1,4 +1,4 @@
-# CLI Worker Now — MVP 设计
+# CLI Worker Now — 设计与版本演进
 
 ## 1. 基线与范围
 
@@ -35,7 +35,7 @@
 
 ## 5. 视觉设计
 
-原生右侧栏内采用可折叠树、紧凑任务头、模型/强度标签、可滚动对话和底部输入框。工具输出折叠显示。复用 Harness 明暗主题、字体、状态与间距。运行时禁用续聊；向上阅读时不强制滚到底部。空态、等待、异常和中断提供明确动作。
+v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的任务总览，子级为独立对话页。圆角矩形、轻透明表面、扁平层级与 Harness 明暗主题同步。话题后显示状态圆点和文字，下行显示模型与强度值（无“思考”前缀）。子级标题左侧是仅箭头的圆角返回按钮，标题下不显示模型/强度标签；底部续聊框保留模型，用户消息居右，Agent 文字居左。工具输出折叠显示。运行时禁用续聊；向上阅读时不强制滚到底部。空态、等待、异常和中断提供明确动作。
 
 ## 6. 验收
 
@@ -75,7 +75,7 @@
 - `history(parentSessionId, workerId, anchor, direction)` 是只读 Gateway API；Host 校验父任务所有权和 worker 内的逻辑行 ID。anchor 排除在结果之外，direction 仅 before/after，每页最多 200 条；无效、跨任务的 anchor 明确报错。
 - 返回 HistoryPage（workerId、items、start/end、total、hasOlder/hasNewer）；区间及总数是读取当时的值。按稳定逻辑 ID 翻页，不使用会被实时新增事件移动的倒数偏移量。
 - 历史阅读仅保存当前页，不无限累积 DOM；后台订阅持续更新任务状态和最新记录，旧页冻结且滚动不受影响。返回实时切回当前快照；提交新续聊后回到实时。切换任务忽略旧的异步页响应。
-- 列表按 createdAt、id 排序；筛选只改变可见行，隐藏当前任务时提示并允许清除筛选，保留当前内容和草稿。
+- 列表按 createdAt、id 排序；筛选只改变父级可见行，允许清除筛选，保留各任务草稿；子级返回时恢复列表状态。
 - 复制复用 Harness writeClipboard，只有宿主接受写入才显示成功；失败提供手动复制提示。历史消息复制和最新完成结果复制分开，不读取或上传用户剪贴板内容。
 
 ## 11. v0.2.0 多 CLI Worker
@@ -92,13 +92,22 @@
 
 协议参考（核验于 2026-10-04）：本机 CLI --help；Claude https://code.claude.com/docs/en/headless；Kimi https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/src/cli/prompt-render.ts；MiMo https://github.com/XiaomiMiMo/MiMo-Code/blob/main/packages/cli/src/cli/cmd/run.ts。
 
-## 12. CLI 卡片图标适配稿（尚未接入）
+## 12. CLI 卡片图标（v0.3.0 已接入）
 
 - 父级 CLI 分组名称左侧使用统一 24px／32px 图标槽，等比显示并做光学居中，名称间距 8px；不增加独立不透明底板。
 - 基于官方参考素材制作 Antigravity、Codex、Claude Code、Kimi、MiMo Code 的透明扁平 PNG。Kimi 按宿主亮暗主题切换深浅 K 字，其余共用单图。
-- MiMo 使用官方像素字标提炼的 M 适配图，不宣称为官方独立图标。本阶段只交付素材，不改变运行界面、协议或已安装版本。
+- MiMo 使用官方像素字标提炼的 M 适配图，不宣称为官方独立图标。素材设计阶段未改变运行界面；v0.3.0 按用户提供的素材包原样接入。
 - 素材、原始来源、生成提示词和实际尺寸预览见 [图标说明](assets/cli-icons/v1/README.md)。
 
-项目独立图标：v1 的主终端与子会话块被用户否定，原因是过于接近 Codex。第二轮移除终端符号，提供会话气泡、任务分派、Worker W 三种扁平透明方向，见 [第二轮候选](assets/project-icon/v2/README.md)。尚未选定或接入运行界面。
+项目独立图标：v1 的主终端与子会话块被用户否定，原因是过于接近 Codex。第二轮移除终端符号，提供会话气泡、任务分派、Worker W 三种扁平透明方向，见 [第二轮候选](assets/project-icon/v2/README.md)。第二轮方案未采用；当前采用下述 v3。
 
-项目 Logo 新设计稿 v3：以打开的会话窗口、三条并列会话和状态圆点表达“让每个 Agent 的工作过程可见”。使用蓝色双调、圆角扁平形状及透明背景；同一 PNG 已检查亮暗背景和 24px／32px／48px 展示。见 [会话可见 Logo](assets/project-icon/v3/README.md)，仍为未接入的设计稿。
+项目 Logo 新设计稿 v3：以打开的会话窗口、三条并列会话和状态圆点表达“让每个 Agent 的工作过程可见”。使用蓝色双调、圆角扁平形状及透明背景；同一 PNG 已检查亮暗背景和 24px／32px／48px 展示。见 [会话可见 Logo](assets/project-icon/v3/README.md)，已在 v0.3.0 用作总览标题、侧栏入口和新标签页引导图标。
+
+## 13. v0.3.0 桌面父子页面
+
+- 页面状态由当前 parentSessionId 内的 selected workerId 控制；空值为总览。返回恢复列表滚动位置与键盘焦点，进入子级聚焦返回按钮；草稿仍只在面板内存中保存。
+- 总览保留搜索与状态筛选，CLI 分组可折叠；列表保留稳定创建顺序。标题、元数据左侧对齐，长标题/模型省略，完整文本可悬停查看。
+- 子级通过原 Gateway watch/history/followup/stop 接口工作；不改 Host、会话协议或进程权限。历史页、断线重连、持久化错误和无法续聊提示继续保留。
+- 标题右侧原生 details 菜单展示 CLI、任务模式、实际模型差异、复制最新结果和默认设置。输入框固定显示会话模型，不提供不能兑现的模型切换、附件或新增动作。
+- 样式使用 Harness 的语义主题 token 与原生 Button；不保存独立主题。Kimi 根据宿主 body[data-ds-dark-theme] 切换原图，全部七张 PNG 构建时内联，卸载仍清理注册和样式。
+- 根容器与对话内容分别限制滚动；屏幕阅读器标签在消息内定位，避免输入框聚焦时引发宿主面板外层滚动。

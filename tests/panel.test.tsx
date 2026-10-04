@@ -1,4 +1,4 @@
-import { createElement } from 'react'
+import { createElement, forwardRef } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, expect, it, vi } from 'vitest'
 import { Panel } from '../src/client/panel.tsx'
@@ -9,8 +9,9 @@ const clipboard = vi.hoisted(() => vi.fn().mockResolvedValue(true))
 // Only the native button skin is replaced; actual Panel, hooks and stream consumer run.
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   writeClipboard: clipboard,
-  Button: ({ children, variant: _variant, size: _size, ...props }: any) =>
-    createElement('button', { type: 'button', ...props }, children),
+  Button: forwardRef(({ children, variant: _variant, size: _size, ...props }: any, ref) =>
+    createElement('button', { type: 'button', ...props, ref }, children),
+  ),
 }))
 const workers: Worker[] = ['a', 'b'].map((id) => ({
   id,
@@ -69,7 +70,7 @@ const deferred = () => {
   })
   return { promise, resolve, reject }
 }
-async function setup() {
+async function setup(openFirst = true) {
   clipboard.mockReset().mockResolvedValue(true)
   const streams: Stream[] = []
   const history = vi.fn()
@@ -105,9 +106,14 @@ async function setup() {
     })
   }
   await push()
-  await push('a')
+  if (openFirst) {
+    await act(async () => {
+      r.root.findByProps({ 'data-worker-id': 'a' }).props.onClick()
+    })
+    await push('a')
+  }
   const text = () => JSON.stringify(r.toJSON())
-  const input = () => r.root.findByProps({ 'aria-label': '继续对话' })
+  const input = () => r.root.findByType('textarea')
   const edit = async (value: string) => {
     await act(async () => {
       input().props.onChange({ target: { value } })
@@ -117,20 +123,18 @@ async function setup() {
     await act(async () => {
       r.root
         .findAllByType('button')
-        .find((b) => b.children.includes(label))!
+        .find((b) => b.children.includes(label) || b.props['aria-label'] === label)!
         .props.onClick()
     })
   }
+  const goBack = async () => {
+    await click('返回子 Agent 列表')
+    await push()
+  }
   const select = async (id: string) => {
+    if (r.root.findAllByProps({ 'aria-label': '返回子 Agent 列表' }).length) await goBack()
     await act(async () => {
-      r.root
-        .findAllByType('button')
-        .find(
-          (b) =>
-            b.props.className?.includes('cwn-worker') &&
-            JSON.stringify(b.findAllByType('span').map((s) => s.children)).includes(`Worker ${id}`),
-        )!
-        .props.onClick()
+      r.root.findByProps({ 'data-worker-id': id }).props.onClick()
     })
   }
   const submit = async () => {
@@ -153,6 +157,7 @@ async function setup() {
     click,
     select,
     submit,
+    goBack,
   }
 }
 it('preserves each worker draft and hides old content while switching', async () => {
@@ -296,23 +301,29 @@ it('ignores a delayed history page after changing workers', async () => {
   expect(t.text()).not.toContain('historical answer')
   expect(t.text()).toContain('answer-b')
 })
-it('filters task list without changing selection or drafts', async () => {
+it('preserves the overview filters and each draft across back navigation', async () => {
   const t = await setup()
   await t.edit('draft remains')
-  await act(async () => {
-    t.r.root.findByProps({ 'aria-label': '筛选子 Agent' }).props.onChange({ target: { value: 'worker B' } })
-  })
-  const list = () => t.r.root.findByProps({ 'aria-label': '子 Agent' }).findAllByType('button')
+  await t.goBack()
+  expect(t.r.root.findAllByType('textarea')).toHaveLength(0)
+  await act(async () =>
+    t.r.root.findByProps({ 'aria-label': '筛选子 Agent' }).props.onChange({ target: { value: 'worker A' } }),
+  )
+  const list = () => t.r.root.findAll((n) => n.type === 'button' && n.props['data-worker-id'])
   expect(list()).toHaveLength(1)
-  expect(t.text()).toContain('当前查看的任务不在筛选结果中')
+  await t.select('a')
+  await t.push('a')
   expect(t.input().props.value).toBe('draft remains')
-  await act(async () => {
-    t.r.root.findByProps({ 'aria-label': '任务状态筛选' }).props.onChange({ target: { value: 'active' } })
-  })
+  expect(t.r.root.findAllByProps({ 'aria-label': '子 Agent' })).toHaveLength(0)
+  await t.goBack()
+  expect(t.r.root.findByProps({ 'aria-label': '筛选子 Agent' }).props.value).toBe('worker A')
+  await t.click('进行中')
   expect(list()).toHaveLength(0)
   expect(t.text()).toContain('没有匹配的任务')
   await t.click('清除筛选')
   expect(list()).toHaveLength(2)
+  await t.select('a')
+  await t.push('a')
   expect(t.input().props.value).toBe('draft remains')
 })
 it('copies the exact current result and reports clipboard refusal honestly', async () => {
@@ -396,6 +407,56 @@ it('uses the selected CLI name in assistant messages and shows the reported mode
     preference: { cli: 'claude', model: 'sonnet', effort: 'low' },
     observedModel: 'glm-example',
   })
-  expect(f.r.root.findByProps({ className: 'cwn-message-label' }).children[0]).toBe('Claude Code')
+  expect(f.r.root.findByProps({ className: 'cwn-message-label' }).findByType('span').children[0]).toBe(
+    'Claude Code',
+  )
   expect(f.text()).toContain('glm-example')
+})
+
+it('starts on grouped overview without auto-opening a worker and keeps collapsed groups', async () => {
+  const t = await setup(false)
+  const mixed = [
+    ...workers,
+    {
+      ...workers[0]!,
+      id: 'c',
+      title: 'Codex task',
+      preference: { cli: 'codex' as const, model: 'gpt-example', effort: 'high' as const },
+      status: 'running' as const,
+    },
+  ]
+  await act(async () =>
+    t.streams.at(-1)!.push({ workers: mixed, timeline: [], revision: 2, truncated: false }),
+  )
+  const groups = () => t.r.root.findAllByProps({ className: 'cwn-cli-group' })
+  expect(groups()).toHaveLength(2)
+  expect(groups()[0]!.findAllByProps({ className: 'cwn-worker' })).toHaveLength(2)
+  expect(groups()[1]!.findAllByProps({ className: 'cwn-worker' })).toHaveLength(1)
+  expect(t.r.root.findAllByType('textarea')).toHaveLength(0)
+  const line = groups()[1]!.findByProps({ className: 'cwn-worker-line' })
+  expect(line.children[0].props.className).toBe('cwn-worker-title')
+  expect(line.children[1].props.className).toContain('cwn-worker-status')
+  await act(async () => groups()[1]!.findByProps({ className: 'cwn-cli-heading' }).props.onClick())
+  expect(groups()[1]!.findAllByProps({ className: 'cwn-worker' })).toHaveLength(0)
+  await t.select('a')
+  await t.push('a')
+  await t.goBack()
+  await act(async () =>
+    t.streams.at(-1)!.push({ workers: mixed, timeline: [], revision: 3, truncated: false }),
+  )
+  expect(groups()[1]!.findByProps({ className: 'cwn-cli-heading' }).props['aria-expanded']).toBe(false)
+})
+it('keeps metadata out of child header and stops through the integrated composer without sending text', async () => {
+  const t = await setup()
+  const stop = vi.fn().mockResolvedValue({ ok: true, value: '{}' })
+  Object.assign(t.api.cliworker, { stop })
+  await t.push('a', 2, { status: 'running' })
+  const header = t.r.root.findByProps({ className: 'cwn-head' })
+  expect(header.findAllByProps({ title: '派遣时选择的模型' })).toHaveLength(0)
+  expect(header.findAllByProps({ className: 'cwn-back' })).not.toHaveLength(0)
+  expect(t.r.root.findByProps({ className: 'cwn-compose-model' }).children).toEqual(['fixture'])
+  expect(t.input().props.disabled).toBe(true)
+  await t.click('停止')
+  expect(stop).toHaveBeenCalledWith('parent', 'a')
+  expect(t.followup).not.toHaveBeenCalled()
 })

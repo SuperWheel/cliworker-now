@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   active,
@@ -14,10 +14,11 @@ import {
 } from '../shared/types.ts'
 import { useWorkers, value, type API } from './workers.ts'
 import { CopyText } from './copy-text.tsx'
+import { BrandIcon, Glyph } from './icons.tsx'
 
 const status: Record<WorkerStatus, string> = {
-  queued: '排队',
-  running: '工作中',
+  queued: '排队中',
+  running: '运行中',
   stopping: '正在停止',
   completed: '已完成',
   failed: '失败',
@@ -54,6 +55,25 @@ function SessionPanel({
   clearSubmitted: (id: string, submitted: string) => void
 }) {
   const [selected, select] = useState('')
+  const [collapsed, setCollapsed] = useState<Partial<Record<CliId, boolean>>>({})
+  const overview = useRef<HTMLDivElement>(null),
+    overviewScroll = useRef(0)
+  const back = useRef<HTMLButtonElement>(null),
+    lastWorker = useRef('')
+  useLayoutEffect(() => {
+    if (selected) back.current?.focus()
+    else if (overview.current) {
+      overview.current.scrollTop = overviewScroll.current
+      overview.current
+        .querySelector<HTMLButtonElement>(`[data-worker-id='${lastWorker.current}']`)
+        ?.focus({ preventScroll: true })
+    }
+  }, [selected])
+  const openWorker = (id: string) => {
+    lastWorker.current = id
+    setSettings(false)
+    select(id)
+  }
   const [query, setQuery] = useState(''),
     [filter, setFilter] = useState('all')
   const [historyPage, setHistoryPage] = useState<HistoryPage>()
@@ -88,9 +108,6 @@ function SessionPanel({
     stick = useRef(true)
   const worker = snapshot.selected
   const prompt = drafts[selected] ?? ''
-  useEffect(() => {
-    if (!selected && snapshot.workers[0]) select(snapshot.workers[0].id)
-  }, [snapshot.workers, selected])
   useEffect(() => {
     stick.current = true
     setFollowing(true)
@@ -181,27 +198,83 @@ function SessionPanel({
   return (
     <section className="cwn" aria-label="CLI Worker Now">
       <header className="cwn-head">
-        <div>
-          <span className="cwn-kicker">MULTI CLI · WORKERS</span>
-          <h2>
-            CLI Worker <span>Now</span>
-          </h2>
-        </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={busy}
-          onClick={() => {
-            if (settings) {
-              setSettings(false)
-              return
-            }
-            setSettings(true)
-            void loadCatalog(worker ? cliOf(worker.preference) : settingsCli)
-          }}
-        >
-          默认设置
-        </Button>
+        {selected ? (
+          <>
+            <Button
+              ref={back}
+              type="button"
+              variant="outline"
+              size="sm"
+              className="cwn-back"
+              aria-label="返回子 Agent 列表"
+              title="返回子 Agent 列表"
+              onClick={() => {
+                setSettings(false)
+                select('')
+              }}
+            >
+              <Glyph name="back" />
+            </Button>
+            <h2 title={worker?.title}>
+              {worker?.title ?? snapshot.workers.find((w) => w.id === selected)?.title ?? '正在加载…'}
+            </h2>
+            <details className="cwn-actions">
+              <summary aria-label="任务选项" title="任务选项">
+                <Glyph name="more" />
+              </summary>
+              <div className="cwn-action-menu">
+                {worker && (
+                  <>
+                    <strong>{CLI_LABELS[cliOf(worker.preference)]}</strong>
+                    <p>{worker.mode === 'plan' ? 'CLI 规划模式' : '可编辑任务'}</p>
+                    {worker.observedModel && worker.observedModel !== worker.preference.model && (
+                      <p>CLI 实际模型：{worker.observedModel}</p>
+                    )}
+                    {worker.lastResult && (
+                      <CopyText
+                        key={`${worker.id}:${worker.runId}`}
+                        text={worker.lastResult}
+                        label="复制最新结果"
+                      />
+                    )}
+                  </>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    setSettings(!settings)
+                    if (!settings) void loadCatalog(worker ? cliOf(worker.preference) : settingsCli)
+                  }}
+                >
+                  默认设置
+                </Button>
+              </div>
+            </details>
+          </>
+        ) : (
+          <>
+            <BrandIcon size={22} />
+            <h2>CLI Worker</h2>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="cwn-settings-button"
+              aria-label="默认设置"
+              title="默认设置"
+              disabled={busy}
+              onClick={() => {
+                setSettings(!settings)
+                if (!settings) void loadCatalog(settingsCli)
+              }}
+            >
+              <Glyph name="settings" />
+            </Button>
+          </>
+        )}
       </header>
       {settings && (
         <form
@@ -272,77 +345,121 @@ function SessionPanel({
           </Button>
         </form>
       )}
-      <details className="cwn-tree" open>
-        <summary>
-          主对话 <span>{snapshot.workers.length} 个子 Agent</span>
-        </summary>
-        <div className="cwn-filters">
-          <input
-            type="search"
-            aria-label="筛选子 Agent"
-            placeholder="搜索任务或模型…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <select aria-label="任务状态筛选" value={filter} onChange={(e) => setFilter(e.target.value)}>
-            <option value="all">全部状态</option>
-            <option value="active">进行中</option>
-            <option value="completed">已完成</option>
-            <option value="attention">失败 / 中断</option>
-          </select>
-        </div>
-        {(query || filter !== 'all') && (
-          <div className="cwn-filter-info">
-            <span>{visibleWorkers.length ? `${visibleWorkers.length} 个匹配任务` : '没有匹配的任务'}</span>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setQuery('')
-                setFilter('all')
-              }}
-            >
-              清除筛选
-            </Button>
+      {!selected && (
+        <div
+          className="cwn-overview"
+          ref={overview}
+          onScroll={() => {
+            overviewScroll.current = overview.current?.scrollTop ?? 0
+          }}
+        >
+          <div className="cwn-search">
+            <Glyph name="search" />
+            <input
+              type="search"
+              aria-label="筛选子 Agent"
+              placeholder="搜索话题、CLI 或模型…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
           </div>
-        )}
-        <div role="navigation" aria-label="子 Agent">
-          {visibleWorkers.map((w) => (
-            <button
-              key={w.id}
-              className={`cwn-worker ${w.id === selected ? 'is-selected' : ''}`}
-              aria-current={w.id === selected}
-              onClick={() => {
-                select(w.id)
-              }}
-            >
-              <span className={`cwn-dot ${w.status}`} />
-              <span className="cwn-worker-title">{w.title}</span>
-              <small>
-                {CLI_LABELS[cliOf(w.preference)]} · {status[w.status]}
-              </small>
-            </button>
-          ))}
-        </div>
-      </details>
-      {worker && (
-        <div className="cwn-meta">
-          <strong>{worker.title}</strong>
-          <div>
-            <span>{CLI_LABELS[cliOf(worker.preference)]}</span>
-            <span title="派遣时选择的模型">{worker.preference.model}</span>
-            {worker.observedModel && worker.observedModel !== worker.preference.model && (
-              <span title="CLI 报告的实际模型">实际：{worker.observedModel}</span>
-            )}
-            <span>{effortLabel(worker.preference.effort)}</span>
-            <span>{worker.mode === 'plan' ? 'CLI 规划' : '可编辑'}</span>
+          <div className="cwn-filters" role="group" aria-label="任务状态筛选">
+            {(
+              [
+                ['all', '全部'],
+                ['active', '进行中'],
+                ['completed', '已完成'],
+                ['attention', '异常'],
+              ] as const
+            ).map(([id, label]) => (
+              <Button
+                key={id}
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-pressed={filter === id}
+                onClick={() => setFilter(id)}
+              >
+                {label}
+              </Button>
+            ))}
           </div>
-          {worker.lastResult && (
-            <CopyText key={`${worker.id}:${worker.runId}`} text={worker.lastResult} label="复制最新结果" />
+          {(query || filter !== 'all') && (
+            <div className="cwn-filter-info">
+              <span>{visibleWorkers.length ? `${visibleWorkers.length} 个匹配任务` : '没有匹配的任务'}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setQuery('')
+                  setFilter('all')
+                }}
+              >
+                清除筛选
+              </Button>
+            </div>
           )}
-          {!visibleWorkers.some((w) => w.id === selected) && (
-            <p className="cwn-resume-hint">当前查看的任务不在筛选结果中。</p>
+          <nav aria-label="子 Agent">
+            {CLI_IDS.map((cli) => {
+              const rows = visibleWorkers.filter((w) => cliOf(w.preference) === cli)
+              if (!rows.length) return null
+              return (
+                <section className="cwn-cli-group" key={cli} aria-label={`${CLI_LABELS[cli]} 子 Agent`}>
+                  <button
+                    className="cwn-cli-heading"
+                    type="button"
+                    aria-expanded={!collapsed[cli]}
+                    onClick={() => setCollapsed((old) => ({ ...old, [cli]: !old[cli] }))}
+                  >
+                    <BrandIcon cli={cli} />
+                    <strong>{CLI_LABELS[cli]}</strong>
+                    <span>{rows.length} 个 Agent</span>
+                    <Glyph name="chevron" />
+                  </button>
+                  {!collapsed[cli] &&
+                    rows.map((w) => (
+                      <button
+                        key={w.id}
+                        type="button"
+                        className="cwn-worker"
+                        data-worker-id={w.id}
+                        onClick={() => openWorker(w.id)}
+                      >
+                        <span className="cwn-worker-content">
+                          <span className="cwn-worker-line">
+                            <span className="cwn-worker-title">{w.title}</span>
+                            <span className={`cwn-worker-status ${w.status}`}>
+                              <span className={`cwn-dot ${w.status}`} />
+                              {status[w.status]}
+                            </span>
+                          </span>
+                          <span className="cwn-worker-meta">
+                            <span title={w.preference.model}>{w.preference.model}</span>
+                            <span className="cwn-meta-divider" aria-hidden="true">
+                              ·
+                            </span>
+                            <span>{effortLabel(w.preference.effort)}</span>
+                          </span>
+                        </span>
+                        <Glyph name="chevron" />
+                      </button>
+                    ))}
+                </section>
+              )
+            })}
+          </nav>
+          {snapshot.configuring && (
+            <div className="cwn-notice">等待选择模型和思考强度。请在主对话的问题卡片中确认。</div>
+          )}
+          {!connecting && !streamError && !snapshot.workers.length && !snapshot.configuring && (
+            <div className="cwn-empty">
+              <BrandIcon size={42} />
+              <h3>让协作过程看得见</h3>
+              <p>在主对话中明确派遣任务：</p>
+              <blockquote>用 Codex、Claude Code、Kimi、MiMo 或 Antigravity 帮我检查这个项目</blockquote>
+              <p>首次运行先选择模型与思考强度，过程会实时显示在这里。</p>
+            </div>
           )}
         </div>
       )}
@@ -373,7 +490,7 @@ function SessionPanel({
           {worker.error}
         </div>
       )}
-      {history && (
+      {selected && history && (
         <div className="cwn-history-nav" aria-label="历史翻页">
           <span>
             历史记录 {history.start + 1}–{history.end} · 读取时共 {history.total} 条
@@ -404,87 +521,84 @@ function SessionPanel({
           <small>历史页保持静止，返回实时可查看最新进展。</small>
         </div>
       )}
-      <div
-        className="cwn-feed"
-        ref={feed}
-        onScroll={() => {
-          if (history) return
-          const el = feed.current!
-          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
-          setFollowing(stick.current)
-        }}
-        aria-label="对话记录"
-        aria-busy={running || false}
-      >
-        {snapshot.configuring && (
-          <div className="cwn-notice">等待选择模型和思考强度。请在主对话的问题卡片中确认。</div>
-        )}
-        {!connecting && !streamError && !snapshot.workers.length && !snapshot.configuring && (
-          <div className="cwn-empty">
-            <div className="cwn-mark">↗</div>
-            <h3>让协作过程看得见</h3>
-            <p>在主对话中明确派遣任务：</p>
-            <blockquote>用 Codex、Claude Code、Kimi、MiMo 或 Antigravity 帮我检查这个项目</blockquote>
-            <p>首次运行先选择模型与思考强度，过程会实时显示在这里。</p>
-          </div>
-        )}
-        {!history && snapshot.truncated && (
-          <div className="cwn-history-start">
-            <span>当前显示最近 {snapshot.timeline.length} 条记录</span>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={busy || unavailable}
-              onClick={() => loadHistory('before')}
-            >
-              查看更早记录
-            </Button>
-          </div>
-        )}
-        {displayedTimeline.map((item) =>
-          item.kind === 'tool' || item.kind === 'diagnostic' ? (
-            <details className="cwn-tool" key={item.id}>
-              <summary>
-                <span>⌘</span> {item.text}
-                <small title={item.runStatus ? `CLI 最后状态：${item.state}；未收到最终工具状态` : undefined}>
-                  {item.runStatus
-                    ? item.runStatus === 'interrupted'
-                      ? '本轮已中断'
-                      : '本轮已结束'
-                    : item.state}
-                </small>
-              </summary>
-              <pre>
-                {typeof item.detail === 'string' ? item.detail : JSON.stringify(item.detail, null, 2)}
-              </pre>
-            </details>
-          ) : item.kind === 'status' ? (
-            <div className="cwn-status" key={item.id}>
-              {status[item.text as WorkerStatus] ?? item.text}
+      {selected && (
+        <div
+          className="cwn-feed"
+          ref={feed}
+          onScroll={() => {
+            if (history) return
+            const el = feed.current!
+            stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+            setFollowing(stick.current)
+          }}
+          aria-label="对话记录"
+          aria-busy={running || false}
+        >
+          {snapshot.configuring && (
+            <div className="cwn-notice">等待选择模型和思考强度。请在主对话的问题卡片中确认。</div>
+          )}
+          {!history && snapshot.truncated && (
+            <div className="cwn-history-start">
+              <span>当前显示最近 {snapshot.timeline.length} 条记录</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy || unavailable}
+                onClick={() => loadHistory('before')}
+              >
+                查看更早记录
+              </Button>
             </div>
-          ) : (
-            <article key={item.id} className={`cwn-message ${item.kind}`}>
-              <div className="cwn-message-label">
-                {item.kind === 'user' ? '你' : worker ? CLI_LABELS[cliOf(worker.preference)] : 'CLI'}
-                <time>
-                  {new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </time>
+          )}
+          {displayedTimeline.map((item) =>
+            item.kind === 'tool' || item.kind === 'diagnostic' ? (
+              <details className="cwn-tool" key={item.id}>
+                <summary>
+                  <Glyph name="tool" /> <span className="cwn-tool-title">{item.text}</span>
+                  <small
+                    title={item.runStatus ? `CLI 最后状态：${item.state}；未收到最终工具状态` : undefined}
+                  >
+                    {item.runStatus
+                      ? item.runStatus === 'interrupted'
+                        ? '本轮已中断'
+                        : '本轮已结束'
+                      : item.state}
+                  </small>
+                </summary>
+                <pre>
+                  {typeof item.detail === 'string' ? item.detail : JSON.stringify(item.detail, null, 2)}
+                </pre>
+              </details>
+            ) : item.kind === 'status' ? (
+              <div className="cwn-status" key={item.id}>
+                {status[item.text as WorkerStatus] ?? item.text}
               </div>
-              <div className="cwn-text">{item.text}</div>
-              {item.kind === 'assistant' && item.text && <CopyText text={item.text} label="复制回复" />}
-            </article>
-          ),
-        )}
-      </div>
-      {!history && !following && worker && (
+            ) : (
+              <article key={item.id} className={`cwn-message ${item.kind}`}>
+                <div className="cwn-message-label">
+                  <span className="cwn-sr-only">
+                    {item.kind === 'user' ? '你' : worker ? CLI_LABELS[cliOf(worker.preference)] : 'CLI'}
+                  </span>
+                  <time>
+                    {new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </time>
+                </div>
+                <div className="cwn-text">{item.text}</div>
+                {item.kind === 'assistant' && item.text && <CopyText text={item.text} label="复制回复" />}
+              </article>
+            ),
+          )}
+        </div>
+      )}
+      {selected && !history && !following && worker && (
         <div className="cwn-jump">
           <Button type="button" size="sm" variant="outline" onClick={jumpToLatest}>
             ↓ 回到最新消息
           </Button>
         </div>
       )}
-      {worker && (
+      {selected && worker && (
         <form
           className="cwn-compose"
           onSubmit={(e) => {
@@ -500,39 +614,59 @@ function SessionPanel({
           <div className="cwn-compose-state">
             <span className={`cwn-dot ${worker.status}`} />
             {status[worker.status]}
-            {running && (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={busy || worker.status === 'stopping'}
-                onClick={() =>
-                  void perform(async () => {
-                    value(await api.cliworker.stop(sessionId, worker.id))
-                  })
-                }
-              >
-                停止
-              </Button>
-            )}
           </div>
           {!running && !worker.conversationId && (
             <p className="cwn-resume-hint">本次运行未建立 CLI 会话，无法续聊。请在主对话重新派遣任务。</p>
           )}
-          <textarea
-            aria-label="继续对话"
-            value={prompt}
-            onChange={(e) => editDraft(worker.id, e.target.value)}
-            disabled={!canResume || busy}
-            maxLength={100000}
-            placeholder={running ? '本轮完成后可以继续对话' : '给这个子 Agent 分配下一步…'}
-            rows={2}
-          />
-          <div className="cwn-compose-bottom">
-            <span>沿用当前模型与会话</span>
-            <Button type="submit" variant="primary" size="sm" disabled={!canResume || busy || !prompt.trim()}>
-              继续 ↗
-            </Button>
+          <div className="cwn-compose-box">
+            <textarea
+              aria-label="继续对话"
+              value={prompt}
+              onChange={(e) => editDraft(worker.id, e.target.value)}
+              disabled={!canResume || busy}
+              maxLength={100000}
+              placeholder={running ? '本轮完成后可以继续对话' : '给这个子 Agent 分配下一步…'}
+              rows={2}
+            />
+            <div className="cwn-compose-bottom">
+              <BrandIcon cli={cliOf(worker.preference)} size={20} />
+              <span
+                className="cwn-compose-model"
+                title={`沿用当前模型与会话：${worker.preference.model}${worker.observedModel ? `；CLI 报告：${worker.observedModel}` : ''}`}
+              >
+                {worker.preference.model}
+              </span>
+              {running ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="cwn-send"
+                  aria-label="停止"
+                  title="停止"
+                  disabled={busy || worker.status === 'stopping'}
+                  onClick={() =>
+                    void perform(async () => {
+                      value(await api.cliworker.stop(sessionId, worker.id))
+                    })
+                  }
+                >
+                  <Glyph name="stop" />
+                </Button>
+              ) : (
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  className="cwn-send"
+                  aria-label="继续对话"
+                  title="继续对话"
+                  disabled={!canResume || busy || !prompt.trim()}
+                >
+                  <Glyph name="send" />
+                </Button>
+              )}
+            </div>
           </div>
         </form>
       )}

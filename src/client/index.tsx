@@ -11,6 +11,7 @@ import { active } from '../shared/types.ts'
 import { Panel } from './panel.tsx'
 import { useWorkers, type API } from './workers.ts'
 import { styles } from './styles.ts'
+import { BrandIcon } from './icons.tsx'
 
 const ID = 'dsh-cliworker-now'
 
@@ -38,7 +39,7 @@ export function apply(ctx: Context): void {
             order: 25,
             title: () => 'CLI Worker',
             description: () => '查看各 CLI 子 Agent 的实时工作',
-            icon: () => <span>↗</span>,
+            icon: () => <BrandIcon />,
           },
         ],
       }),
@@ -67,8 +68,14 @@ export function apply(ctx: Context): void {
       }, [snapshot])
       const count = snapshot.workers.filter((w) => active(w.status)).length
       return (
-        <Button variant="toolbar" size="sm" title="打开 CLI Worker" onClick={open}>
-          ↗ CLI{count ? ` · ${count}` : ''}
+        <Button
+          variant="toolbar"
+          size="sm"
+          title="打开 CLI Worker"
+          icon={<BrandIcon size={16} />}
+          onClick={open}
+        >
+          CLI{count ? ` · ${count}` : ''}
         </Button>
       )
     }

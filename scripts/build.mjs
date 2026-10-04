@@ -82,10 +82,12 @@ writeFileSync('lib/typert.remote-client.d.ts', artifact.remote.dts)
 writeFileSync('lib/typert.remote-client.d.ts.map', artifact.remote.dtsMap)
 if (process.argv.includes('--host-only')) process.exit(0)
 tsc('tsconfig.client.json')
+cpSync('src/client/assets', 'lib/types/client/assets', { recursive: true })
 await build({
   entry: { client: 'lib/types/client/index.js' },
   outDir: 'lib',
   platform: 'browser',
+  loader: { '.png': 'dataurl' },
   format: 'cjs',
   clean: false,
   dts: false,

@@ -4,6 +4,14 @@ DeepSeek Harness 的多 CLI 实时侧栏插件，支持 Antigravity、Codex、Cl
 
 兼容基线：macOS、Harness **0.2.0-rc.2**、Antigravity CLI **1.2.16**、Node ≥22.19。
 
+## v0.3.0 桌面侧栏设计
+
+- 父级总览按 CLI 分组为可折叠圆角卡片；话题后紧跟状态圆点与文字，下方显示模型和强度值。
+- 点击任务进入独立对话页；左上角圆角返回按钮回到列表，保留筛选、列表位置和未提交草稿。
+- 对话页标题下不再显示模型/强度标签；用户消息居右、Agent 回复居左，底部为桌面式续聊框。模型显示在输入框底部，停止按钮在运行时替换发送按钮。
+- 使用提供的项目 Logo 与五类 CLI 透明图标，Kimi 图标随 Harness 亮暗主题切换；颜色继承宿主主题。
+- “任务选项”（标题右侧省略号）保留复制最新结果、默认设置和 CLI 实际模型信息。
+
 ## v0.2.0 多 CLI
 
 | CLI | 核验版本 | 模型与强度 | 当前验收状态 |
@@ -16,7 +24,7 @@ DeepSeek Harness 的多 CLI 实时侧栏插件，支持 Antigravity、Codex、Cl
 
 主对话可明确点名：`用 Codex 帮我检查测试`、`用 Claude Code 修改这个组件`、`用 Kimi 帮我整理代码`、`用 MiMo 帮我检查项目`。主 Agent 通过同一个 `cliworker_start` 工具的 `cli` 参数选择执行器。CLI 缺失或失败时不会自动换成其他 CLI。
 
-侧栏“默认设置”增加 CLI 选择；每个项目为不同 CLI 单独保存偏好。强度选项随 CLI 和模型变化，Kimi 明确显示“沿用 CLI 配置”。任务树和回复均显示 CLI 名称；Claude 报告的实际模型与选择别名不同时，会额外展示实际模型。
+侧栏“默认设置”增加 CLI 选择；每个项目为不同 CLI 单独保存偏好。强度选项随 CLI 和模型变化，Kimi 明确显示“沿用 CLI 配置”。总览按 CLI 名称分组；Claude 报告的实际模型与选择别名不同时，在子级“任务选项”和底部模型提示中展示实际模型。
 
 各 CLI 需先在终端安装并登录。Desktop 不读取 `.zshrc`，插件会识别 Codex/Claude 的 `~/.local/bin`、Kimi 的 `~/.kimi-code/bin`、MiMo 的 `~/.mimocode/bin`，也可配置对应可执行文件的绝对路径。MiMo 仅适配 [XiaomiMiMo/MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code)，不是同名社区 CLI。
 
@@ -60,7 +68,7 @@ DSH='/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh'
 
 安装后可在插件页点击“刷新”，确认 `dsh-cliworker-now` 显示已启用、组件运行中。
 
-回到 Harness，在主会话标题栏点击 **↗ CLI**，或右侧栏新标签页选择 **CLI Worker**。如已打开的窗口未载入插件，重新载入该窗口。
+回到 Harness，在主会话标题栏点击 带项目图标的 **CLI** 按钮，或右侧栏新标签页选择 **CLI Worker**。如已打开的窗口未载入插件，重新载入该窗口。
 
 ## 使用
 
@@ -71,7 +79,7 @@ DSH='/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh'
 主 Agent 根据工具描述与系统提示规则调用 `cliworker_start`。首次出现 Harness 原生问题卡片，先选择该 CLI 模型，再选择模型支持的思考强度，确认后才会启动任务。取消不会启动任务。模型是否支持所选强度由 CLI 验证，不会静默替换参数。
 
 - **默认设置**：按项目路径与 CLI 保存，影响之后新建的相同 CLI 子 Agent。
-- **任务树**：主对话下所有直接子 Agent；点击切换记录。
+- **子 Agent 总览**：当前主对话下所有直接子 Agent，按 CLI 分组；点击进入对话，用左上角箭头返回。
 - **工具记录**：点击展开参数、输出摘要或错误。显示 CLI 实际公开的事件，不展示不存在的内部推理。
 - **停止**：等待进程及受管理子进程退出后显示中断。
 - **继续**：本轮结束后输入下一项任务，沿用原模型、强度和 `conversation_id`。
@@ -111,6 +119,4 @@ DSH='/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh'
 
 ## 页面图标设计素材
 
-五类 CLI 的透明扁平图标、亮暗预览及生成提示词见 [图标说明](doc/assets/cli-icons/v1/README.md)。目前为设计交付，尚未接入运行界面。
-
-项目自身的图标见 [第二轮候选](doc/assets/project-icon/v2/README.md)：会话气泡、任务分派、Worker W 三种透明扁平方向，待选定。第一轮因过于接近 Codex 已否定。
+五类 CLI 图标见 [图标说明](doc/assets/cli-icons/v1/README.md)，项目使用 [会话可见 Logo v3](doc/assets/project-icon/v3/README.md)。已按用户提供的素材包原样接入 `src/client/assets/`，构建时内联到浏览器包，不依赖外部图片服务。此前方案保留作设计历史。
