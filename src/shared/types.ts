@@ -1,14 +1,38 @@
-export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+export const EFFORTS = [
+  'default',
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+  'ultra',
+] as const
+export const CLI_IDS = ['antigravity', 'codex', 'claude', 'kimi', 'mimo'] as const
+export type CliId = (typeof CLI_IDS)[number]
+export const CLI_LABELS: Record<CliId, string> = {
+  antigravity: 'Antigravity',
+  codex: 'Codex',
+  claude: 'Claude Code',
+  kimi: 'Kimi',
+  mimo: 'MiMo',
+}
+export const cliOf = (preference: Preference): CliId => preference.cli ?? 'antigravity'
+export const effortLabel = (effort: string) => (effort === 'default' ? '沿用 CLI 配置' : effort)
 export type Effort = (typeof EFFORTS)[number]
 export type WorkerStatus = 'queued' | 'running' | 'stopping' | 'completed' | 'failed' | 'interrupted'
 export type TaskMode = 'plan' | 'accept-edits'
 export interface Preference {
+  /** Missing in v0.1.x data means Antigravity. */
+  cli?: CliId
   model: string
   effort: Effort
 }
 export interface ModelChoice {
   id: string
   label: string
+  efforts?: Effort[]
 }
 export interface Worker {
   id: string
@@ -24,6 +48,7 @@ export interface Worker {
   runId: string
   jobId?: string
   error?: string
+  observedModel?: string
   lastResult?: string
 }
 export interface WorkerEvent {
@@ -32,6 +57,7 @@ export interface WorkerEvent {
   time: string
   kind: 'user' | 'assistant' | 'tool' | 'status' | 'diagnostic' | 'result'
   text: string
+  observedModel?: string
   step?: number
   state?: string
   detail?: string

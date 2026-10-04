@@ -10,7 +10,7 @@ const clipboard = vi.hoisted(() => vi.fn().mockResolvedValue(true))
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   writeClipboard: clipboard,
   Button: ({ children, variant: _variant, size: _size, ...props }: any) =>
-    createElement('button', props, children),
+    createElement('button', { type: 'button', ...props }, children),
 }))
 const workers: Worker[] = ['a', 'b'].map((id) => ({
   id,
@@ -325,4 +325,77 @@ it('copies the exact current result and reports clipboard refusal honestly', asy
   await t.click('复制回复')
   expect(clipboard).toHaveBeenLastCalledWith('answer-a')
   expect(t.text()).toContain('复制失败，请选择文本手动复制')
+})
+
+it('selects defaults per CLI and limits effort choices to the selected model', async () => {
+  const f = await setup()
+  const catalogForCli = vi.fn(async (_parent, cli) => ({
+    ok: true,
+    value: JSON.stringify({
+      cli,
+      models:
+        cli === 'kimi'
+          ? [{ id: 'kimi-model', efforts: ['default'] }]
+          : [
+              { id: 'model-a', efforts: ['low', 'high'] },
+              { id: 'model-b', efforts: ['high'] },
+            ],
+    }),
+  }))
+  const configure = vi.fn().mockResolvedValue({ ok: true, value: '{}' })
+  Object.assign(f.api.cliworker, { catalogForCli, configure })
+  await f.click('默认设置')
+  await act(async () =>
+    f.r.root.findByProps({ 'aria-label': '默认设置 CLI' }).props.onChange({ target: { value: 'codex' } }),
+  )
+  await act(async () =>
+    f.r.root.findByProps({ 'aria-label': '默认模型' }).props.onChange({ target: { value: 'model-b' } }),
+  )
+  expect(f.r.root.findByProps({ 'aria-label': '默认思考强度' }).props.value).toBe('high')
+  await act(async () =>
+    f.r.root.findByProps({ 'aria-label': '默认设置 CLI' }).props.onChange({ target: { value: 'kimi' } }),
+  )
+  expect(f.r.root.findByProps({ 'aria-label': '默认思考强度' }).props.value).toBe('default')
+  expect(f.r.root.findAllByType('button').find((b) => b.children.includes('保存默认值'))?.props.type).toBe(
+    'submit',
+  )
+  await act(async () =>
+    f.r.root.findByProps({ className: 'cwn-settings' }).props.onSubmit({ preventDefault() {} }),
+  )
+  expect(JSON.parse(configure.mock.calls[0]![1])).toEqual({
+    cli: 'kimi',
+    model: 'kimi-model',
+    effort: 'default',
+  })
+})
+it('failed CLI discovery clears the previous catalog and prevents saving it to another CLI', async () => {
+  const f = await setup()
+  Object.assign(f.api.cliworker, {
+    catalogForCli: vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        value: JSON.stringify({ cli: 'antigravity', models: [{ id: 'm', efforts: ['low'] }] }),
+      })
+      .mockRejectedValueOnce(new Error('CLI missing')),
+  })
+  await f.click('默认设置')
+  await act(async () =>
+    f.r.root.findByProps({ 'aria-label': '默认设置 CLI' }).props.onChange({ target: { value: 'mimo' } }),
+  )
+  expect(f.text()).toContain('CLI missing')
+  expect(
+    f.r.root.findAllByType('button').find((b) => b.children.includes('保存默认值'))?.props.disabled,
+  ).toBe(true)
+  expect(f.r.root.findByProps({ 'aria-label': '默认模型' }).props.value).toBe('')
+})
+
+it('uses the selected CLI name in assistant messages and shows the reported model alias target', async () => {
+  const f = await setup()
+  await f.push('a', 2, {
+    preference: { cli: 'claude', model: 'sonnet', effort: 'low' },
+    observedModel: 'glm-example',
+  })
+  expect(f.r.root.findByProps({ className: 'cwn-message-label' }).children[0]).toBe('Claude Code')
+  expect(f.text()).toContain('glm-example')
 })

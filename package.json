@@ -1,8 +1,8 @@
 {
   "name": "dsh-cliworker-now",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "private": true,
-  "description": "Antigravity CLI conversations in the DeepSeek Harness sidebar",
+  "description": "Multiple agent CLI conversations in the DeepSeek Harness sidebar",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -61,7 +61,8 @@
     "test:watch": "vitest",
     "smoke:real": "tsx scripts/smoke-real.ts",
     "smoke:stop": "tsx scripts/smoke-stop.ts",
-    "build:preview": "node scripts/build-preview.mjs"
+    "build:preview": "node scripts/build-preview.mjs",
+    "smoke:multi": "tsx scripts/smoke-multi.ts"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.4",

@@ -16,6 +16,10 @@ export interface ProcessBackend {
 }
 export interface RuntimeConfig {
   executable: string
+  codexExecutable?: string
+  claudeExecutable?: string
+  kimiExecutable?: string
+  mimoExecutable?: string
   maxConcurrent: number
   timeoutMs: number
   graceMs: number
@@ -43,6 +47,10 @@ export function projectDirectory(input: string): string {
     '.ssh',
     '.aws',
     '.codex',
+    '.claude',
+    '.kimi-code',
+    '.config/mimocode',
+    '.local/share/mimocode',
     '.agents',
     '.gemini',
     '.config',

@@ -387,3 +387,56 @@ describe('history pages from durable events', () => {
     expect(() => runtime.history('parent', a.id, '', 'before')).toThrow('有效')
   })
 })
+
+it('mixed CLI writers share the directory lock and followup retains its original adapter', async () => {
+  const { runtime, backend, project } = setup()
+  const codex = runtime.submit(
+    'parent',
+    project,
+    'Codex',
+    'one',
+    { cli: 'codex', model: 'c', effort: 'low' },
+    'accept-edits',
+  )
+  const claude = runtime.submit(
+    'parent',
+    project,
+    'Claude',
+    'two',
+    { cli: 'claude', model: 's', effort: 'high' },
+    'accept-edits',
+  )
+  await tick()
+  expect(backend.calls).toHaveLength(1)
+  backend.calls[0].stdout.write(
+    line({ type: 'thread.started', thread_id: 'codex-id' }) +
+      line({ type: 'item.completed', item: { id: 'm', type: 'agent_message', text: 'one' } }) +
+      line({ type: 'turn.completed' }),
+  )
+  backend.calls[0].end()
+  await codex.done
+  await tick()
+  expect(backend.calls).toHaveLength(2)
+  backend.calls[1].stdout.write(
+    line({ type: 'system', subtype: 'init', session_id: 'claude-id', model: 'actual-model' }) +
+      line({ type: 'result', subtype: 'success', session_id: 'claude-id', result: 'two' }),
+  )
+  backend.calls[1].end()
+  expect((await claude.done).observedModel).toBe('actual-model')
+  const resumed = runtime.submit(
+    'parent',
+    project,
+    'Codex',
+    'again',
+    { cli: 'claude', model: 'wrong', effort: 'high' },
+    'accept-edits',
+    codex.worker.id,
+  )
+  await tick()
+  expect(backend.calls[2].spec.argv).toContain('resume')
+  expect(backend.calls[2].spec.argv).toContain('codex-id')
+  expect(backend.calls[2].spec.argv).not.toContain('wrong')
+  await runtime.stop('parent', resumed.worker.id)
+  expect((await resumed.done).status).toBe('interrupted')
+  expect(backend.calls[2].terminated).toBe(true)
+})

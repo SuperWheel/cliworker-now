@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import {
   active,
+  cliOf,
   foldEvents,
   type Preference,
   type TaskMode,
@@ -11,9 +12,9 @@ import {
   type HistoryPage,
   type TimelineItem,
 } from '../shared/types.ts'
-import { AgyProtocol } from './protocol.ts'
+import { protocolFor, executableFor, workerArguments } from './adapters.ts'
 import { spawnManagedAgent } from './managed-agent.ts'
-import { agyArguments, projectDirectory, type ProcessBackend, type RuntimeConfig } from './process.ts'
+import { projectDirectory, type ProcessBackend, type RuntimeConfig } from './process.ts'
 import { WorkerStorage } from './storage.ts'
 
 interface Task {
@@ -118,6 +119,9 @@ export class WorkerRuntime {
       throw new Error('No CLI conversation_id was received; start a new worker')
     if (previous && previous.project !== canonical)
       throw new Error('Cannot resume a worker in another workspace')
+    const effective = previous?.preference ?? preference
+    if (cliOf(effective) === 'kimi' && (previous?.mode ?? mode) === 'plan')
+      throw new Error('Kimi 非交互模式不支持只读派遣')
     const now = new Date().toISOString()
     const worker: Worker = previous ?? {
       id: randomUUID(),
@@ -135,6 +139,7 @@ export class WorkerRuntime {
     worker.status = 'queued'
     worker.error = undefined
     worker.lastResult = undefined
+    worker.observedModel = undefined
     worker.updatedAt = now
     worker.jobId = undefined
     this.storage.save(worker)
@@ -228,8 +233,13 @@ export class WorkerRuntime {
     let totalBytes = 0
     const timeout = setTimeout(() => controller.abort(new Error('任务超时')), this.config.timeoutMs)
     const expectedConversation = worker.conversationId
-    const protocol = new AgyProtocol(
+    const protocol = protocolFor(
+      cliOf(worker.preference),
       (event) => {
+        if (event.observedModel) {
+          worker.observedModel = event.observedModel
+          this.storage.save(worker)
+        }
         this.storage.append(worker, event)
         this.changed()
       },
@@ -243,13 +253,15 @@ export class WorkerRuntime {
     )
     let failure: unknown
     try {
-      const executable = await this.backend.resolveExecutable(this.config.executable)
+      const executable = await this.backend.resolveExecutable(
+        executableFor(cliOf(worker.preference), this.config),
+      )
       controller.signal.throwIfAborted()
       worker.status = 'running'
       this.storage.save(worker)
       this.changed()
       handle = await spawnManagedAgent(this.backend, {
-        argv: agyArguments(
+        argv: workerArguments(
           executable,
           worker.project,
           worker.preference,

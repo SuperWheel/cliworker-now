@@ -37,7 +37,7 @@ export function apply(ctx: Context): void {
             id: 'cliworker',
             order: 25,
             title: () => 'CLI Worker',
-            description: () => '查看 Antigravity 子 Agent 的实时工作',
+            description: () => '查看各 CLI 子 Agent 的实时工作',
             icon: () => <span>↗</span>,
           },
         ],

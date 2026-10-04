@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   active,
-  EFFORTS,
+  CLI_IDS,
+  CLI_LABELS,
+  cliOf,
+  effortLabel,
+  type CliId,
   type ModelChoice,
   type Preference,
   type WorkerStatus,
@@ -70,7 +74,13 @@ function SessionPanel({
       alive.current = false
     }
   }, [])
-  const [catalog, setCatalog] = useState<{ models: ModelChoice[]; preference?: Preference }>()
+  const [catalog, setCatalog] = useState<{
+    cli: CliId
+    models: ModelChoice[]
+    preference?: Preference
+    notice?: string
+  }>()
+  const [settingsCli, setSettingsCli] = useState<CliId>('antigravity')
   const [model, setModel] = useState(''),
     [effort, setEffort] = useState<Preference['effort']>('medium')
   const [settings, setSettings] = useState(false)
@@ -118,9 +128,10 @@ function SessionPanel({
     if (feed.current) feed.current.scrollTop = feed.current.scrollHeight
   }
   const visibleWorkers = snapshot.workers.filter((w) => {
-    const matches = `${w.title} ${w.preference.model} ${w.preference.effort}`
-      .toLowerCase()
-      .includes(query.trim().toLowerCase())
+    const matches =
+      `${CLI_LABELS[cliOf(w.preference)]} ${w.title} ${w.preference.model} ${w.preference.effort}`
+        .toLowerCase()
+        .includes(query.trim().toLowerCase())
     return (
       matches &&
       (filter === 'all' ||
@@ -150,11 +161,28 @@ function SessionPanel({
       setHistoryPage(page)
     })
   }
+  const loadCatalog = (cli: CliId) => {
+    setSettingsCli(cli)
+    setCatalog(undefined)
+    setModel('')
+    return perform(async (isCurrent) => {
+      const data = JSON.parse(value(await api.cliworker.catalogForCli(sessionId, cli)))
+      if (!isCurrent()) return
+      setCatalog(data)
+      const next = data.preference?.model ?? data.models[0]?.id ?? ''
+      setModel(next)
+      setEffort(
+        data.preference?.effort ??
+          data.models.find((m: ModelChoice) => m.id === next)?.efforts?.[0] ??
+          'default',
+      )
+    })
+  }
   return (
     <section className="cwn" aria-label="CLI Worker Now">
       <header className="cwn-head">
         <div>
-          <span className="cwn-kicker">ANTIGRAVITY</span>
+          <span className="cwn-kicker">MULTI CLI · WORKERS</span>
           <h2>
             CLI Worker <span>Now</span>
           </h2>
@@ -163,39 +191,59 @@ function SessionPanel({
           variant="ghost"
           size="sm"
           disabled={busy}
-          onClick={() =>
-            void perform(async (isCurrent) => {
-              if (settings) {
-                setSettings(false)
-                return
-              }
-              const data = JSON.parse(value(await api.cliworker.catalog(sessionId)))
-              if (!isCurrent()) return
-              setCatalog(data)
-              setModel(data.preference?.model ?? data.models[0]?.id ?? '')
-              setEffort(data.preference?.effort ?? 'medium')
-              setSettings(true)
-            })
-          }
+          onClick={() => {
+            if (settings) {
+              setSettings(false)
+              return
+            }
+            setSettings(true)
+            void loadCatalog(worker ? cliOf(worker.preference) : settingsCli)
+          }}
         >
           默认设置
         </Button>
       </header>
-      {settings && catalog && (
+      {settings && (
         <form
           className="cwn-settings"
           onSubmit={(e) => {
             e.preventDefault()
             void perform(async (isCurrent) => {
-              value(await api.cliworker.configure(sessionId, JSON.stringify({ model, effort })))
+              value(
+                await api.cliworker.configure(sessionId, JSON.stringify({ cli: settingsCli, model, effort })),
+              )
               if (isCurrent()) setSettings(false)
             })
           }}
         >
           <label>
+            CLI
+            <select
+              aria-label="默认设置 CLI"
+              value={settingsCli}
+              disabled={busy}
+              onChange={(e) => void loadCatalog(e.target.value as CliId)}
+            >
+              {CLI_IDS.map((cli) => (
+                <option key={cli} value={cli}>
+                  {CLI_LABELS[cli]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
             模型
-            <select value={model} onChange={(e) => setModel(e.target.value)}>
-              {catalog.models.map((m) => (
+            <select
+              aria-label="默认模型"
+              value={model}
+              disabled={busy || !catalog}
+              onChange={(e) => {
+                setModel(e.target.value)
+                const efforts = catalog?.models.find((m) => m.id === e.target.value)?.efforts ?? ['default']
+                if (!efforts.includes(effort)) setEffort(efforts[0] ?? 'default')
+              }}
+            >
+              {catalog?.models.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.id}
                 </option>
@@ -204,14 +252,22 @@ function SessionPanel({
           </label>
           <label>
             思考强度
-            <select value={effort} onChange={(e) => setEffort(e.target.value as Preference['effort'])}>
-              {EFFORTS.map((e) => (
-                <option key={e}>{e}</option>
+            <select
+              aria-label="默认思考强度"
+              disabled={busy || !catalog}
+              value={effort}
+              onChange={(e) => setEffort(e.target.value as Preference['effort'])}
+            >
+              {(catalog?.models.find((m) => m.id === model)?.efforts ?? []).map((e) => (
+                <option key={e} value={e}>
+                  {effortLabel(e)}
+                </option>
               ))}
             </select>
           </label>
-          <p>仅影响此项目之后新建的子 Agent，已有会话保留原配置。</p>
-          <Button size="sm" variant="primary" disabled={busy || !model}>
+          <p>{catalog?.notice}</p>
+          <p>仅影响此项目、此 CLI 之后新建的子 Agent，已有会话保留原配置。</p>
+          <Button type="submit" size="sm" variant="primary" disabled={busy || !model || !catalog}>
             保存默认值
           </Button>
         </form>
@@ -263,7 +319,9 @@ function SessionPanel({
             >
               <span className={`cwn-dot ${w.status}`} />
               <span className="cwn-worker-title">{w.title}</span>
-              <small>{status[w.status]}</small>
+              <small>
+                {CLI_LABELS[cliOf(w.preference)]} · {status[w.status]}
+              </small>
             </button>
           ))}
         </div>
@@ -272,8 +330,12 @@ function SessionPanel({
         <div className="cwn-meta">
           <strong>{worker.title}</strong>
           <div>
-            <span>{worker.preference.model}</span>
-            <span>{worker.preference.effort}</span>
+            <span>{CLI_LABELS[cliOf(worker.preference)]}</span>
+            <span title="派遣时选择的模型">{worker.preference.model}</span>
+            {worker.observedModel && worker.observedModel !== worker.preference.model && (
+              <span title="CLI 报告的实际模型">实际：{worker.observedModel}</span>
+            )}
+            <span>{effortLabel(worker.preference.effort)}</span>
             <span>{worker.mode === 'plan' ? 'CLI 规划' : '可编辑'}</span>
           </div>
           {worker.lastResult && (
@@ -362,7 +424,7 @@ function SessionPanel({
             <div className="cwn-mark">↗</div>
             <h3>让协作过程看得见</h3>
             <p>在主对话中明确派遣任务：</p>
-            <blockquote>用 Antigravity 帮我检查这个项目</blockquote>
+            <blockquote>用 Codex、Claude Code、Kimi、MiMo 或 Antigravity 帮我检查这个项目</blockquote>
             <p>首次运行先选择模型与思考强度，过程会实时显示在这里。</p>
           </div>
         )}
@@ -404,7 +466,7 @@ function SessionPanel({
           ) : (
             <article key={item.id} className={`cwn-message ${item.kind}`}>
               <div className="cwn-message-label">
-                {item.kind === 'user' ? '你' : 'Antigravity'}
+                {item.kind === 'user' ? '你' : worker ? CLI_LABELS[cliOf(worker.preference)] : 'CLI'}
                 <time>
                   {new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </time>

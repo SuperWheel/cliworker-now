@@ -12,9 +12,21 @@ import {
 import { join } from 'node:path'
 import { randomUUID, createHash } from 'node:crypto'
 import { z } from 'zod'
-import { EFFORTS, active, type Preference, type Worker, type WorkerEvent } from '../shared/types.ts'
+import {
+  CLI_IDS,
+  EFFORTS,
+  active,
+  type CliId,
+  type Preference,
+  type Worker,
+  type WorkerEvent,
+} from '../shared/types.ts'
 
-const preferenceSchema = z.object({ model: z.string().min(1), effort: z.enum(EFFORTS) })
+const preferenceSchema = z.object({
+  cli: z.enum(CLI_IDS).optional(),
+  model: z.string().min(1),
+  effort: z.enum(EFFORTS),
+})
 const workerSchema = z.object({
   id: z.uuid(),
   parentSessionId: z.string().min(1),
@@ -29,6 +41,7 @@ const workerSchema = z.object({
   runId: z.uuid(),
   jobId: z.string().optional(),
   error: z.string().optional(),
+  observedModel: z.string().optional(),
   lastResult: z.string().optional(),
 })
 const eventSchema = z.object({
@@ -37,6 +50,7 @@ const eventSchema = z.object({
   time: z.string(),
   kind: z.enum(['user', 'assistant', 'tool', 'status', 'diagnostic', 'result']),
   text: z.string(),
+  observedModel: z.string().optional(),
   step: z.number().optional(),
   state: z.string().optional(),
   detail: z.string().optional(),
@@ -97,16 +111,18 @@ export class WorkerStorage {
       throw error
     }
   }
-  private projectKey(project: string): string {
-    return createHash('sha256').update(project).digest('hex')
+  private projectKey(project: string, cli: CliId = 'antigravity'): string {
+    return createHash('sha256')
+      .update(cli === 'antigravity' ? project : JSON.stringify([project, cli]))
+      .digest('hex')
   }
-  preference(project: string): Preference | undefined {
-    const path = join(this.directory, `${this.projectKey(project)}.preference.json`)
+  preference(project: string, cli: CliId = 'antigravity'): Preference | undefined {
+    const path = join(this.directory, `${this.projectKey(project, cli)}.preference.json`)
     return existsSync(path) ? preferenceSchema.parse(JSON.parse(readFileSync(path, 'utf8'))) : undefined
   }
   setPreference(project: string, preference: Preference): void {
     atomicJSON(
-      join(this.directory, `${this.projectKey(project)}.preference.json`),
+      join(this.directory, `${this.projectKey(project, preference.cli ?? 'antigravity')}.preference.json`),
       preferenceSchema.parse(preference),
     )
   }

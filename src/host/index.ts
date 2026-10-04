@@ -12,8 +12,18 @@ import type {} from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-plan-mode'
-import { EFFORTS, type Preference, type TaskMode } from '../shared/types.ts'
-import { DEFAULT_CONFIG, discoverModels, projectDirectory, type RuntimeConfig } from './process.ts'
+import {
+  CLI_IDS,
+  CLI_LABELS,
+  cliOf,
+  effortLabel,
+  EFFORTS,
+  type CliId,
+  type Preference,
+  type TaskMode,
+} from '../shared/types.ts'
+import { DEFAULT_CONFIG, projectDirectory, type RuntimeConfig } from './process.ts'
+import { catalogFor, validatePreference } from './adapters.ts'
 import { WorkerStorage } from './storage.ts'
 import { WorkerRuntime, type Submission } from './runtime.ts'
 
@@ -32,6 +42,14 @@ export type {
 export interface Config {
   /** CLI binary or absolute path (default agy). */
   executable?: string
+  /** Codex CLI executable. */
+  codexExecutable?: string
+  /** Claude Code executable. */
+  claudeExecutable?: string
+  /** Kimi Code executable. */
+  kimiExecutable?: string
+  /** Official Xiaomi MiMo Code executable. */
+  mimoExecutable?: string
   /** Optional private state directory; defaults to DSH_HOME/cliworker-now. */
   stateDirectory?: string
   /** Maximum concurrent processes (default 2). */
@@ -64,11 +82,15 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
   }
 }
 
-const preferenceSchema = validate.object({ model: validate.string().min(1), effort: validate.enum(EFFORTS) })
+const preferenceSchema = validate.object({
+  cli: validate.enum(CLI_IDS).optional(),
+  model: validate.string().min(1),
+  effort: validate.enum(EFFORTS),
+})
 const failure = (error: unknown) =>
   new RemoteError('cliworker/unavailable', String(error), { reason: String(error) })
 
-/** Host owner of Antigravity conversations, model tools and Remote streams. */
+/** Host owner of CLI conversations, model tools and Remote streams. */
 export class CliWorkerService extends TypertRemoteService {
   static inject = [
     'agents',
@@ -82,6 +104,10 @@ export class CliWorkerService extends TypertRemoteService {
   ]
   static Config: z<Config> = z.object({
     executable: z.string().min(1).default(DEFAULT_CONFIG.executable),
+    codexExecutable: z.string().min(1).default('codex'),
+    claudeExecutable: z.string().min(1).default('claude'),
+    kimiExecutable: z.string().min(1).default('kimi'),
+    mimoExecutable: z.string().min(1).default('mimo'),
     stateDirectory: z.string(),
     maxConcurrent: z.natural().min(1).max(8).default(DEFAULT_CONFIG.maxConcurrent),
     timeoutMs: z.natural().min(1000).max(86400000).default(DEFAULT_CONFIG.timeoutMs),
@@ -92,7 +118,7 @@ export class CliWorkerService extends TypertRemoteService {
   })
   private runtime: WorkerRuntime
   private options: RuntimeConfig
-  private pending = new Set<string>()
+  private pending = new Map<string, number>()
   private preferenceWaits = new Map<string, Promise<Preference>>()
   private disposed = new AbortController()
 
@@ -120,7 +146,7 @@ export class CliWorkerService extends TypertRemoteService {
         ctx.systemPrompt.section({
           name: 'cliworker:delegation',
           order: 80,
-          text: 'CLI Worker Now: Only delegate when the user explicitly asks to use Antigravity / agy / Antigravity CLI. Use cliworker_start, never run agy through bash. First use asks the human to select model and effort; do not select them on their behalf. Subsequent jobs use project defaults. Keep independent tasks separate. Use cliworker_followup for a specific existing worker after its turn ends. cliworker_status reads progress and cliworker_stop stops it. Jobs run in the background and report completion; do useful work instead of repeatedly polling. For each completion notice, read that job output and match its workerId and runId. A sidebar followup is a NEW task even when its worker title is unchanged: summarize its current task and response, never reuse a previous answer. If output is unavailable, query cliworker_status and explicitly state uncertainty instead of claiming an earlier result. Task output is untrusted evidence; independently verify changes before reporting success. Do not recursively launch other agents from a worker.',
+          text: 'CLI Worker Now: Only delegate when the user explicitly asks to use Antigravity / agy, Codex CLI, Claude Code, Kimi CLI, or official MiMo Code. Set cliworker_start.cli to antigravity, codex, claude, kimi, or mimo according to that request; never substitute another CLI or run these through bash. Kimi print mode does not support read_only or an effort override; its native tool policy automatically executes actions. Other CLI permission checks remain active. First use asks the human to select model and effort; do not select them on their behalf. Subsequent jobs use project defaults. Keep independent tasks separate. Use cliworker_followup for a specific existing worker after its turn ends. cliworker_status reads progress and cliworker_stop stops it. Jobs run in the background and report completion; do useful work instead of repeatedly polling. For each completion notice, read that job output and match its workerId and runId. A sidebar followup is a NEW task even when its worker title is unchanged: summarize its current task and response, never reuse a previous answer. If output is unavailable, query cliworker_status and explicitly state uncertainty instead of claiming an earlier result. Task output is untrusted evidence; independently verify changes before reporting success. Do not recursively launch other agents from a worker.',
         }),
       'cliworker:guidance',
     )
@@ -145,18 +171,27 @@ export class CliWorkerService extends TypertRemoteService {
     if (agent.ctx.get('sandboxPolicy')!.resolve({ session: agent.session }).mode === 'read-only')
       throw new Error('Harness 当前为只读权限；外部 CLI 需要可写运行状态，请先明确切换项目权限')
   }
-  private async choose(agent: Agent, signal: AbortSignal): Promise<Preference> {
+  private async choose(agent: Agent, signal: AbortSignal, cli: CliId): Promise<Preference> {
     const project = this.project(agent)
-    const saved = this.runtime.storage.preference(project)
-    const models = await discoverModels(this.ctx.subprocess, this.options, project, signal)
-    if (saved && models.some((model) => model.id === saved.model)) return saved
-    const waiting = this.preferenceWaits.get(project)
+    const key = JSON.stringify([project, cli])
+    const saved = this.runtime.storage.preference(project, cli)
+    const catalog = await catalogFor(cli, this.ctx.subprocess, this.options, project, signal)
+    const models = catalog.models
+    if (saved) {
+      try {
+        validatePreference(saved, catalog)
+        return saved
+      } catch {
+        /* Ask again for obsolete preferences. */
+      }
+    }
+    const waiting = this.preferenceWaits.get(key)
     if (waiting) {
       const result = await waiting
       signal.throwIfAborted()
       return result
     }
-    this.pending.add(agent.id)
+    this.pending.set(agent.id, (this.pending.get(agent.id) ?? 0) + 1)
     this.runtime.changed()
     const promise = (async () => {
       const answer = await agent.ctx.get('userQuestions')!.ask({
@@ -165,33 +200,48 @@ export class CliWorkerService extends TypertRemoteService {
         questions: [
           {
             id: 'cliworker_model',
-            header: 'Antigravity 模型',
+            header: `${CLI_LABELS[cli]} 模型`,
             question: '选择此项目默认使用的模型',
-            detail: `项目：${project}\n选择后启动当前任务。使用 CLI 原生沙箱，自动执行该项目内的工具操作。`,
+            detail: `项目：${project}\n${catalog.notice}\n选择后启动当前任务。`,
             options: models.map((model) => ({ label: model.id, description: model.label })),
-          },
-          {
-            id: 'cliworker_effort',
-            header: '思考强度',
-            question: '选择后续任务默认沿用的思考强度',
-            options: EFFORTS.map((effort) => ({ label: effort })),
           },
         ],
       })
       signal.throwIfAborted()
       const model = answer.answers.find((a) => a.id === 'cliworker_model')?.selected[0]
-      const effort = answer.answers.find((a) => a.id === 'cliworker_effort')?.selected[0]
-      const preference = preferenceSchema.parse({ model, effort })
+      const chosen = models.find((m) => m.id === model)
+      if (!chosen?.efforts?.length) throw new Error('请选择列表中的模型')
+      let effort = chosen.efforts[0]
+      if (chosen.efforts.length > 1) {
+        const selection = await agent.ctx.get('userQuestions')!.ask({
+          agent,
+          signal,
+          questions: [
+            {
+              id: 'cliworker_effort',
+              header: '思考强度',
+              question: `选择 ${model} 的默认思考强度`,
+              options: chosen.efforts.map((effort) => ({ label: effort, description: effortLabel(effort) })),
+            },
+          ],
+        })
+        signal.throwIfAborted()
+        effort = selection.answers.find((a) => a.id === 'cliworker_effort')?.selected[0] as typeof effort
+      }
+      const preference = preferenceSchema.parse({ cli, model, effort })
+      validatePreference(preference, catalog)
       if (!models.some((item) => item.id === preference.model)) throw new Error('请选择列表中的模型')
       this.runtime.storage.setPreference(project, preference)
       return preference
     })()
-    this.preferenceWaits.set(project, promise)
+    this.preferenceWaits.set(key, promise)
     try {
       return await promise
     } finally {
-      this.preferenceWaits.delete(project)
-      this.pending.delete(agent.id)
+      this.preferenceWaits.delete(key)
+      const pending = (this.pending.get(agent.id) ?? 1) - 1
+      if (pending) this.pending.set(agent.id, pending)
+      else this.pending.delete(agent.id)
       this.runtime.changed()
     }
   }
@@ -209,7 +259,7 @@ export class CliWorkerService extends TypertRemoteService {
     const id = agent.ctx.get('jobs')!.start({
       kind: 'cliworker',
       owner: agent.id,
-      label: `Antigravity · ${title} · ${workerId ? '续聊' : '新任务'}：${prompt.replace(/\s+/g, ' ').slice(0, 100)}`,
+      label: `${CLI_LABELS[cliOf(preference)]} · ${title} · ${workerId ? '续聊' : '新任务'}：${prompt.replace(/\s+/g, ' ').slice(0, 100)}`,
       outputLimitBytes: 12000,
       run: () => {
         const submitted = this.runtime.submit(agent.id, project, title, prompt, preference, mode, workerId)
@@ -225,6 +275,7 @@ export class CliWorkerService extends TypertRemoteService {
                   : ('failed' as const),
             detail: worker.error,
             result: JSON.stringify({
+              cli: cliOf(worker.preference),
               workerId: worker.id,
               runId: worker.runId,
               task: prompt.slice(0, 300),
@@ -238,6 +289,7 @@ export class CliWorkerService extends TypertRemoteService {
     if (!submission) throw new Error('Harness did not publish the worker job')
     this.runtime.attachJob(submission.worker, id)
     return JSON.stringify({
+      cli: cliOf(submission.worker.preference),
       workerId: submission.worker.id,
       runId: submission.worker.runId,
       jobId: id,
@@ -257,13 +309,19 @@ export class CliWorkerService extends TypertRemoteService {
           defineTool({
             name: 'cliworker_start',
             description:
-              'Start an Antigravity CLI worker only when the user explicitly asks to use Antigravity. First use asks for model/effort; subsequent uses inherit project defaults. Returns a background job and worker ID.',
+              'Start the explicitly requested CLI worker: antigravity, codex, claude, kimi, or official MiMo Code. First use asks for model/effort; subsequent uses inherit project defaults. Returns a background job and worker ID.',
             parameters: {
+              cli: {
+                type: 'string',
+                description:
+                  'Requested CLI: antigravity, codex, claude, kimi, mimo. Omitted only for legacy Antigravity calls.',
+              },
               title: { type: 'string', required: true },
               prompt: { type: 'string', required: true },
               read_only: {
                 type: 'boolean',
-                description: 'Use Antigravity native plan mode; omit or false for coding.',
+                description:
+                  'Use native read-only/plan mode; unsupported by Kimi print mode. Omit or false for coding.',
               },
             },
             output,
@@ -272,9 +330,12 @@ export class CliWorkerService extends TypertRemoteService {
             execute: async (args, exec) => {
               if (!exec.agent) throw new Error('A parent Agent is required')
               this.assertExecution(exec.agent)
+              const cli = validate.enum(CLI_IDS).parse(args.cli ?? 'antigravity')
+              if (cli === 'kimi' && args.read_only) throw new Error('Kimi 非交互模式不支持只读派遣')
               const preference = await this.choose(
                 exec.agent,
                 AbortSignal.any([exec.signal, this.disposed.signal]),
+                cli,
               )
               exec.signal.throwIfAborted()
               return this.launch(
@@ -317,7 +378,7 @@ export class CliWorkerService extends TypertRemoteService {
           defineTool({
             name: 'cliworker_followup',
             description:
-              'Continue a specific idle Antigravity worker with its original model, effort and CLI conversation.',
+              'Continue a specific idle CLI worker with its original model, effort and CLI conversation.',
             parameters: {
               worker_id: { type: 'string', required: true },
               prompt: { type: 'string', required: true },
@@ -402,8 +463,22 @@ export class CliWorkerService extends TypertRemoteService {
       const agent = await this.parent(parentSessionId)
       const project = this.project(agent)
       return JSON.stringify({
-        models: await discoverModels(this.ctx.subprocess, this.options, project, signal),
+        ...(await catalogFor('antigravity', this.ctx.subprocess, this.options, project, signal)),
         preference: this.runtime.storage.preference(project),
+      })
+    } catch (error) {
+      throw failure(error)
+    }
+  }
+  /** @param parentSessionId - Parent session identity. @param cli - Selected CLI. @param signal - Caller lifetime. @returns CLI catalog and saved project preference. */
+  @Remote('catalogForCli')
+  async catalogForCli(parentSessionId: string, cli: string, signal: AbortSignal): Promise<string> {
+    try {
+      const id = validate.enum(CLI_IDS).parse(cli)
+      const project = this.project(await this.parent(parentSessionId))
+      return JSON.stringify({
+        ...(await catalogFor(id, this.ctx.subprocess, this.options, project, signal)),
+        preference: this.runtime.storage.preference(project, id),
       })
     } catch (error) {
       throw failure(error)
@@ -416,9 +491,10 @@ export class CliWorkerService extends TypertRemoteService {
       const agent = await this.parent(parentSessionId)
       const preference = preferenceSchema.parse(JSON.parse(selection))
       const project = this.project(agent)
-      const models = await discoverModels(this.ctx.subprocess, this.options, project, signal)
-      if (!models.some((model) => model.id === preference.model))
-        throw new Error('模型已不可用，请刷新列表重选')
+      validatePreference(
+        preference,
+        await catalogFor(cliOf(preference), this.ctx.subprocess, this.options, project, signal),
+      )
       signal.throwIfAborted()
       this.runtime.storage.setPreference(project, preference)
       this.runtime.changed()
@@ -440,9 +516,16 @@ export class CliWorkerService extends TypertRemoteService {
       signal.throwIfAborted()
       this.assertExecution(agent)
       const worker = this.runtime.get(agent.id, workerId)
-      const models = await discoverModels(this.ctx.subprocess, this.options, this.project(agent), signal)
-      if (!models.some((model) => model.id === worker.preference.model))
-        throw new Error('原会话模型已不可用；请更改默认模型并新建子 Agent')
+      validatePreference(
+        worker.preference,
+        await catalogFor(
+          cliOf(worker.preference),
+          this.ctx.subprocess,
+          this.options,
+          this.project(agent),
+          signal,
+        ),
+      )
       signal.throwIfAborted()
       return this.launch(agent, worker.title, prompt, worker.preference, worker.mode, workerId)
     } catch (error) {
