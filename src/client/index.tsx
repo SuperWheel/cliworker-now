@@ -10,7 +10,7 @@ import remoteContribution from 'dsh-cliworker-now/remote'
 import { active } from '../shared/types.ts'
 import { Panel } from './panel.tsx'
 import { useWorkers, type API } from './workers.ts'
-import { styles } from './styles.ts'
+import { styles, nativeChatStyles } from './styles.ts'
 import { BrandIcon } from './icons.tsx'
 
 const ID = 'dsh-cliworker-now'
@@ -24,7 +24,7 @@ export function apply(ctx: Context): void {
     const api: API = { $stream: (options) => remote.$stream(options), cliworker: worker }
     scope.effect(() => {
       const style = document.createElement('style')
-      style.textContent = styles
+      style.textContent = styles + nativeChatStyles
       document.head.append(style)
       return () => style.remove()
     })
@@ -69,9 +69,10 @@ export function apply(ctx: Context): void {
       const count = snapshot.workers.filter((w) => active(w.status)).length
       return (
         <Button
-          variant="toolbar"
+          variant="outline"
           size="sm"
           title="打开 CLI Worker"
+          className="cwn-entry"
           icon={<BrandIcon size={16} />}
           onClick={open}
         >

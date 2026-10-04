@@ -119,3 +119,12 @@ v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的�
 - 圆角使用 `--dsw-radius-md/lg/panel`；自定义边框沿用原生 0.5px 描边与 `--dsw-alias-border-l2/l3`，续聊外壳使用主 composer 的 `--dsw-elevation-soft`、`--dsw-elevation-stroke-color` 与 `--dsw-specific-input-major`。
 - 主对话 composer 在该版本没有可独立绑定 Worker 发送回调的公开组件出口，它的输入接口由 Harness session 作用域持有；因此复用外观参数与原生基础控件，保留 Worker 的 followup/stop 语义，不引用私有哈希类名、不读取主会话草稿。
 - 任务行取消为 CLI 图标预留的 43px 缩进，标题和元数据以 12px 边距左对齐；展开分组标题底部显示全宽细线。窄侧栏不再缩小字体。
+
+## 15. v0.3.2 原生消息、输入框与菜单
+
+- 源码核验：primitives 的 IconSettingsOutlineRegular / IconSendOutlineRegular / IconCopyOutlineRegular / Menu / MarkdownText；ui-chat 的 userStack/bubble/actions；ui-conversation 的 composer card/input/row/primary；ui-sidebar 的 newSession。
+- 直接使用上述公开基础组件；自定义 composer 按原生几何：8px 顶内边距、36px 最小正文区、12px 间隙、42px 操作行，空态总高 98px；发送按钮 34px 圆形 info-fill，面板圆角/柔和阴影由宿主参数控制。禁用手动 resize，随输入自动增高，上限 336px。
+- 原生 Menu 向上弹出并通过 portal 避免侧栏裁切；取消/切页清理模型目录查询的迟到响应。选择模型下的强度只调用 configure 更新项目/CLI 默认，不改变已存在 worker，不派发任务。
+- 当前会话模型/强度与 CLI 实际模型明确展示；模型目录不会根据快照对象更新反复请求，仅在菜单打开或执行器改变时读取。
+- 消息气泡采用 native xl 圆角、10px/16px 内边距、82% 最大宽度；时间固定中文 24 小时制，复制控件在下方。助手文本交给原生 MarkdownText，禁用原始 HTML 的宿主渲染器承担转义；复制仍使用原文。
+- 搜索框高 38px，保持 border-l3 的半像素中性描边，聚焦不加蓝色光圈。卡片和搜索描边与新会话按钮使用同一语义色。底部信息行只显示可核查状态，缺失的 token/速度/上下文不补造。

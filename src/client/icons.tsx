@@ -1,3 +1,8 @@
+import {
+  IconSettingsOutlineRegular,
+  IconSendOutlineRegular,
+  IconCopyOutlineRegular,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CliId } from '../shared/types.ts'
 import antigravity from './assets/antigravity.png'
 import codex from './assets/codex.png'
@@ -34,7 +39,10 @@ const paths = {
   settings: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1Z',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
 } as const
-export function Glyph({ name }: { name: keyof typeof paths | 'stop' }) {
+export function Glyph({ name }: { name: keyof typeof paths | 'stop' | 'copy' }) {
+  if (name === 'settings') return <IconSettingsOutlineRegular size={18} />
+  if (name === 'send') return <IconSendOutlineRegular size={22} />
+  if (name === 'copy') return <IconCopyOutlineRegular size={16} />
   return (
     <svg
       width="16"

@@ -9,6 +9,32 @@ const clipboard = vi.hoisted(() => vi.fn().mockResolvedValue(true))
 // Only the native control skins is replaced; actual Panel, hooks and stream consumer run.
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   writeClipboard: clipboard,
+  IconSettingsOutlineRegular: () => createElement('svg'),
+  IconSendOutlineRegular: () => createElement('svg'),
+  IconCopyOutlineRegular: () => createElement('svg'),
+  IconChevronDownOutlineRegular: () => createElement('svg'),
+  MarkdownText: ({ text }: any) => createElement('div', {}, text),
+  Menu: ({ anchor, open, items, onSelect }: any) =>
+    createElement(
+      'div',
+      {},
+      anchor,
+      open &&
+        items.map((item: any) =>
+          createElement(
+            'div',
+            { key: item.id },
+            item.text ?? item.label,
+            item.submenu?.map((sub: any) =>
+              createElement(
+                'button',
+                { key: sub.id, 'aria-label': `${item.label} ${sub.label}`, onClick: () => onSelect(sub.id) },
+                sub.label,
+              ),
+            ),
+          ),
+        ),
+    ),
   Input: forwardRef(({ icon, className, ...props }: any, ref) =>
     createElement('span', { className }, icon, createElement('input', { ...props, ref })),
   ),
@@ -410,9 +436,10 @@ it('uses the selected CLI name in assistant messages and shows the reported mode
     preference: { cli: 'claude', model: 'sonnet', effort: 'low' },
     observedModel: 'glm-example',
   })
-  expect(f.r.root.findByProps({ className: 'cwn-message-label' }).findByType('span').children[0]).toBe(
-    'Claude Code',
-  )
+  expect(
+    f.r.root.findByProps({ className: 'cwn-message-label' }).findByProps({ className: 'cwn-sr-only' })
+      .children[0],
+  ).toBe('Claude Code')
   expect(f.text()).toContain('glm-example')
 })
 
@@ -457,9 +484,33 @@ it('keeps metadata out of child header and stops through the integrated composer
   const header = t.r.root.findByProps({ className: 'cwn-head' })
   expect(header.findAllByProps({ title: '派遣时选择的模型' })).toHaveLength(0)
   expect(header.findAllByProps({ className: 'cwn-back' })).not.toHaveLength(0)
-  expect(t.r.root.findByProps({ className: 'cwn-compose-model' }).children).toEqual(['fixture'])
+  expect(t.text()).toContain('fixture')
   expect(t.input().props.disabled).toBe(true)
   await t.click('停止')
   expect(stop).toHaveBeenCalledWith('parent', 'a')
   expect(t.followup).not.toHaveBeenCalled()
+})
+
+it('model menu saves only new-worker defaults and preserves current CLI conversation configuration', async () => {
+  const t = await setup()
+  const configure = vi.fn().mockResolvedValue({ ok: true, value: '{}' })
+  Object.assign(t.api.cliworker, {
+    catalogForCli: vi
+      .fn()
+      .mockResolvedValue({
+        ok: true,
+        value: JSON.stringify({ models: [{ id: 'next-model', efforts: ['low'] }] }),
+      }),
+    configure,
+  })
+  await t.click('模型与强度')
+  expect(t.text()).toContain('当前会话 · 配置固定')
+  expect(t.text()).toContain('新任务默认值 · 不改变当前会话')
+  await t.click('next-model low')
+  expect(configure).toHaveBeenCalledWith(
+    'parent',
+    JSON.stringify({ cli: 'antigravity', model: 'next-model', effort: 'low' }),
+  )
+  expect(t.followup).not.toHaveBeenCalled()
+  expect(t.text()).toContain('fixture')
 })

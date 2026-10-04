@@ -19,3 +19,40 @@ export const styles = `
 .cwn-history-nav{border-bottom:.5px solid var(--cwn-border);padding:10px 16px;font-size:var(--dsw-font-xxs-12-font-size);flex-shrink:0}.cwn-history-nav>div{display:flex;gap:5px;flex-wrap:wrap;margin:7px 0}.cwn-history-nav small{color:var(--cwn-muted)}.cwn-history-start{display:flex;align-items:center;flex-wrap:wrap;justify-content:space-between;gap:8px;font-size:var(--dsw-font-xxs-12-font-size);margin:0 0 16px;color:var(--cwn-muted)}.cwn-jump{display:flex;justify-content:center;padding:4px 12px 8px}.cwn-copy{display:inline-flex;align-items:center;gap:6px;margin-top:5px;max-width:100%}.cwn-copy button{color:var(--cwn-muted)}.cwn-copy-feedback{font-size:var(--dsw-font-xxs-12-font-size);overflow-wrap:anywhere;color:var(--cwn-muted)}.cwn-sr-only{position:absolute;top:0;left:0;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @container (max-width:320px){.cwn-head{padding:10px 12px}.cwn-overview{padding:10px}.cwn-worker-line{gap:5px}.cwn-worker-status{font-size:var(--dsw-font-xxs-12-font-size)}.cwn-worker-meta{gap:5px}.cwn-filters{gap:4px}.cwn-filters button{padding:0 4px!important}.cwn-feed{padding:14px 12px}}
 `
+
+// Geometry below mirrors Harness 0.2.0-rc.2 chat/composer and sidebar New Session.
+export const nativeChatStyles = `
+.cwn-entry{background:var(--dsw-alias-bg-base)!important;border:.5px solid var(--dsw-alias-border-l3)!important;box-shadow:none!important}
+.cwn-entry:hover{background:var(--dsw-alias-interactive-bg-hover)!important}
+.cwn .cwn-search{height:38px;border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-base)}
+.cwn .cwn-search:focus-within{outline:none;box-shadow:none;border-color:var(--dsw-alias-border-l3)}
+.cwn .cwn-search input:focus-visible{outline:none;box-shadow:none}
+.cwn .cwn-search input::placeholder{color:var(--dsw-alias-label-caption)}
+.cwn-cli-group,.cwn-back,.cwn-settings select,.cwn-tool{border:.5px solid var(--dsw-alias-border-l3)}
+.cwn-cli-group{background:var(--dsw-alias-button-elevated-fill)}
+.cwn-feed{padding:16px 24px}
+.cwn-message{margin-bottom:24px}
+.cwn-message.user{max-width:82%}
+.cwn-message.user .cwn-text{padding:10px 16px;border-radius:var(--dsw-radius-xl);line-height:calc(22px + var(--dsh-content-font-delta,0px))}
+.cwn-message-label{height:28px;margin:6px 0 0;gap:8px;align-items:center;font-size:var(--dsh-content-font-size-secondary,13px);line-height:24px}
+.cwn-message.assistant .cwn-message-label{margin-top:16px;margin-left:-6px}
+.cwn-markdown{min-width:0;overflow-wrap:anywhere}
+.cwn-copy{margin:0;position:relative}
+.cwn-copy .cwn-copy-icon{width:28px;height:28px;padding:6px;color:var(--dsw-alias-label-tertiary)}
+.cwn-status{text-align:left;border-bottom:.5px solid var(--dsw-alias-border-l2);padding:8px 0;margin:8px 0 16px;font-size:var(--dsh-content-font-size-secondary,13px)}
+.cwn-compose{padding:0 16px 4px}
+.cwn-compose-box{display:flex;flex-direction:column;gap:12px;padding:8px 0 0}
+.cwn-compose textarea{resize:none;height:36px;min-height:36px;max-height:336px;padding:4px 12px 0 14px;overflow-y:auto;margin:0;box-sizing:border-box}
+.cwn-compose textarea::placeholder{color:var(--dsw-alias-label-caption)}
+.cwn-compose-bottom{justify-content:flex-end;gap:8px;padding:2px 8px 6px;margin:0;min-height:42px}
+.cwn-model-menu{margin-left:auto;min-width:0;max-width:calc(100% - 42px)}
+.cwn .cwn-compose-model{display:flex;align-items:center;gap:6px;height:28px;max-width:100%;padding:0 8px;font-size:var(--dsh-content-font-size-secondary,13px);line-height:20px;color:var(--dsw-alias-label-secondary);border-radius:var(--dsw-radius-sm)}
+.cwn-compose-model>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.cwn-model-effort{flex-shrink:0;color:var(--dsw-alias-label-tertiary)}
+.cwn .cwn-send{corner-shape:round!important;width:34px!important;height:34px!important;border:0!important;border-radius:999px!important;background:var(--dsw-alias-button-info-fill)!important;color:#fff!important;display:grid;place-items:center;transform:translateY(-2px)}
+.cwn .cwn-send:hover:not(:disabled){background:var(--dsw-alias-button-info-hover)!important}
+.cwn .cwn-send:disabled{opacity:.4}
+.cwn-compose-state{height:24px;gap:8px;margin:4px 8px 0;font-size:var(--dsh-content-font-size-secondary,13px);line-height:20px}
+.cwn-compose-cli{margin-left:auto}
+@container(max-width:320px){.cwn-feed{padding:14px 16px}.cwn-compose{padding-left:8px;padding-right:8px}.cwn-model-effort{display:none}}
+`

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   active,
   CLI_IDS,
@@ -15,6 +15,9 @@ import {
 import { useWorkers, value, type API } from './workers.ts'
 import { CopyText } from './copy-text.tsx'
 import { BrandIcon, Glyph } from './icons.tsx'
+import { WorkerModelMenu } from './worker-model-menu.tsx'
+
+const markdownLabels = { code: { copyLabel: '复制', copiedLabel: '已复制' }, footnotes: '脚注' }
 
 const status: Record<WorkerStatus, string> = {
   queued: '排队中',
@@ -108,6 +111,13 @@ function SessionPanel({
     stick = useRef(true)
   const worker = snapshot.selected
   const prompt = drafts[selected] ?? ''
+  const composerInput = useRef<HTMLTextAreaElement>(null)
+  useLayoutEffect(() => {
+    const el = composerInput.current
+    if (!el) return
+    el.style.height = '36px'
+    el.style.height = `${Math.max(36, Math.min(el.scrollHeight, 336))}px`
+  }, [prompt, selected, snapshot.selected?.id])
   useEffect(() => {
     stick.current = true
     setFollowing(true)
@@ -575,16 +585,31 @@ function SessionPanel({
               </div>
             ) : (
               <article key={item.id} className={`cwn-message ${item.kind}`}>
+                <div className={item.kind === 'assistant' ? 'cwn-markdown' : 'cwn-text'}>
+                  {item.kind === 'assistant' ? (
+                    <MarkdownText text={item.text} labels={markdownLabels} />
+                  ) : (
+                    item.text
+                  )}
+                </div>
                 <div className="cwn-message-label">
                   <span className="cwn-sr-only">
                     {item.kind === 'user' ? '你' : worker ? CLI_LABELS[cliOf(worker.preference)] : 'CLI'}
                   </span>
+                  {item.kind === 'assistant' && item.text && (
+                    <CopyText text={item.text} label="复制回复" iconOnly />
+                  )}
                   <time>
-                    {new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {new Date(item.time).toLocaleTimeString('zh-CN', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: false,
+                    })}
                   </time>
+                  {item.kind === 'user' && item.text && (
+                    <CopyText text={item.text} label="复制消息" iconOnly />
+                  )}
                 </div>
-                <div className="cwn-text">{item.text}</div>
-                {item.kind === 'assistant' && item.text && <CopyText text={item.text} label="复制回复" />}
               </article>
             ),
           )}
@@ -610,31 +635,28 @@ function SessionPanel({
             })
           }}
         >
-          <div className="cwn-compose-state">
-            <span className={`cwn-dot ${worker.status}`} />
-            {status[worker.status]}
-          </div>
           {!running && !worker.conversationId && (
             <p className="cwn-resume-hint">本次运行未建立 CLI 会话，无法续聊。请在主对话重新派遣任务。</p>
           )}
           <div className="cwn-compose-box">
             <textarea
+              ref={composerInput}
               aria-label="继续对话"
               value={prompt}
               onChange={(e) => editDraft(worker.id, e.target.value)}
               disabled={!canResume || busy}
               maxLength={100000}
               placeholder={running ? '本轮完成后可以继续对话' : '给这个子 Agent 分配下一步…'}
-              rows={2}
+              rows={1}
             />
             <div className="cwn-compose-bottom">
-              <BrandIcon cli={cliOf(worker.preference)} size={20} />
-              <span
-                className="cwn-compose-model"
-                title={`沿用当前模型与会话：${worker.preference.model}${worker.observedModel ? `；CLI 报告：${worker.observedModel}` : ''}`}
-              >
-                {worker.preference.model}
-              </span>
+              <WorkerModelMenu
+                key={worker.id}
+                worker={worker}
+                api={api}
+                sessionId={sessionId}
+                disabled={busy || unavailable}
+              />
               {running ? (
                 <Button
                   type="button"
@@ -666,6 +688,11 @@ function SessionPanel({
                 </Button>
               )}
             </div>
+          </div>
+          <div className="cwn-compose-state">
+            <span className={`cwn-dot ${worker.status}`} />
+            {status[worker.status]}
+            <span className="cwn-compose-cli">{CLI_LABELS[cliOf(worker.preference)]}</span>
           </div>
         </form>
       )}

@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
+import { Glyph } from './icons.tsx'
 import { Button, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 
-export function CopyText({ text, label }: { text: string; label: string }) {
+export function CopyText({
+  text,
+  label,
+  iconOnly = false,
+}: {
+  text: string
+  label: string
+  iconOnly?: boolean
+}) {
   const [feedback, setFeedback] = useState('')
   const [busy, setBusy] = useState(false)
   const current = useRef(text),
@@ -23,6 +32,8 @@ export function CopyText({ text, label }: { text: string; label: string }) {
         size="sm"
         variant="ghost"
         aria-label={label}
+        title={feedback || label}
+        className={iconOnly ? 'cwn-copy-icon' : undefined}
         disabled={busy || !text}
         onClick={() => {
           const source = text
@@ -40,7 +51,7 @@ export function CopyText({ text, label }: { text: string; label: string }) {
           })()
         }}
       >
-        {feedback === '已复制' ? '已复制' : label}
+        {iconOnly ? <Glyph name="copy" /> : feedback === '已复制' ? '已复制' : label}
       </Button>
       {feedback && (
         <span role="status" className={feedback === '已复制' ? 'cwn-sr-only' : 'cwn-copy-feedback'}>
