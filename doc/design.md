@@ -111,3 +111,11 @@ v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的�
 - 标题右侧原生 details 菜单展示 CLI、任务模式、实际模型差异、复制最新结果和默认设置。输入框固定显示会话模型，不提供不能兑现的模型切换、附件或新增动作。
 - 样式使用 Harness 的语义主题 token 与原生 Button；不保存独立主题。Kimi 根据宿主 body[data-ds-dark-theme] 切换原图，全部七张 PNG 构建时内联，卸载仍清理注册和样式。
 - 根容器与对话内容分别限制滚动；屏幕阅读器标签在消息内定位，避免输入框聚焦时引发宿主面板外层滚动。
+
+## 14. v0.3.1 原生参数与控件
+
+- 搜索使用 `@deepseek-ai/dsh-client-ui-primitives` 的 Input，状态筛选使用 Button size=md。字体、行高、按钮高度、描边、焦点样式由原生组件维护，不用插件 CSS 覆盖。
+- 自定义页面使用 `--dsw-font-s-14-font-size/line-height` 与 `--dsw-font-xxs-12-font-size`；对话/续聊使用 `--dsh-content-font-size` 与 `--dsh-content-font-delta`。前者遵循宿主 UI 字体尺度，后者响应宿主会话字号偏好。
+- 圆角使用 `--dsw-radius-md/lg/panel`；自定义边框沿用原生 0.5px 描边与 `--dsw-alias-border-l2/l3`，续聊外壳使用主 composer 的 `--dsw-elevation-soft`、`--dsw-elevation-stroke-color` 与 `--dsw-specific-input-major`。
+- 主对话 composer 在该版本没有可独立绑定 Worker 发送回调的公开组件出口，它的输入接口由 Harness session 作用域持有；因此复用外观参数与原生基础控件，保留 Worker 的 followup/stop 语义，不引用私有哈希类名、不读取主会话草稿。
+- 任务行取消为 CLI 图标预留的 43px 缩进，标题和元数据以 12px 边距左对齐；展开分组标题底部显示全宽细线。窄侧栏不再缩小字体。

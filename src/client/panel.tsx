@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   active,
   CLI_IDS,
@@ -353,16 +353,15 @@ function SessionPanel({
             overviewScroll.current = overview.current?.scrollTop ?? 0
           }}
         >
-          <div className="cwn-search">
-            <Glyph name="search" />
-            <input
-              type="search"
-              aria-label="筛选子 Agent"
-              placeholder="搜索话题、CLI 或模型…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </div>
+          <Input
+            className="cwn-search"
+            icon={<Glyph name="search" />}
+            type="search"
+            aria-label="筛选子 Agent"
+            placeholder="搜索话题、CLI 或模型…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
           <div className="cwn-filters" role="group" aria-label="任务状态筛选">
             {(
               [
@@ -376,7 +375,7 @@ function SessionPanel({
                 key={id}
                 type="button"
                 variant="outline"
-                size="sm"
+                size="md"
                 aria-pressed={filter === id}
                 onClick={() => setFilter(id)}
               >

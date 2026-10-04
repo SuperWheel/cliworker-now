@@ -6,9 +6,12 @@ import type { API, Snapshot } from '../src/client/workers.ts'
 import type { Worker, HistoryPage } from '../src/shared/types.ts'
 
 const clipboard = vi.hoisted(() => vi.fn().mockResolvedValue(true))
-// Only the native button skin is replaced; actual Panel, hooks and stream consumer run.
+// Only the native control skins is replaced; actual Panel, hooks and stream consumer run.
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   writeClipboard: clipboard,
+  Input: forwardRef(({ icon, className, ...props }: any, ref) =>
+    createElement('span', { className }, icon, createElement('input', { ...props, ref })),
+  ),
   Button: forwardRef(({ children, variant: _variant, size: _size, ...props }: any, ref) =>
     createElement('button', { type: 'button', ...props, ref }, children),
   ),
