@@ -100,3 +100,5 @@
 - 素材、原始来源、生成提示词和实际尺寸预览见 [图标说明](assets/cli-icons/v1/README.md)。
 
 项目独立图标：v1 的主终端与子会话块被用户否定，原因是过于接近 Codex。第二轮移除终端符号，提供会话气泡、任务分派、Worker W 三种扁平透明方向，见 [第二轮候选](assets/project-icon/v2/README.md)。尚未选定或接入运行界面。
+
+项目 Logo 新设计稿 v3：以打开的会话窗口、三条并列会话和状态圆点表达“让每个 Agent 的工作过程可见”。使用蓝色双调、圆角扁平形状及透明背景；同一 PNG 已检查亮暗背景和 24px／32px／48px 展示。见 [会话可见 Logo](assets/project-icon/v3/README.md)，仍为未接入的设计稿。

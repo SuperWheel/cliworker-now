@@ -1,0 +1,24 @@
+{
+  "file": "cliworker-now.png",
+  "size": [
+    1254,
+    1254
+  ],
+  "mode": "RGBA",
+  "transparent_pixels": 1079110,
+  "transparent_corners": true,
+  "subject_bounds_alpha128": [
+    157,
+    192,
+    1126,
+    1116
+  ],
+  "method": "built-in image_gen; copied without pixel editing",
+  "visual_preview": {
+    "checked": true,
+    "themes": ["light", "dark"],
+    "icon_sizes_px": [24, 32, 48],
+    "screenshot": "preview.png",
+    "method": "browser rendering of the original PNG inspected visually"
+  }
+}
