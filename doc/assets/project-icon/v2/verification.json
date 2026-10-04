@@ -1,0 +1,29 @@
+{
+  "a-dialogue.png": {
+    "size": [
+      1254,
+      1254
+    ],
+    "mode": "RGBA",
+    "transparent_pixels": 1179382,
+    "transparent_corners": true
+  },
+  "b-dispatch.png": {
+    "size": [
+      1254,
+      1254
+    ],
+    "mode": "RGBA",
+    "transparent_pixels": 1047077,
+    "transparent_corners": true
+  },
+  "c-worker-w.png": {
+    "size": [
+      1254,
+      1254
+    ],
+    "mode": "RGBA",
+    "transparent_pixels": 1190861,
+    "transparent_corners": true
+  }
+}
