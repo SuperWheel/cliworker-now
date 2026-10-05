@@ -1,0 +1,20 @@
+{
+  "size": [
+    1254,
+    1254
+  ],
+  "mode": "RGBA",
+  "transparent_pixels": 857328,
+  "transparent_corners": true,
+  "subject_bounds_alpha128": [
+    126,
+    131,
+    1126,
+    1127
+  ],
+  "subject_width": 1000,
+  "subject_height": 996,
+  "subject_ratio": 1.0040160642570282,
+  "method": "built-in image_gen; copied unchanged; shape measurement excludes transparent canvas",
+  "sha256": "f1ff5256b232e0313d62c9ad6fefd20b245b6bf347e9cafc7df3ad01e4ba111a"
+}

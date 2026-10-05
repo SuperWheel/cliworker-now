@@ -146,3 +146,5 @@ v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的�
 ## v0.3.4 菜单导航一致性
 
 两个子菜单都将共享返回项放在原生 Menu 的 items 第一项，避免 items 与 children 的渲染先后造成位置不一致。插件内按钮、Portal 菜单按钮及主会话 CLI 入口去除静态边框；hover 使用宿主主题色并以 180ms 缓出曲线过渡，不影响尺寸。禁用按钮不触发 hover；prefers-reduced-motion 下取消过渡，键盘 focus-visible 保留。CLI 分组标题与任务之间的分隔线继续独立绘制。
+
+项目 Logo v7 按用户要求，以 v6 第二张为基础调整为近正方形构形。主体外接框为 1000 × 996px，宽高比约 1.004:1，保留双蓝色、人文曲线及透明背景，见 [v7 设计稿](assets/project-icon/v7/README.md)。
