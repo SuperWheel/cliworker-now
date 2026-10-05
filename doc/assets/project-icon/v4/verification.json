@@ -1,0 +1,11 @@
+{
+  "size": [
+    1254,
+    1254
+  ],
+  "mode": "RGBA",
+  "transparent_pixels": 1180656,
+  "transparent_corners": true,
+  "visual_check": "Removed the three bars and old isolated dot; C speech bubble plus tightly spaced lowercase li with heavier strokes.",
+  "method": "built-in image_gen edit; copied unchanged"
+}
