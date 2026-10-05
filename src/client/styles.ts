@@ -115,5 +115,10 @@ export const hoverFeedbackStyles = `
 .cwn button:disabled{pointer-events:auto}
 .cwn button:disabled:not(.cwn-send):hover{background:var(--dsw-alias-interactive-bg-hover)!important;color:var(--dsw-alias-label-secondary)}
 .cwn .cwn-send:disabled:hover{background:var(--dsw-alias-button-info-hover)!important}
+/* On white, hover-solid and the neutral resting fill look identical. Use the
+   stronger host active token for a visible neutral hover, retaining the fade. */
+body:not([data-ds-dark-theme]) .cwn-back:hover:not(:disabled),
+body:not([data-ds-dark-theme]) .cwn-filters button:not([aria-pressed=true]):hover:not(:disabled),
+body:not([data-ds-dark-theme]) .cwn button:disabled:not(.cwn-send):hover{background:var(--dsw-alias-interactive-bg-active)!important}
 @media(prefers-reduced-motion:reduce){.cwn button,.cwn summary,.cwn-entry,.cwn-model-popover button{transition:none}}
 `

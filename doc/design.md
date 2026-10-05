@@ -174,3 +174,8 @@ v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的�
 - 用户再次明确要求平滑悬停，按钮及 summary 的颜色/背景/透明度统一采用 180ms ease；保留原生圆角、尺寸和主题颜色，减少动态效果偏好关闭过渡。禁用控件允许指针反馈，保留 disabled 语义。
 - 暗色卡片改用 interactive-bg-hover，与未选中筛选按钮完全相同；亮色卡片保留现有底色。
 - 顶部入口从 header.actions 移至原生 header.utilities 的尾部，只显示 v8 Logo；保留 aria-label 和原生 Tooltip。项目图标复用 doc/assets/project-icon/v8/cliworker-now.png 原文件，object-fit:contain，不拉伸。侧栏标题 32px 图标槽，工具栏入口 28px 图标槽；各 CLI 品牌图不改变。
+
+
+## v0.3.8 白天模式悬停
+
+亮色 neutral resting fill 与 hover-solid 视觉近似，灰色筛选/返回按钮及禁用灰色控件的 hover 使用 interactive-bg-active。仅作用于 body:not([data-ds-dark-theme])；已选筛选按钮、发送按钮及暗色样式不变。实测未选中按钮默认 rgba(38,49,72,0.06)，真实 :hover 为 rgba(38,49,72,0.1)，180ms 过渡期间存在中间色。
