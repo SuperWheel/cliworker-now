@@ -11,7 +11,7 @@ export interface AccountStatus {
   accountLabel?: string
   /** A CLI status report or local session metadata, not a remote credential check. */
   verification?: 'cli' | 'local'
-  actions: { id: AccountAction; label: string; description: string }[]
+  actions: { id: AccountAction; label: string; description: string; target?: 'models' }[]
 }
 /** Ephemeral, user-operated terminal transport; never stored with worker events. */
 export interface AccountFrame {

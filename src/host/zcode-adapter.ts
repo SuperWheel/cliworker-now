@@ -11,6 +11,7 @@ import {
 } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { join, dirname } from 'node:path'
+import { homedir } from 'node:os'
 import { StringDecoder } from 'node:string_decoder'
 import { EFFORTS, type Effort, type ModelChoice, type TaskMode } from '../shared/types.ts'
 import type { EventInput, ProtocolResult } from './protocol.ts'
@@ -54,6 +55,23 @@ const record = (value: unknown): value is Record<string, any> =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
 const nonempty = (value: unknown): value is string => typeof value === 'string' && !!value.trim()
 
+/** Login and every worker share auth; sessions, logs and model choices stay isolated. */
+export function zcodeAuthDirectory(configured?: string, stateDirectory?: string): string {
+  return (
+    configured ??
+    join(
+      stateDirectory ?? join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'cliworker-now'),
+      'accounts',
+      'zcode',
+    )
+  )
+}
+
+/** A complete, version-controlled CLI can be deployed here without relying on /tmp. */
+export function managedZCodeEntry(home = homedir()): string {
+  return join(home, '.local/share/cliworker-now/runtimes/zcode/cli/zcode.cjs')
+}
+
 function builtinPath(executable: string, builtin?: string): string {
   const adjacent = join(dirname(executable), 'provider/zcode-builtin.json')
   const config =
@@ -80,7 +98,7 @@ export function zcodeEnvironment(executable: string, state: string, auth?: strin
     chmodSync(dir, 0o700)
   }
   return {
-    ZCODE_DATA_BASE_DIR: auth ?? state,
+    ZCODE_DATA_BASE_DIR: auth ?? zcodeAuthDirectory(),
     ZCODE_STORAGE_DIR: join(state, 'storage'),
     ZCODE_SESSION_DB_PATH: join(state, 'storage/session.sqlite'),
     ZCODE_LOG_DIR: join(state, 'logs'),

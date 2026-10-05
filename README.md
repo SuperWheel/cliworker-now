@@ -4,7 +4,7 @@ DeepSeek Harness 的多 CLI 实时侧栏插件，支持 Antigravity、Codex、Cl
 
 兼容基线：macOS、Harness **0.2.0-rc.2**、Antigravity CLI **1.2.16**、Node ≥22.19。
 
-新增六个 CLI 保留独立原生协议，复用项目偏好、两层任务树、停止与续聊。Grok 按用户要求只做离线验证，其真实任务/订阅可用性未验收；目录存在不代表账户可用。新增 CLI 的登录仍在原生 CLI 中管理，插件不调用未经验证的账号命令。
+新增六个 CLI 保留独立原生协议，复用项目偏好、两层任务树、停止与续聊。设置页已接入其账号管理：支持原生终端的 CLI 可在插件内打开账号终端，使用 Harness 凭据引用的 API 路由通过原生模型设置管理。Grok 的真实模型任务/订阅可用性仍未验收；模型目录或本地凭据存在不代表远端账号可用。
 
 新增适配器首版范围：
 
@@ -21,11 +21,29 @@ DeepSeek Harness 的多 CLI 实时侧栏插件，支持 Antigravity、Codex、Cl
 
 ZCode 显式禁用原生子代理、Skill、工作流调度、跨会话工具及 node_repl；原生 CLI 仍会加载用户的全局插件/MCP 配置，已获原生规则允许的 MCP 工具可能执行。无头模式只拒绝需要交互的审批请求，不能等同于关闭全部 MCP。插件不改写用户全局或项目配置。
 
-可通过插件配置设置 `zcodeExecutable`、`grokExecutable`、`ompExecutable`、`piExecutable`、`harnessExecutable`、`opencodeExecutable`。ZCode 的 `zcodeAuthDirectory` 指向已完成原生授权的独立目录，`zcodeBuiltinConfig` 可指向配套内置目录文件；账号目录在任务中只读，需刷新授权时由原生 CLI 完成。Pi 使用官方包 `@earendil-works/pi-coding-agent`，不依赖临时安装目录；本机已固定在私有 `~/.local/share/cliworker-now/runtimes/pi-1.0.2`。
+可通过插件配置设置 `zcodeExecutable`、`grokExecutable`、`ompExecutable`、`piExecutable`、`harnessExecutable`、`opencodeExecutable`。ZCode 的 `zcodeAuthDirectory` 可指定独立授权目录，默认在插件私有状态的 `accounts/zcode` 下，由设置页原生登录流程管理；`zcodeBuiltinConfig` 可指向配套内置目录文件。账号目录在任务中只读，需刷新授权时通过账号终端完成。Pi 使用官方包 `@earendil-works/pi-coding-agent`，不依赖临时安装目录；本机已固定在私有 `~/.local/share/cliworker-now/runtimes/pi-1.0.2`。
 
-若明确要复用 Harness 智谱凭据，设置 `zaiCredentialRef: ZAI_CODING_CN_API_KEY`。Host 每次通过原生 credentials 服务解析该引用，只向选定的 Pi/OMP/Harness/OpenCode 子进程注入对应环境变量；不把密钥存入插件偏好、argv 或页面。未设置时不自动读取其他账号。OMP 的 `cliworker-zai-cn` 是插件注册的隔离 Provider，不冒充原生内置 Provider。
+若明确要复用 Harness 智谱凭据，设置 `zaiCredentialRef: ZAI_CODING_CN_API_KEY`。Host 每次通过原生 credentials 服务解析该引用，只向选定的 Pi/OMP/Harness/OpenCode 子进程注入对应环境变量；不把密钥存入插件偏好、argv 或页面。不会自动复用其他 CLI 的账号；OpenCode 未设置引用时使用下述插件私有原生账号目录。OMP 的 `cliworker-zai-cn` 是插件注册的隔离 Provider，不冒充原生内置 Provider。
 
 验证说明：[ZCode](doc/zcode-probe.md)、[Grok](doc/grok-probe.md)、[Pi/OMP](doc/pi-omp-probe.md)、[Harness](doc/harness-probe.md)、[OpenCode](doc/opencode-probe.md)。`node --import tsx scripts/smoke-extended.ts --help` 查看真实适配器验收入口；`--catalog-only` 不发送模型任务。
+
+## v0.5.1 新增六个 CLI 的账号管理
+
+| CLI | 设置页入口与实际账号来源 |
+| --- | --- |
+| ZCode | 支持原生登录、退出和 TUI；账号保存在独立 `accounts/zcode` 目录，与 ZCode worker 共用。 |
+| Grok Build | 支持原生登录、退出和账号终端；沿用本机 Grok 账号，退出会影响其他使用同一账号的终端。 |
+| OMP、Pi | 可打开原生管理终端；当前插件任务使用智谱 CN API 路由，账号切换通过“配置 API 登录”进入 Harness 原生模型设置。原生 OAuth 不能替代该任务路由。 |
+| Harness | 0.2.0-rc.2 没有可用的原生 TUI；“配置 API 登录”和“原生设置”直接打开 Harness 原生模型设置。 |
+| OpenCode | 有 `zaiCredentialRef` 时由 Harness 管理智谱 CN API 凭据；无引用时支持原生登录、退出和账号终端，使用插件私有原生账号目录。 |
+
+OMP、Pi、Harness 以及有 `zaiCredentialRef` 的 OpenCode 使用同一个显式凭据引用。在插件中修改该引用对应的原生模型凭据，会同时影响使用它的 CLI；这些入口不提供会误导用户的独立退出操作。模型设置直接复用 Harness 的 `settings.section` 原生 `models` 页面。OpenCode 的有引用管理终端默认使用 `zhipuai-coding-plan/glm-5.3-flash`，与智谱 CN 路由一致；引用不可用时明确失败，不回落至其他原生账号。
+
+OpenCode 无引用模式的原生凭据位于 `<stateDirectory>/accounts/opencode/data/opencode/auth.json`，登录终端、worker 和模型目录共用这份账号；各自运行数据库、配置和缓存独立。原生 OAuth 刷新允许写入该共享账号目录，规划模式仍禁止写项目。关闭账号终端后删除该终端的临时运行目录，保留共享凭据和 worker 历史。
+
+未显式指定 `zcodeExecutable` 时，优先使用已安装的完整 CLI：`~/.local/share/cliworker-now/runtimes/zcode/cli/zcode.cjs`；不存在时回落到 `/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs`。插件会检查实际 `--help` 能力；若回落版本不支持 `login [zai|bigmodel]`，设置页会明确提示配置完整 CLI，不尝试不存在的登录命令。
+
+账号状态仅投影允许展示的摘要。`已配置` / `verification=local` 表示本地文件或凭据引用存在，不代表已通过远程登录、套餐或额度验证；不展示密钥、令牌或原始错误。账号终端由用户直接操作，与该 CLI 的活动任务互斥，关闭、取消或切换 CLI 会清理受管理的进程。
 
 ## v0.4.0 设置与账号管理
 

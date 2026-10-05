@@ -14,6 +14,20 @@ import {
   type AccountIdentitySource,
 } from './account-identity.ts'
 import { readCodexAccount } from './codex-account.ts'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import {
+  zcodeGrokAccountLaunch,
+  zcodeGrokAccountStatus,
+  zcodeGrokInstruction,
+  ZCodeAccountCapabilityError,
+} from './zcode-grok-accounts.ts'
+import {
+  readHarnessAccount,
+  readOpenCodeAccount,
+  prepareOpenCodeAccount,
+} from './harness-opencode-accounts.ts'
+import { preparePiOmpAccountTerminal } from './pi-omp-accounts.ts'
 
 const STATUS_TIMEOUT = 10_000
 const STARTUP_TIMEOUT = 30_000
@@ -27,6 +41,7 @@ const validateCli = (cli: CliId) => {
   if (!CLI_IDS.includes(cli)) throw new Error('不支持的 CLI')
 }
 const instructionFor = (cli: CliId, action: AccountAction): string => {
+  if (cli === 'zcode' || cli === 'grok') return zcodeGrokInstruction(cli, action)
   if (cli === 'antigravity')
     return action === 'manage'
       ? '在 Antigravity 原生终端中使用 /login 登录，或 /logout 退出。'
@@ -40,12 +55,35 @@ const instructionFor = (cli: CliId, action: AccountAction): string => {
     ? '按 CLI 原生提示完成登录；需要浏览器授权时由 CLI 打开浏览器。'
     : '按 CLI 原生流程退出登录；关闭终端不会恢复已退出的账号。'
 }
-const actionsFor = (cli: CliId): AccountStatus['actions'] =>
-  (isExtendedCli(cli) ? [] : ACTIONS).map((id) => ({
+const actionsFor = (cli: CliId, config: RuntimeConfig): AccountStatus['actions'] => {
+  if (cli === 'harness' || cli === 'pi' || cli === 'omp' || (cli === 'opencode' && config.zaiCredentialRef)) {
+    return [
+      {
+        id: 'login',
+        label: '配置 API 登录',
+        target: 'models',
+        description: '打开 Harness 原生模型设置，修改任务使用的智谱 API 凭据；共享此引用的 CLI 会一起生效。',
+      },
+      cli === 'harness'
+        ? {
+            id: 'manage',
+            label: '原生设置',
+            target: 'models',
+            description: '此版本 Harness 没有交互终端；使用原生模型设置管理账号。',
+          }
+        : {
+            id: 'manage',
+            label: '账号终端',
+            description: '打开使用同一 API 凭据的原生终端；切换账号请使用配置 API 登录。',
+          },
+    ]
+  }
+  return ACTIONS.map((id) => ({
     id,
     label: id === 'login' ? '登录 / 切换账号' : id === 'logout' ? '退出登录' : '账号终端',
     description: instructionFor(cli, id),
   }))
+}
 
 /** Only commands verified against the installed CLIs. Never send a prompt/slash command. */
 const argumentsFor = (cli: CliId, action: AccountAction): string[] => {
@@ -149,6 +187,7 @@ interface AccountSession {
   changed: Set<() => void>
   output: Promise<void>
   cleanup?: Promise<void>
+  release?: () => void | Promise<void>
   deadline?: ReturnType<typeof setTimeout>
   attachDeadline?: ReturnType<typeof setTimeout>
   expiry?: ReturnType<typeof setTimeout>
@@ -191,17 +230,24 @@ export class AccountManager {
       const executable = await abortable(resolveCliExecutable(cli, this.backend, this.config), control)
       installed = true
       control.throwIfAborted()
-      if (isExtendedCli(cli))
+      if (isExtendedCli(cli)) {
+        const identity = await abortable(
+          cli === 'zcode' || cli === 'grok'
+            ? zcodeGrokAccountStatus(cli, this.config, control)
+            : cli === 'opencode'
+              ? readOpenCodeAccount(this.config, control)
+              : readHarnessAccount(this.config, control),
+          control,
+        )
         return {
           cli,
           installed,
-          state: 'unknown',
-          summary:
-            cli === 'pi' || cli === 'omp' || cli === 'harness' || cli === 'opencode'
-              ? '使用独立 CLI 配置；智谱路由可通过插件凭据引用连接，未验证远端额度'
-              : '使用原生 CLI 账号；请在该 CLI 中管理登录',
-          actions: [],
+          ...identity,
+          actions: actionsFor(cli, this.config).filter(
+            (item) => item.target === 'models' || this.backend.spawnTerminal,
+          ),
         }
+      }
       if (cli === 'antigravity') {
         const identity = await abortable(this.identity(cli, control), control)
         return {
@@ -211,7 +257,7 @@ export class AccountManager {
             state: 'unknown' as const,
             summary: 'CLI 已安装；请在原生账号终端查看和管理登录',
           }),
-          actions: this.backend.spawnTerminal ? actionsFor(cli) : [],
+          actions: this.backend.spawnTerminal ? actionsFor(cli, this.config) : [],
         }
       }
       const argv =
@@ -256,7 +302,7 @@ export class AccountManager {
           cli,
           installed,
           ...status,
-          actions: this.backend.spawnTerminal ? actionsFor(cli) : [],
+          actions: this.backend.spawnTerminal ? actionsFor(cli, this.config) : [],
         }
       } finally {
         child.terminate()
@@ -273,7 +319,7 @@ export class AccountManager {
         summary: installed
           ? '账号状态暂不可用，可打开账号终端检查'
           : '无法找到或读取 CLI，请检查安装和可执行路径',
-        actions: installed && this.backend.spawnTerminal ? actionsFor(cli) : [],
+        actions: installed && this.backend.spawnTerminal ? actionsFor(cli, this.config) : [],
       }
     } finally {
       clearTimeout(timeout)
@@ -292,7 +338,9 @@ export class AccountManager {
     if (!parent || parent.length > 512) throw new Error('无效的父会话')
     this.controller.signal.throwIfAborted()
     signal.throwIfAborted()
-    if (isExtendedCli(cli)) throw new Error('此 CLI 请在原生终端管理账号；插件未验证其交互登录接口')
+    const capability = actionsFor(cli, this.config).find((item) => item.id === action)
+    if (!capability || capability.target === 'models')
+      throw new Error('此操作请在 Harness 原生模型设置中完成')
     if (!this.backend.spawnTerminal) throw new Error('当前宿主不支持交互终端')
     if (this.reserved.has(cli)) throw new Error('此 CLI 已有账号终端，请先关闭后重试')
     const directory = projectDirectory(cwd)
@@ -327,12 +375,49 @@ export class AccountManager {
     startup.addEventListener('abort', cancelAllocation, { once: true })
     let session: AccountSession | undefined
     let allocation: Promise<AccountSession> | undefined
+    let release: (() => void | Promise<void>) | undefined
+    let instruction = instructionFor(cli, action)
     try {
       const executable = await abortable(resolveCliExecutable(cli, this.backend, this.config), startup)
       startup.throwIfAborted()
-      allocation = this.backend.spawnTerminal!({
+      let launch: { argv: string[]; cwd: string; env?: Record<string, string> } = {
         argv: [executable, ...argumentsFor(cli, action)],
         cwd,
+      }
+      if (cli === 'zcode' || cli === 'grok') {
+        const prepared = await zcodeGrokAccountLaunch(
+          cli,
+          action,
+          executable,
+          this.config,
+          this.backend,
+          startup,
+        )
+        launch = prepared
+        instruction = prepared.instruction
+      } else if (cli === 'pi' || cli === 'omp') {
+        const prepared = await preparePiOmpAccountTerminal({
+          cli,
+          executable,
+          project: cwd,
+          stateDirectory:
+            this.config.stateDirectory ??
+            join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'cliworker-now'),
+          config: this.config,
+          signal: startup,
+        })
+        launch = prepared
+        instruction = prepared.instruction
+        release = prepared.cleanup
+      } else if (cli === 'opencode') {
+        const prepared = await prepareOpenCodeAccount(executable, action, this.config, startup)
+        launch = prepared
+        instruction = prepared.instruction
+        release = prepared.cleanup
+      }
+      startup.throwIfAborted()
+      allocation = this.backend.spawnTerminal!({
+        ...launch,
         rows: 24,
         cols: 80,
         terminalType: 'xterm-256color',
@@ -354,6 +439,7 @@ export class AccountManager {
             stopping: false,
             changed: new Set(),
             output: Promise.resolve(),
+            release,
           }
           this.sessions.set(session.id, session)
           this.emit(session, { status: 'running' })
@@ -367,8 +453,12 @@ export class AccountManager {
           }
           return session
         },
-        (error) => {
-          this.reserved.delete(cli)
+        async (error) => {
+          try {
+            await release?.()
+          } finally {
+            this.reserved.delete(cli)
+          }
           throw error
         },
       )
@@ -401,15 +491,22 @@ export class AccountManager {
           () => this.finish(published, 'failed', '账号终端连接失败，请重新打开'),
         )
         .catch(() => undefined)
-      return { id: session.id, instruction: instructionFor(cli, action) }
+      return { id: session.id, instruction }
     } catch (error) {
       // An allocation still in flight may own a process already; never permit a
       // second login until its late handle/rejection establishes cleanup.
-      if (!session && !allocation) this.reserved.delete(cli)
+      if (!session && !allocation) {
+        try {
+          await release?.()
+        } finally {
+          this.reserved.delete(cli)
+        }
+      }
       if (session && startup.aborted && !session.cleanup)
         await this.finish(session, 'closed', '启动已取消').catch(() => undefined)
       if (error instanceof Error && error.message === '此 CLI 已有账号终端，请先关闭后重试') throw error
       if (timeout.signal.aborted) throw new Error('账号终端启动超时，正在回收启动过程；请稍后重试')
+      if (error instanceof ZCodeAccountCapabilityError) throw error
       throw new Error(
         session || startup.aborted
           ? '账号终端启动已取消或清理失败，请关闭设置后重试'
@@ -568,6 +665,7 @@ export class AccountManager {
       try {
         await session.terminal.terminate()
         await session.output
+        await session.release?.()
         session.state = state
         this.emit(session, { status: state, message })
         this.reserved.delete(session.cli)

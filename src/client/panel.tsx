@@ -19,6 +19,8 @@ import { CopyText } from './copy-text.tsx'
 import { BrandIcon, Glyph } from './icons.tsx'
 import { WorkerModelMenu } from './worker-model-menu.tsx'
 import { SettingsDialog } from './settings-dialog.tsx'
+import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 
 const status: Record<WorkerStatus, string> = {
   queued: '排队中',
@@ -28,7 +30,7 @@ const status: Record<WorkerStatus, string> = {
   failed: '失败',
   interrupted: '已中断',
 }
-interface PanelProps {
+interface PanelProps extends PropsRenderSlots<'settings.section'> {
   sessionId: string
   api: API
 }
@@ -50,6 +52,7 @@ export function Panel(props: PanelProps) {
 function SessionPanel({
   sessionId,
   api,
+  renderSlot,
   drafts,
   editDraft,
   clearSubmitted,
@@ -265,6 +268,7 @@ function SessionPanel({
         )}
       </header>
       <SettingsDialog
+        renderModels={(close) => renderSlot('settings.section', { close }, { only: 'models' })}
         open={settings}
         onClose={() => setSettings(false)}
         api={api}

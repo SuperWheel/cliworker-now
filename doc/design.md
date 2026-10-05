@@ -248,3 +248,17 @@ v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的�
 macOS外层沙箱限制项目/运行状态写入；Harness例外使用自身工具文件门禁和进程沙箱，禁止danger-full-access，因双层Seatbelt会让原生Bash沙箱失败。Pi/OMP首版工具限读取/搜索/文件编辑。所有解析器检查会话身份、完整终态和失败工具；退出0不足以证明完成。清理继续由Harness原生terminal descendant ownership负责，未达到进程范围静止不报告已停止。
 
 ZCode 使用原生精确工具名 denylist 禁止子代理、Skill、工作流及跨会话调度和 node_repl，不硬编码个人 MCP 名单。该版本 CLI 没有独立 runtime 配置入口，仍会加载全局插件/MCP；原生允许的 MCP 可以执行（plan 甚至可能直接允许未标注破坏性的工具），无头 broker 仅拒绝 ask 分支。不能把外层文件沙箱描述为网络/MCP隔离，亦不修改用户配置来伪造隔离。
+
+## v0.5.1 六个扩展 CLI 的账号来源与原生设置
+
+账号管理按已安装 CLI 的真实能力分流。ZCode、Grok、OMP、Pi、OpenCode 可打开用户操作的原生终端；Harness 0.2.0-rc.2 未提供原生 TUI，空参数不是账号终端，因此不伪造该入口。Host 返回的账号动作可带 `target: models`；Client 对此直接呈现 Harness 原生模型页面，不调用 `accountStart`。Panel 在 slot 注册中声明根作用域 `settings.section` 子槽，以 `renderSlot('settings.section', { close }, { only: 'models' })` 复用原生控件、验证和凭据存储。
+
+当前 Pi/OMP/Harness 任务使用智谱 CN API 路由；有 `zaiCredentialRef` 的 OpenCode 同样使用该显式 Harness 引用。登录配置与切换账号在上述原生模型页面完成，同一引用对应的修改影响所有复用它的 CLI。Host 每次经 credentials 服务解析后，仅向选定子进程的环境注入密钥，不写入 argv、插件模型偏好或账号状态响应。这些路由不提供独立原生退出操作，避免删除某份原生账号后仍自动沿用引用造成误解。Pi/OMP 的管理终端不将原生 OAuth 当成当前 API 路由的替代来源；其临时运行目录与任务数据独立，结束后清理。
+
+OpenCode 的两种来源严格区分：有引用时设置 `OPENCODE_AUTH_CONTENT={}`，屏蔽无关原生凭据回落；引用读取失败即失败。其管理终端的 `model` 与 `small_model` 为 `zhipuai-coding-plan/glm-5.3-flash`，`enabled_providers` 限定为 `zhipuai-coding-plan`，避免默认进入国际 Z.AI 路由。无引用时，登录、退出、管理终端、目录查询与 worker 共用 `<stateDirectory>/accounts/opencode/data` 作为 `XDG_DATA_HOME`，原生账号文件为其下的 `opencode/auth.json`；不复制或覆盖用户全局 OpenCode 账号。数据库、配置、缓存和临时目录仍按运行隔离。该模式允许原生内置 OAuth 钩子刷新账号，外部插件继续禁用；沙箱仅额外允许私有共享账号目录写入，不开放规划模式的项目写权限。
+
+OpenCode 账号准备在分配临时运行目录前执行可取消的凭据解析；准备失败、启动取消或账号进程范围退出后，清理本次终端目录。清理验证目录身份，不跟随内部软链接，不删除共享账号目录或其他 worker 数据。共享 OAuth 状态可能由原生进程刷新，不在另一个会话运行时对共享树执行权限遍历。原生账号文件的读取有 64KiB 上限、拒绝软链接及硬链接文件，仅投影本地 API/OAuth 配置类型，不能据此声称远程认证成功。
+
+ZCode 未显式配置 executable 时，优先采用已安装的完整入口 `~/.local/share/cliworker-now/runtimes/zcode/cli/zcode.cjs`，否则回落到桌面内置 `/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs`。相同版本号不能证明能力一致，账号终端启动前读取实际 `--help` 检查 `login [zai|bigmodel]`；缺少该能力时返回固定中文安装提示。完整 CLI 的登录使用 `login bigmodel`、退出使用 `logout`、管理使用 `tui`，不向终端自动输入斜杠指令。默认授权目录为 `<stateDirectory>/accounts/zcode`，也可由 `zcodeAuthDirectory` 指定；设置与 worker/catalog 共用此来源，避免登录成功但任务读取另一份账号。Grok 沿用本机 `~/.grok` 账号，原生退出影响其他共享该账号的使用方。
+
+六个 CLI 的状态查询只投影允许展示的摘要；本地文件存在、引用可解析或 `configured` / `verification=local` 不等于远程登录、订阅权益或额度有效。该说明通过状态来源提示呈现，不返回凭据内容、API key 前缀或原始异常。账号任务仍遵循 CLI 启用状态、宿主执行权限、取消、同 CLI worker/账号互斥和进程范围清理；本小节描述实现契约，实际验收记录单独写入 `doc/tasks.md`。

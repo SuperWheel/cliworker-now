@@ -396,3 +396,15 @@
 - [x] ZCode明确禁用原生子代理、Skill、工作流/跨会话调度及node_repl。源码与无模型调用反证确认：CLI仍加载用户全局插件/MCP，plan可直接允许未标注破坏性的MCP，edit显式授权也可放行；无头broker仅拒绝ask分支。文档和目录提示保留这一实际边界，不声称完全MCP隔离。
 - [x] 最终隔离回归：18文件249项测试、Host与Client类型检查通过；build:preview成功，逐文件哈希确认预览src与最终源码一致。新增测试包含分流协议、原生目录、权限拒绝、取消、状态迁移、凭据引用、并发查询、软硬链接边界；真实停止证据沿用前述原生探针，不追加未授权Grok调用。
 - [x] 与 v0.4.3 界面修改完成三方合并，保留其他图标归档改动；主目录18文件271项测试、类型检查、隔离构建、正式构建和pack通过。安装包 artifacts/dsh-cliworker-now-0.5.0.tgz 核验142项，桥脚本齐全且无私有运行数据。更新前Desktop活动worker=0；仅添加本插件智谱凭据引用/ZCode独立目录，其他配置未变。Desktop重启后11个CLI导航与Pi原生目录查询可用，未启动新模型任务或保存偏好。
+
+## v0.5.1 — 六个新增 CLI 的账号入口修复（2026-10-05）
+
+- [x] 根因：扩展 CLI 的任务协议已接入，但 AccountManager 仍统一返回空 actions 并拒绝启动账号终端。移除此占位限制，按真实能力分流。
+- [x] ZCode/Grok 使用经原生 help 核验的登录、退出及管理入口；ZCode 完整 0.16.9 离线运行时安装到稳定 managed 路径，3424 文件 SHA256 校验、75包、零符号链接，实际 import TUI 通过。账号与 worker/catalog 共享同一指定来源。
+- [x] Pi/OMP/Harness 和有 zaiCredentialRef 的 OpenCode 复用原生 settings.section/models；不伪造独立 OAuth 登录或无效退出。Harness 本版无 TUI，管理入口为原生设置。账号状态只显示本地配置事实，不伪称远程验证成功。
+- [x] Pi/OMP/OpenCode 原生管理 TUI 沿用同一 API 来源；OpenCode CN模式固定已验证提供商/模型，无ref则使用私有共享原生账号。独立临时目录在失败、取消、进程退出后清理；账号刷新失败不会让已开的原生设置误切成终端。
+- [x] 实际隔离页面打开 Harness 原生模型设置；Pi、ZCode、OMP、OpenCode TUI 均已目视确认。OMP首次向导与全局MCP自动发现已修正；无网络、模拟凭据的原生PTY复验确认无向导、无MCP连接、模型可见、0模型任务、最终进程范围为空。证据 `.test-data/omp-account-native-probe/tui-report.json`。
+- [x] ZCode/Grok账号终端通过私有launcher使用umask077；在父进程umask022的实际模拟子进程验证中，新目录0700、新文件0600。
+- [x] 未执行真实登录/注销或提交凭据，未发送模型任务。Grok 保持离线命令与协议验证范围，没有进行付费/订阅调用。
+- [x] 全套21文件331项测试通过，Host/Client 类型检查、隔离构建、正式构建和pack通过；Desktop更新前活动worker=0。
+- [ ] Desktop 最终界面验收：Mac锁定，已请求解锁；正式链接产物已更新，Host仍需重启加载账号逻辑。

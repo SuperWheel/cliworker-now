@@ -17,9 +17,14 @@ import {
 import { join } from 'node:path'
 import type { CliId, Preference, TaskMode, ModelChoice } from '../shared/types.ts'
 import type { RuntimeConfig } from './process.ts'
-import { prepareZCode, discoverZCode } from './zcode-adapter.ts'
+import { prepareZCode, discoverZCode, zcodeAuthDirectory } from './zcode-adapter.ts'
 import { preparePiOmp, discoverPiOmp } from './pi-omp-adapter.ts'
-import { prepareOpenCode, discoverOpenCode } from './opencode-adapter.ts'
+import {
+  prepareOpenCode,
+  discoverOpenCode,
+  openCodeAuthDirectory,
+  openCodeCredentialEnvironment,
+} from './opencode-adapter.ts'
 import { prepareHarness, discoverHarness } from './harness-adapter.ts'
 import { prepareGrok, discoverGrok } from './grok-adapter.ts'
 
@@ -87,10 +92,11 @@ export async function credentialEnvironment(
   cli: CliId,
   config: RuntimeConfig,
 ): Promise<Record<string, string>> {
-  if (!['pi', 'omp', 'opencode', 'harness'].includes(cli) || !config.zaiCredentialRef) return {}
+  if (cli === 'opencode') return openCodeCredentialEnvironment(config)
+  if (!['pi', 'omp', 'harness'].includes(cli) || !config.zaiCredentialRef) return {}
   const key = await config.resolveCredential?.(config.zaiCredentialRef)
   if (!key) return {}
-  return cli === 'opencode' ? { ZHIPU_API_KEY: key } : { ZAI_CODING_CN_API_KEY: key }
+  return { ZAI_CODING_CN_API_KEY: key }
 }
 /** The new adapters need writable private state even for a read-only project. */
 export function confineExtended(
@@ -99,10 +105,12 @@ export function confineExtended(
   project: string,
   mode: TaskMode,
   temporary?: string,
+  authDirectory?: string,
 ): string[] {
   if (process.platform !== 'darwin') throw new Error('这些新增 CLI 当前仅验收 macOS 沙箱；本平台暂不能运行')
   const roots = [
     realpathSync(state),
+    ...(authDirectory ? [realpathSync(authDirectory)] : []),
     ...(temporary ? [realpathSync(temporary)] : []),
     ...(mode === 'accept-edits' ? [realpathSync(project)] : []),
   ]
@@ -126,13 +134,17 @@ export async function extendedLaunch(
     cli === 'zcode'
       ? await prepareZCode({
           ...input,
-          authDirectory: config.zcodeAuthDirectory,
+          authDirectory: zcodeAuthDirectory(config.zcodeAuthDirectory, config.stateDirectory),
           builtinConfig: config.zcodeBuiltinConfig,
         })
       : cli === 'pi' || cli === 'omp'
         ? await preparePiOmp({ ...input, cli })
         : cli === 'opencode'
-          ? await prepareOpenCode(input)
+          ? await prepareOpenCode({
+              ...input,
+              authDirectory: openCodeAuthDirectory(config.stateDirectory),
+              managedCredentials: !!config.zaiCredentialRef,
+            })
           : cli === 'harness'
             ? await prepareHarness(input)
             : cli === 'grok'
@@ -155,7 +167,14 @@ export async function extendedLaunch(
       argv:
         cli === 'harness'
           ? privateArgv(launch.argv)
-          : confineExtended(privateArgv(launch.argv), state, project, mode, temporary),
+          : confineExtended(
+              privateArgv(launch.argv),
+              state,
+              project,
+              mode,
+              temporary,
+              cli === 'opencode' ? openCodeAuthDirectory(config.stateDirectory) : undefined,
+            ),
       env,
       cleanup: () => {
         try {
@@ -187,7 +206,14 @@ export async function extendedCatalog(
       return await capture(
         cli === 'harness'
           ? privateArgv(argv)
-          : confineExtended(privateArgv(argv), state, state, 'plan', temporary),
+          : confineExtended(
+              privateArgv(argv),
+              state,
+              state,
+              'plan',
+              temporary,
+              cli === 'opencode' ? openCodeAuthDirectory(config.stateDirectory ?? stateDirectory) : undefined,
+            ),
         { ...env, ...creds, ...(temporary ? { TMPDIR: temporary } : {}), ELECTRON_RUN_AS_NODE: '1' },
       )
     } finally {
@@ -196,11 +222,23 @@ export async function extendedCatalog(
   }
   const models =
     cli === 'zcode'
-      ? await discoverZCode(executable, run, state, config.zcodeAuthDirectory, config.zcodeBuiltinConfig)
+      ? await discoverZCode(
+          executable,
+          run,
+          state,
+          zcodeAuthDirectory(config.zcodeAuthDirectory, config.stateDirectory ?? stateDirectory),
+          config.zcodeBuiltinConfig,
+        )
       : cli === 'pi' || cli === 'omp'
         ? await discoverPiOmp(cli, executable, run, state)
         : cli === 'opencode'
-          ? await discoverOpenCode(executable, run, state)
+          ? await discoverOpenCode(
+              executable,
+              run,
+              state,
+              openCodeAuthDirectory(config.stateDirectory ?? stateDirectory),
+              !!config.zaiCredentialRef,
+            )
           : cli === 'harness'
             ? await discoverHarness(executable, run, state)
             : cli === 'grok'

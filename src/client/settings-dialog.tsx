@@ -30,6 +30,7 @@ interface SettingsDialogProps {
   api: API
   sessionId: string
   initialCli: CliId
+  renderModels?: (close: () => void) => ReactNode
 }
 interface Catalog {
   cli: CliId
@@ -90,7 +91,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
   // Closing unmounts pending requests and the user-operated account terminal.
   return props.open ? <OpenSettingsDialog {...props} /> : null
 }
-function OpenSettingsDialog({ onClose, api, sessionId, initialCli }: SettingsDialogProps) {
+function OpenSettingsDialog({ onClose, api, sessionId, initialCli, renderModels }: SettingsDialogProps) {
   const [cli, setCli] = useState(initialCli)
   const [enabled, setEnabled] = useState<Enabled>()
   const [order, setOrder] = useState<readonly CliId[]>(CLI_IDS)
@@ -241,6 +242,7 @@ function OpenSettingsDialog({ onClose, api, sessionId, initialCli }: SettingsDia
           })}
         </nav>
         <CliSettings
+          renderModels={renderModels}
           key={`${sessionId}:${cli}`}
           api={api}
           sessionId={sessionId}
@@ -406,6 +408,7 @@ function AccountSummary({
   )
 }
 function CliSettings({
+  renderModels,
   api,
   sessionId,
   cli,
@@ -419,6 +422,7 @@ function CliSettings({
   settingsError,
   toggleError,
 }: {
+  renderModels?: (close: () => void) => ReactNode
   api: API
   sessionId: string
   cli: CliId
@@ -442,6 +446,7 @@ function CliSettings({
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState<Preference['effort']>('default')
   const [action, setAction] = useState<AccountAction>()
+  const [chosenAction, setChosenAction] = useState<AccountStatus['actions'][number]>()
   const saveController = useRef<AbortController>()
   useEffect(() => () => saveController.current?.abort(), [])
   useEffect(() => {
@@ -521,9 +526,14 @@ function CliSettings({
     onRefreshAccount()
     refreshModels((n) => n + 1)
   }
+  const closeAccount = () => {
+    setAction(undefined)
+    if (chosenAction?.target === 'models') finishedAccountAction()
+  }
   const accountAction = (id: AccountAction) => {
     const item = account?.data?.actions.find((candidate) => candidate.id === id)
-    const label = id === 'logout' ? '退出登录' : id === 'manage' ? '账号终端' : '登录 / 切换账号'
+    const label =
+      item?.label ?? (id === 'logout' ? '退出登录' : id === 'manage' ? '账号终端' : '登录 / 切换账号')
     return (
       <Tooltip label={item?.description || label} side="top" portal>
         <Button
@@ -538,9 +548,19 @@ function CliSettings({
                 : 'cwn-account-login-action'
           }
           aria-label={label}
-          disabled={inactive || accountLoading || !!account?.error || !!action || !item}
+          disabled={
+            inactive ||
+            accountLoading ||
+            !!account?.error ||
+            !!action ||
+            !item ||
+            (item.target === 'models' && !renderModels)
+          }
           onClick={() => {
-            if (!inactive && item) setAction(item.id)
+            if (!inactive && item) {
+              setChosenAction(item)
+              setAction(item.id)
+            }
           }}
         >
           {id === 'logout' ? (
@@ -548,6 +568,8 @@ function CliSettings({
               <Glyph name="logout" />
               退出
             </>
+          ) : item?.target === 'models' ? (
+            label
           ) : id === 'manage' ? (
             <>
               <Glyph name="tool" />
@@ -627,20 +649,29 @@ function CliSettings({
         {action && enabled && (
           <Modal
             open
-            onClose={() => setAction(undefined)}
-            title={`${CLI_LABELS[cli]} · ${action === 'login' ? '登录 / 切换账号' : action === 'logout' ? '退出登录' : '账号终端'}`}
+            onClose={closeAccount}
+            title={`${CLI_LABELS[cli]} · ${chosenAction?.label ?? '账号终端'}`}
             closeLabel="关闭账号操作"
             className="cwn-account-dialog"
             contentClassName="cwn-account-dialog-content"
           >
-            <AccountTerminal
-              api={api}
-              sessionId={sessionId}
-              cli={cli}
-              action={action}
-              onClose={() => setAction(undefined)}
-              onFinished={finishedAccountAction}
-            />
+            {chosenAction?.target === 'models' ? (
+              <div className="cwn-native-model-settings">
+                <p>
+                  当前任务使用 Harness 中「zai-coding-cn」提供商的 API 凭据。修改会对共享此凭据的 CLI 生效。
+                </p>
+                {renderModels?.(closeAccount)}
+              </div>
+            ) : (
+              <AccountTerminal
+                api={api}
+                sessionId={sessionId}
+                cli={cli}
+                action={action}
+                onClose={() => setAction(undefined)}
+                onFinished={finishedAccountAction}
+              />
+            )}
           </Modal>
         )}
       </section>

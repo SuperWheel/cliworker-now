@@ -15,6 +15,10 @@ export interface OpenCodeInput {
   prompt: string
   conversationId?: string
   stateDirectory: string
+  /** Stable private XDG data root shared with account login, not worker databases. */
+  authDirectory?: string
+  /** Host-managed API references must not silently fall back to native credentials. */
+  managedCredentials?: boolean
 }
 type Capture = (argv: string[], env?: Record<string, string>) => Promise<string>
 const object = (value: unknown): value is Record<string, any> =>
@@ -22,11 +26,45 @@ const object = (value: unknown): value is Record<string, any> =>
 const modelID = (id: string) => /^[A-Za-z0-9_.:-]+\/[^\s\x00-\x1f]+$/.test(id)
 const sessionID = (id: string) => /^ses_[A-Za-z0-9]+$/.test(id)
 
-/** Credentials remain the Host's responsibility; this only isolates native state. */
-async function environment(stateDirectory: string, config: Record<string, unknown>) {
-  if (!isAbsolute(stateDirectory)) throw new Error('OpenCode stateDirectory must be absolute')
+export interface OpenCodeCredentialConfig {
+  zaiCredentialRef?: string
+  resolveCredential?: (ref: string) => Promise<string | undefined>
+}
+/** Managed refs are an explicit source, never a fallback to unrelated native auth. */
+export async function openCodeCredentialEnvironment(
+  config: OpenCodeCredentialConfig,
+): Promise<Record<string, string>> {
+  if (!config.zaiCredentialRef) return {}
+  let key: string | undefined
+  try {
+    key = await config.resolveCredential?.(config.zaiCredentialRef)
+  } catch {
+    throw new Error('OpenCode 的 Harness 凭据引用不可用，请在原生模型设置中配置')
+  }
+  if (!key) throw new Error('OpenCode 的 Harness 凭据引用不可用，请在原生模型设置中配置')
+  return { ZHIPU_API_KEY: key }
+}
+
+export function openCodeAuthDirectory(stateDirectory?: string): string {
+  return join(
+    stateDirectory ?? join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'cliworker-now'),
+    'accounts',
+    'opencode',
+    'data',
+  )
+}
+
+/** Only the auth data root is shared; each process keeps its own DB/config/cache. */
+export async function openCodeEnvironment(
+  stateDirectory: string,
+  config: Record<string, unknown>,
+  authDirectory = join(stateDirectory, 'data'),
+  managedCredentials = false,
+) {
+  if (!isAbsolute(stateDirectory) || !isAbsolute(authDirectory))
+    throw new Error('OpenCode state and auth directories must be absolute')
   const paths = ['config', 'data', 'cache', 'state', 'tmp'].map((name) => join(stateDirectory, name))
-  for (const path of [stateDirectory, ...paths]) {
+  for (const path of [stateDirectory, ...paths, authDirectory, join(authDirectory, 'opencode')]) {
     await mkdir(path, { recursive: true, mode: 0o700 })
     const info = await lstat(path)
     if (!info.isDirectory() || info.isSymbolicLink())
@@ -45,7 +83,7 @@ async function environment(stateDirectory: string, config: Record<string, unknow
   const nativeModels = join(homedir(), '.cache', 'opencode', 'models.json')
   return {
     XDG_CONFIG_HOME: paths[0]!,
-    XDG_DATA_HOME: paths[1]!,
+    XDG_DATA_HOME: authDirectory,
     XDG_CACHE_HOME: paths[2]!,
     XDG_STATE_HOME: paths[3]!,
     TMPDIR: paths[4]!,
@@ -67,7 +105,10 @@ async function environment(stateDirectory: string, config: Record<string, unknow
     OPENCODE_DISABLE_AUTOUPDATE: '1',
     OPENCODE_DISABLE_PRUNE: '1',
     OPENCODE_DISABLE_SHARE: '1',
-    OPENCODE_DISABLE_DEFAULT_PLUGINS: '1',
+    // Native OAuth refresh hooks are built-ins. External plugins remain disabled.
+    OPENCODE_DISABLE_DEFAULT_PLUGINS: managedCredentials ? '1' : '0',
+    // Clear inherited overrides; native mode reads the same private auth.json as login.
+    OPENCODE_AUTH_CONTENT: managedCredentials ? '{}' : '',
     OPENCODE_DISABLE_PROJECT_CONFIG: '1',
     OPENCODE_DISABLE_CLAUDE_CODE: '1',
     OPENCODE_DISABLE_EXTERNAL_SKILLS: '1',
@@ -88,23 +129,28 @@ export async function prepareOpenCode(
   if (!isAbsolute(project) || !prompt.trim()) throw new Error('OpenCode requires a project and prompt')
   if (mode !== 'plan' && mode !== 'accept-edits') throw new Error('Unsupported OpenCode task mode')
   if (conversationId && !sessionID(conversationId)) throw new Error('Invalid native OpenCode session ID')
-  const env = await environment(stateDirectory, {
-    model: preference.model,
-    small_model: preference.model,
-    enabled_providers: [preference.model.split('/')[0]],
-    permission: {
-      '*': 'ask',
-      read: 'allow',
-      glob: 'allow',
-      grep: 'allow',
-      list: 'allow',
-      edit: mode === 'plan' ? 'deny' : 'allow',
-      bash: mode === 'plan' ? 'deny' : 'ask',
-      task: 'deny',
-      skill: 'deny',
-      question: 'deny',
+  const env = await openCodeEnvironment(
+    stateDirectory,
+    {
+      model: preference.model,
+      small_model: preference.model,
+      enabled_providers: [preference.model.split('/')[0]],
+      permission: {
+        '*': 'ask',
+        read: 'allow',
+        glob: 'allow',
+        grep: 'allow',
+        list: 'allow',
+        edit: mode === 'plan' ? 'deny' : 'allow',
+        bash: mode === 'plan' ? 'deny' : 'ask',
+        task: 'deny',
+        skill: 'deny',
+        question: 'deny',
+      },
     },
-  })
+    input.authDirectory,
+    input.managedCredentials,
+  )
   return {
     argv: [
       executable,
@@ -180,8 +226,15 @@ export async function discoverOpenCode(
   executable: string,
   capture: Capture,
   stateDirectory: string,
+  authDirectory?: string,
+  managedCredentials = false,
 ): Promise<ModelChoice[]> {
-  const env = await environment(stateDirectory, { permission: { '*': 'deny' } })
+  const env = await openCodeEnvironment(
+    stateDirectory,
+    { permission: { '*': 'deny' } },
+    authDirectory,
+    managedCredentials,
+  )
   const models = parseOpenCodeModels(await capture([executable, 'models', '--verbose'], env))
   if (!models.length) throw new Error('OpenCode did not return any native models')
   return models

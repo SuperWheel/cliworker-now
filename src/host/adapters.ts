@@ -1,5 +1,5 @@
 import { extendedCatalog, isExtendedCli } from './extended-adapters.ts'
-import { ZCodeProtocol } from './zcode-adapter.ts'
+import { ZCodeProtocol, managedZCodeEntry } from './zcode-adapter.ts'
 import { HarnessProtocol } from './harness-adapter.ts'
 import { GrokProtocol } from './grok-adapter.ts'
 import { OpenCodeProtocol } from './opencode-adapter.ts'
@@ -30,7 +30,10 @@ export const executableFor = (cli: CliId, config: RuntimeConfig): string => {
   if (cli === 'antigravity') return config.executable
   const configured = config[`${cli}Executable`]
   if (configured && configured !== cli) return configured
-  if (cli === 'zcode') return '/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs'
+  if (cli === 'zcode')
+    return existsSync(managedZCodeEntry())
+      ? managedZCodeEntry()
+      : '/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs'
   if (cli === 'grok') return join(homedir(), '.grok/bin/grok')
   if (cli === 'pi') {
     const managed = join(
@@ -106,7 +109,7 @@ export async function catalogFor(
       cli,
       executable,
       (argv, env) => capture(backend, config, argv, cwd, signal, env),
-      config.stateDirectory ?? join(homedir(), '.dsh/cliworker-now'),
+      config.stateDirectory ?? join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'cliworker-now'),
       config,
     )
     if (!models.length) throw new Error(`${CLI_LABELS[cli]} 未返回可选模型，请检查原生安装与凭据配置`)

@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PassThrough, Readable, Writable } from 'node:stream'
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type {
   SubprocessHandle,
   SubprocessOutcome,
@@ -10,7 +11,7 @@ import type {
   SubprocessTerminalSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import { AccountManager } from '../src/host/accounts.ts'
-import { DEFAULT_CONFIG, type ProcessBackend } from '../src/host/process.ts'
+import { DEFAULT_CONFIG, type ProcessBackend, type RuntimeConfig } from '../src/host/process.ts'
 import type { CliId } from '../src/shared/types.ts'
 import type { AccountIdentitySource } from '../src/host/account-identity.ts'
 
@@ -31,7 +32,7 @@ function deferred<T>() {
   })
   return { promise, resolve, reject }
 }
-function fixture() {
+function fixture(overrides: Partial<RuntimeConfig> = {}) {
   const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'cwn-account-test-')))
   roots.push(cwd)
   const output = new PassThrough()
@@ -90,10 +91,23 @@ function fixture() {
     }),
   }
   const identity = vi.fn<AccountIdentitySource>(async () => undefined)
-  const manager = new AccountManager(backend, DEFAULT_CONFIG, identity)
+  const config: RuntimeConfig = {
+    ...DEFAULT_CONFIG,
+    stateDirectory: join(cwd, 'state'),
+    zcodeAuthDirectory: join(cwd, 'zcode-auth'),
+    zcodeExecutable: '/synthetic/zcode.cjs',
+    grokExecutable: '/synthetic/grok',
+    ompExecutable: '/synthetic/omp',
+    piExecutable: '/synthetic/pi.js',
+    harnessExecutable: '/synthetic/harness',
+    opencodeExecutable: '/synthetic/opencode',
+    ...overrides,
+  }
+  const manager = new AccountManager(backend, config, identity)
   managers.push(manager)
   return {
     cwd,
+    config,
     manager,
     identity,
     backend,
@@ -586,4 +600,160 @@ describe('user-operated account terminals (synthetic PTY)', () => {
     expect(frames.at(-1)).toMatchObject({ status: 'closed', message: expect.stringContaining('未连接') })
     expect(f.manager.isBusy('codex')).toBe(false)
   })
+})
+
+describe('extended CLI account capabilities (synthetic credentials and PTYs)', () => {
+  it('offers account actions for all six extended CLIs without starting any login process', async () => {
+    const f = fixture()
+    for (const cli of ['zcode', 'grok', 'omp', 'pi', 'harness', 'opencode'] as const) {
+      const account = await f.manager.status(cli, f.cwd, f.signal)
+      expect(account.installed).toBe(true)
+      expect(account.actions.map((item) => item.id)).toContain('login')
+      expect(account.actions.map((item) => item.id)).toContain('manage')
+      expect(account.state).not.toBe('authenticated')
+    }
+    expect(f.backend.spawn).not.toHaveBeenCalled()
+    expect(f.backend.spawnTerminal).not.toHaveBeenCalled()
+  })
+
+  it.each(['pi', 'omp', 'harness', 'opencode'] as const)(
+    '%s sends shared API login to native models and never exposes fake logout or credential values',
+    async (cli) => {
+      const resolveCredential = vi.fn(async () => 'SYNTHETIC_ACCOUNT_KEY_NOT_FOR_DISPLAY')
+      const f = fixture({ zaiCredentialRef: 'synthetic-host-ref', resolveCredential })
+      const account = await f.manager.status(cli, f.cwd, f.signal)
+      expect(resolveCredential).toHaveBeenCalledExactlyOnceWith('synthetic-host-ref')
+      expect(account).toMatchObject({ state: 'configured', authMethod: 'api', verification: 'local' })
+      expect(account.actions.find((item) => item.id === 'login')).toMatchObject({ target: 'models' })
+      expect(account.actions.some((item) => item.id === 'logout')).toBe(false)
+      expect(JSON.stringify(account)).not.toContain('SYNTHETIC_ACCOUNT_KEY')
+      expect(() => f.manager.start('p', cli, 'login', f.cwd, f.signal)).toThrow('原生模型设置')
+      expect(() => f.manager.start('p', cli, 'logout', f.cwd, f.signal)).toThrow('原生模型设置')
+      expect(f.manager.isBusy(cli)).toBe(false)
+      expect(f.backend.spawnTerminal).not.toHaveBeenCalled()
+    },
+  )
+
+  it('keeps Harness login and management available through native models without a PTY backend', async () => {
+    const f = fixture({ zaiCredentialRef: 'synthetic-host-ref', resolveCredential: async () => undefined })
+    f.backend.spawnTerminal = undefined
+    const account = await f.manager.status('harness', f.cwd, f.signal)
+    expect(account.state).toBe('unauthenticated')
+    expect(account.actions.map(({ id, target }) => ({ id, target }))).toEqual([
+      { id: 'login', target: 'models' },
+      { id: 'manage', target: 'models' },
+    ])
+    expect(() => f.manager.start('p', 'harness', 'manage', f.cwd, f.signal)).toThrow('原生模型设置')
+    expect(f.backend.spawn).not.toHaveBeenCalled()
+  })
+
+  it.each(['pi', 'omp', 'harness'] as const)(
+    '%s without a Host credential reference still offers the actual configuration entry',
+    async (cli) => {
+      const f = fixture()
+      const account = await f.manager.status(cli, f.cwd, f.signal)
+      expect(account.state).toBe('unauthenticated')
+      expect(account.actions.find((item) => item.id === 'login')?.target).toBe('models')
+      expect(account.actions.some((item) => item.id === 'logout')).toBe(false)
+      expect(f.backend.spawnTerminal).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(['login', 'manage'] as const)(
+    'Grok %s uses its native argv and shared account path',
+    async (action) => {
+      const f = fixture()
+      const opened = await f.manager.start('p', 'grok', action, f.cwd, f.signal)
+      const spec = vi.mocked(f.backend.spawnTerminal!).mock.calls[0]![0]
+      expect(spec.argv).toEqual([
+        process.execPath,
+        fileURLToPath(new URL('../src/host/private-launch.mjs', import.meta.url)),
+        '/synthetic/grok',
+        ...(action === 'login' ? ['login'] : []),
+      ])
+      expect(spec.env?.GROK_HOME).toMatch(/\/\.grok$/)
+      expect(spec.env?.ELECTRON_RUN_AS_NODE).toBe('1')
+      expect(spec.cwd).toBe(join(f.config.stateDirectory!, 'accounts/grok-terminal/workspace'))
+      expect(f.backend.spawn).not.toHaveBeenCalled()
+      expect(f.terminal.write).not.toHaveBeenCalled()
+      await f.manager.stop('p', opened.id)
+    },
+  )
+
+  it.each(['pi', 'omp'] as const)(
+    '%s releases its private runtime only after successful terminal cleanup',
+    async (cli) => {
+      const f = fixture({
+        zaiCredentialRef: 'synthetic-host-ref',
+        resolveCredential: async () => 'SYNTHETIC_KEY',
+      })
+      const opened = await f.manager.start('p', cli, 'manage', f.cwd, f.signal)
+      const spec = vi.mocked(f.backend.spawnTerminal!).mock.calls[0]![0]
+      expect(spec.cwd).not.toBe(f.cwd)
+      expect(spec.env?.ZAI_CODING_CN_API_KEY).toBe('SYNTHETIC_KEY')
+      expect(spec.argv).not.toContain('SYNTHETIC_KEY')
+      expect(existsSync(spec.cwd)).toBe(true)
+      f.delayCleanup()
+      // Simulate the native TUI exiting by itself; finish still owns process cleanup.
+      f.output.end()
+      f.result.resolve({ exitCode: 0, signal: null })
+      await tick()
+      expect(f.terminal.terminate).toHaveBeenCalledOnce()
+      expect(f.manager.isBusy(cli)).toBe(true)
+      expect(existsSync(spec.cwd)).toBe(true)
+      f.finishCleanup()
+      await f.manager.stop('p', opened.id)
+      expect(existsSync(spec.cwd)).toBe(false)
+      expect(f.manager.isBusy(cli)).toBe(false)
+      expect(readdirSync(join(f.config.stateDirectory!, 'account-runtime'))).toEqual([])
+    },
+  )
+
+  it.each(['pi', 'omp'] as const)(
+    '%s retains a cancelled runtime for a late PTY until that PTY has actually exited',
+    async (cli) => {
+      const f = fixture({
+        zaiCredentialRef: 'synthetic-host-ref',
+        resolveCredential: async () => 'SYNTHETIC_KEY',
+      })
+      const allocated = deferred<SubprocessTerminalHandle>()
+      vi.mocked(f.backend.spawnTerminal!).mockReturnValueOnce(allocated.promise)
+      const request = new AbortController()
+      const opening = f.manager.start('p', cli, 'manage', f.cwd, request.signal)
+      const failed = expect(opening).rejects.toThrow('已取消')
+      await vi.waitFor(() => expect(f.backend.spawnTerminal).toHaveBeenCalledOnce())
+      const runtime = vi.mocked(f.backend.spawnTerminal!).mock.calls[0]![0].cwd
+      request.abort()
+      await failed
+      expect(existsSync(runtime)).toBe(true)
+      expect(f.manager.isBusy(cli)).toBe(true)
+      f.delayCleanup()
+      allocated.resolve(f.terminal)
+      await tick()
+      expect(f.terminal.terminate).toHaveBeenCalledOnce()
+      expect(existsSync(runtime)).toBe(true)
+      f.finishCleanup()
+      await f.manager.closeParent('p')
+      expect(existsSync(runtime)).toBe(false)
+      expect(f.manager.isBusy(cli)).toBe(false)
+    },
+  )
+
+  it.each(['pi', 'omp'] as const)(
+    '%s releases a prepared runtime when terminal allocation fails and permits retry',
+    async (cli) => {
+      const f = fixture({
+        zaiCredentialRef: 'synthetic-host-ref',
+        resolveCredential: async () => 'SYNTHETIC_KEY',
+      })
+      vi.mocked(f.backend.spawnTerminal!).mockRejectedValueOnce(new Error('SYNTHETIC_PROVIDER_SECRET'))
+      await expect(f.manager.start('p', cli, 'manage', f.cwd, f.signal)).rejects.toThrow('无法启动账号终端')
+      const runtime = vi.mocked(f.backend.spawnTerminal!).mock.calls[0]![0].cwd
+      expect(existsSync(runtime)).toBe(false)
+      expect(f.manager.isBusy(cli)).toBe(false)
+      const opened = await f.manager.start('p', cli, 'manage', f.cwd, f.signal)
+      expect(vi.mocked(f.backend.spawnTerminal!).mock.calls[1]![0].cwd).not.toBe(runtime)
+      await f.manager.stop('p', opened.id)
+    },
+  )
 })

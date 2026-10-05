@@ -1,4 +1,4 @@
-import { createElement, forwardRef, useEffect } from 'react'
+import { createElement, forwardRef, useEffect, type ReactNode } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, expect, it, vi } from 'vitest'
 import { SettingsDialog } from '../src/client/settings-dialog.tsx'
@@ -92,11 +92,11 @@ const status = (cli: CliId, changes: Partial<AccountStatus> = {}) =>
     ...changes,
   })
 const accountActions: AccountStatus['actions'] = [
-  { id: 'login', label: '模拟 Host 的登录标题', description: '模拟登录能力说明' },
-  { id: 'logout', label: '模拟 Host 的退出标题', description: '模拟退出能力说明' },
-  { id: 'manage', label: '模拟 Host 的终端标题', description: '模拟管理能力说明' },
+  { id: 'login', label: '登录 / 切换账号', description: '模拟登录能力说明' },
+  { id: 'logout', label: '退出登录', description: '模拟退出能力说明' },
+  { id: 'manage', label: '账号终端', description: '模拟管理能力说明' },
 ]
-async function setup(overrides: Record<string, any> = {}) {
+async function setup(overrides: Record<string, any> = {}, renderModels?: (close: () => void) => ReactNode) {
   const catalogForCli = vi.fn(async (_session, cli: CliId) => catalog(cli))
   const accountStatus = vi.fn(async (_session, cli: CliId) => status(cli))
   const configure = vi.fn().mockResolvedValue(remote({}))
@@ -117,6 +117,7 @@ async function setup(overrides: Record<string, any> = {}) {
       api={api}
       sessionId="simulation-parent"
       initialCli="antigravity"
+      renderModels={renderModels}
     />
   )
   await act(async () => {
@@ -211,7 +212,7 @@ it('never treats unknown account status as logged out or mounts a terminal witho
     accountStatus: vi.fn(async (_parent, cli: CliId) =>
       status(cli, {
         summary: '模拟状态无法确认',
-        actions: [{ id: 'manage', label: '模拟管理账号', description: '由模拟 Host 提供' }],
+        actions: [{ id: 'manage', label: '账号终端', description: '由模拟 Host 提供' }],
       }),
     ),
   })
@@ -241,7 +242,7 @@ it('keeps a delayed save scoped to its original CLI and leaves navigation usable
 })
 it('refreshes real capability data after a user-operated account flow finishes', async () => {
   const accountStatus = vi.fn(async (_parent, cli: CliId) =>
-    status(cli, { actions: [{ id: 'login', label: '模拟登录', description: '模拟' }] }),
+    status(cli, { actions: [{ id: 'login', label: '登录 / 切换账号', description: '模拟' }] }),
   )
   const t = await setup({ accountStatus })
   await t.click('登录 / 切换账号')
@@ -429,7 +430,7 @@ it('does not query disabled CLIs and never allows stale account results to re-en
     pending.resolve(
       status('antigravity', {
         summary: 'stale disabled account',
-        actions: [{ id: 'login', label: '模拟登录', description: '模拟' }],
+        actions: [{ id: 'login', label: '登录 / 切换账号', description: '模拟' }],
       }),
     ),
   )
@@ -757,4 +758,92 @@ it('keeps the same summary region after disabling a CLI while removing the previ
   expect(visibleText(accountSummary(t.r))).not.toContain('已登录')
   expect(accountSummary(t.r).findAllByProps({ 'data-state': 'connected' })).toHaveLength(0)
   expect(t.button('登录 / 切换账号').props.disabled).toBe(true)
+})
+
+const managedAccountActions: AccountStatus['actions'] = [
+  { id: 'login', label: '配置 API 登录', target: 'models', description: '模拟：管理任务的同一 Host 凭据' },
+  { id: 'manage', label: '账号终端', description: '模拟：沿用任务 API 凭据的原生终端' },
+]
+it.each(['pi', 'omp', 'harness', 'opencode'] as const)(
+  '%s opens native model settings for managed API login instead of mounting an account terminal',
+  async (cli) => {
+    const accountStatus = vi.fn(async (_parent, current: CliId) =>
+      status(current, {
+        state: 'configured',
+        authMethod: 'api',
+        verification: 'local',
+        actions: current === cli ? managedAccountActions : [],
+      }),
+    )
+    const renderModels = vi.fn((close: () => void) => (
+      <div data-native-models="synthetic">
+        <button onClick={close}>关闭模拟原生模型设置</button>
+      </div>
+    ))
+    const t = await setup({ accountStatus }, renderModels)
+    await t.click(`${CLI_LABELS[cli]} 设置`)
+    expect(renderModels).not.toHaveBeenCalled()
+    expect(t.button('配置 API 登录').props.disabled).toBe(false)
+    expect(t.button('退出登录')).toBeUndefined()
+    await t.click('配置 API 登录')
+    expect(renderModels).toHaveBeenCalled()
+    expect(t.r.root.findByProps({ 'data-native-models': 'synthetic' })).toBeDefined()
+    expect(
+      t.r.root.findByProps({ role: 'dialog', 'aria-label': `${CLI_LABELS[cli]} · 配置 API 登录` }),
+    ).toBeDefined()
+    expect(terminal.started).not.toHaveBeenCalled()
+    const accountsBefore = accountStatus.mock.calls.filter((call) => call[1] === cli).length
+    const modelsBefore = t.catalogForCli.mock.calls.filter((call) => call[1] === cli).length
+    await t.click('关闭模拟原生模型设置')
+    expect(t.r.root.findAllByProps({ 'data-native-models': 'synthetic' })).toHaveLength(0)
+    expect(t.r.root.findAllByProps({ role: 'dialog' })).toHaveLength(1)
+    expect(accountStatus.mock.calls.filter((call) => call[1] === cli)).toHaveLength(accountsBefore + 1)
+    expect(t.catalogForCli.mock.calls.filter((call) => call[1] === cli)).toHaveLength(modelsBefore + 1)
+    expect(terminal.started).not.toHaveBeenCalled()
+  },
+)
+it('opens Harness account management in native models and refreshes when dismissed with the modal close button', async () => {
+  const actions: AccountStatus['actions'] = [
+    managedAccountActions[0]!,
+    { id: 'manage', label: '原生设置', target: 'models', description: '模拟：Harness 原生配置' },
+  ]
+  const accountStatus = vi.fn(async (_parent, cli: CliId) => status(cli, { actions }))
+  const t = await setup({ accountStatus }, () => <div data-native-models="synthetic" />)
+  await t.click(`${CLI_LABELS.harness} 设置`)
+  await t.click('原生设置')
+  expect(t.r.root.findByProps({ 'data-native-models': 'synthetic' })).toBeDefined()
+  expect(terminal.started).not.toHaveBeenCalled()
+  const before = accountStatus.mock.calls.filter((call) => call[1] === 'harness').length
+  await t.click('关闭账号操作')
+  expect(t.r.root.findAllByProps({ role: 'dialog' })).toHaveLength(1)
+  expect(accountStatus.mock.calls.filter((call) => call[1] === 'harness')).toHaveLength(before + 1)
+  expect(terminal.started).not.toHaveBeenCalled()
+})
+it('disables native model actions when the host cannot render that settings section without silently using a terminal', async () => {
+  const t = await setup({
+    accountStatus: vi.fn(async (_parent, cli: CliId) => status(cli, { actions: managedAccountActions })),
+  })
+  await t.click('Pi 设置')
+  expect(t.button('配置 API 登录').props.disabled).toBe(true)
+  expect(t.button('账号终端').props.disabled).toBe(false)
+  expect(terminal.started).not.toHaveBeenCalled()
+  await t.click('账号终端')
+  expect(terminal.started).toHaveBeenCalledExactlyOnceWith('pi', 'manage')
+})
+
+it('retains the native models target when an account refresh fails while its dialog is open', async () => {
+  const accountStatus = vi.fn(async (_parent, cli: CliId) =>
+    status(cli, { state: 'configured', authMethod: 'api', actions: managedAccountActions }),
+  )
+  const t = await setup({ accountStatus }, () => <div data-native-models="synthetic" />)
+  await t.click(`${CLI_LABELS.pi} 设置`)
+  await t.click('配置 API 登录')
+  accountStatus.mockRejectedValue(new Error('模拟：原生设置打开期间状态刷新失败'))
+  await t.click('刷新状态')
+  expect(t.r.root.findByProps({ 'data-native-models': 'synthetic' })).toBeDefined()
+  expect(t.r.root.findByProps({ role: 'dialog', 'aria-label': 'Pi · 配置 API 登录' })).toBeDefined()
+  expect(terminal.started).not.toHaveBeenCalled()
+  await t.click('关闭账号操作')
+  expect(t.r.root.findAllByProps({ role: 'dialog' })).toHaveLength(1)
+  expect(terminal.started).not.toHaveBeenCalled()
 })

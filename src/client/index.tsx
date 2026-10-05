@@ -6,6 +6,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import remoteContribution from 'dsh-cliworker-now/remote'
 import { active } from '../shared/types.ts'
 import { Panel } from './panel.tsx'
@@ -61,7 +62,15 @@ export function apply(ctx: Context): void {
     )
     scope.effect(() =>
       scope.slots.inject('sidebar.right.pane.tab', () =>
-        scope.slots.register({ name: 'sidebar.right.pane.tab', key: ID, inject: () => ({ api }) }, Panel),
+        scope.slots.register(
+          {
+            name: 'sidebar.right.pane.tab',
+            key: ID,
+            inject: () => ({ api }),
+            children: { 'settings.section': { kind: 'list', scope: 'root' } },
+          },
+          Panel,
+        ),
       ),
     )
     function Header({ sessionId }: PropsRuntime<'conversation.session.header.utilities'>) {
