@@ -130,7 +130,7 @@ const deferred = () => {
   })
   return { promise, resolve, reject }
 }
-async function setup(openFirst = true) {
+async function setup(openFirst = true, openNativeSettings?: () => void) {
   clipboard.mockReset().mockResolvedValue(true)
   const streams: Stream[] = []
   const history = vi.fn()
@@ -163,7 +163,7 @@ async function setup(openFirst = true) {
   const feed = { scrollTop: 0, scrollHeight: 1400, clientHeight: 300 }
   let r!: ReactTestRenderer
   await act(async () => {
-    r = create(<Panel api={api} sessionId="parent" />, {
+    r = create(<Panel api={api} sessionId="parent" openNativeSettings={openNativeSettings} />, {
       createNodeMock: (el) => (el.props.className === 'cwn-feed' ? feed : null),
     })
     mounted.push(r)
@@ -594,3 +594,37 @@ it('closing settings during slow CLI discovery leaves conversation and stop cont
   )
   expect(t.text()).not.toContain('late model')
 })
+
+it.each([false, true])(
+  'releases the plugin modal before native settings handoff (failure: %s)',
+  async (fail) => {
+    let t!: Awaited<ReturnType<typeof setup>>
+    const openNativeSettings = vi.fn(() => {
+      expect(t.r.root.findAllByProps({ role: 'dialog' })).toHaveLength(0)
+      if (fail) throw new Error('Synthetic missing native settings')
+    })
+    t = await setup(false, openNativeSettings)
+    Object.assign(t.api.cliworker, {
+      catalogForCli: vi.fn(async (_parent, cli) => ({
+        ok: true,
+        value: JSON.stringify({ cli, models: [{ id: 'simulation', efforts: ['low'] }] }),
+      })),
+      accountStatus: vi.fn(async (_parent, cli) => ({
+        ok: true,
+        value: JSON.stringify({
+          cli,
+          installed: true,
+          state: 'configured',
+          summary: '模拟 API 配置',
+          actions: [{ id: 'login', label: '配置 API 登录', description: '模拟', target: 'models' }],
+        }),
+      })),
+    })
+    await t.click('默认设置')
+    expect(t.r.root.findAllByProps({ role: 'dialog' })).toHaveLength(1)
+    await t.click('API 登录设置')
+    expect(openNativeSettings).toHaveBeenCalledTimes(1)
+    expect(t.r.root.findAllByProps({ role: 'dialog' })).toHaveLength(0)
+    if (fail) expect(t.text()).toContain('设置 → 模型')
+  },
+)

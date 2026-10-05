@@ -401,10 +401,11 @@
 
 - [x] 根因：扩展 CLI 的任务协议已接入，但 AccountManager 仍统一返回空 actions 并拒绝启动账号终端。移除此占位限制，按真实能力分流。
 - [x] ZCode/Grok 使用经原生 help 核验的登录、退出及管理入口；ZCode 完整 0.16.9 离线运行时安装到稳定 managed 路径，3424 文件 SHA256 校验、75包、零符号链接，实际 import TUI 通过。账号与 worker/catalog 共享同一指定来源。
-- [x] Pi/OMP/Harness 和有 zaiCredentialRef 的 OpenCode 复用原生 settings.section/models；不伪造独立 OAuth 登录或无效退出。Harness 本版无 TUI，管理入口为原生设置。账号状态只显示本地配置事实，不伪称远程验证成功。
+- [x] Pi/OMP/Harness 和有 zaiCredentialRef 的 OpenCode 通过本版原生共享 Store 桥复用原生模型设置；不伪造独立 OAuth 登录或无效退出。Harness 本版无 TUI，管理入口为原生设置。账号状态只显示本地配置事实，不伪称远程验证成功。
 - [x] Pi/OMP/OpenCode 原生管理 TUI 沿用同一 API 来源；OpenCode CN模式固定已验证提供商/模型，无ref则使用私有共享原生账号。独立临时目录在失败、取消、进程退出后清理；账号刷新失败不会让已开的原生设置误切成终端。
 - [x] 实际隔离页面打开 Harness 原生模型设置；Pi、ZCode、OMP、OpenCode TUI 均已目视确认。OMP首次向导与全局MCP自动发现已修正；无网络、模拟凭据的原生PTY复验确认无向导、无MCP连接、模型可见、0模型任务、最终进程范围为空。证据 `.test-data/omp-account-native-probe/tui-report.json`。
 - [x] ZCode/Grok账号终端通过私有launcher使用umask077；在父进程umask022的实际模拟子进程验证中，新目录0700、新文件0600。
 - [x] 未执行真实登录/注销或提交凭据，未发送模型任务。Grok 保持离线命令与协议验证范围，没有进行付费/订阅调用。
 - [x] 全套21文件331项测试通过，Host/Client 类型检查、隔离构建、正式构建和pack通过；Desktop更新前活动worker=0。
-- [ ] Desktop 最终界面验收：Mac锁定，已请求解锁；正式链接产物已更新，Host仍需重启加载账号逻辑。
+- [x] 解锁后定位并修复 Desktop Client 加载故障：插件重复声明宿主 `settings.section`，触发原生 SlotCore 所有权冲突。改为由框架管理生命周期的共享 Store 桥，关闭插件弹窗后进入原生「模型」设置。新增覆盖两种加载顺序、卸载、能力缺失的回归；本轮3文件68项针对性测试、Host/Client类型检查、隔离/正式构建及重新pack通过。
+- [x] 修复后在真实 Desktop 确认11个CLI导航和六个新增管理入口；Harness API入口打开完整原生模型设置，OMP、OpenCode、ZCode原生账号终端均成功显示。OMP/OpenCode展示已配置智谱模型，关闭后相关进程与临时目录已清理；未触发登录、退出或模型任务。截图 `.test-data/evidence/v0.5.1-desktop-native-models.png`、`v0.5.1-desktop-omp-terminal.png`、`v0.5.1-desktop-opencode-terminal.png`、`v0.5.1-desktop-zcode-terminal.png`。正式包 `artifacts/dsh-cliworker-now-0.5.1.tgz` 已重新生成。

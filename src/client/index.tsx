@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { useEffect, useRef } from 'react'
-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsRuntime, SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
 import { Button, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
@@ -31,6 +31,51 @@ export function apply(ctx: Context): void {
     const remote = scope.remote,
       worker = remote.cliworker
     const api: API = { $stream: (options) => remote.$stream(options), cliworker: worker }
+    let nativeSettingsOpen: (() => void) | undefined
+    function NativeSettingsBridge({ open }: { open?: () => void }) {
+      useEffect(() => {
+        nativeSettingsOpen = open
+        return () => {
+          if (nativeSettingsOpen === open) nativeSettingsOpen = undefined
+        }
+      }, [open])
+      return null
+    }
+    scope.effect(() =>
+      scope.slots.inject('settings.section', () =>
+        scope.slots.inject('shell.overlay', () => {
+          // Harness 0.2.0-rc.2 compatibility: share the shell's existing root
+          // handle. The renderer owns instance creation, binding and disposal;
+          // we neither create its store nor redeclare its settings slots.
+          // Use SlotCore's dynamic inspection signature; sidebar.settings is
+          // owned by an optional native package, not declared by this plugin.
+          const ledger: Pick<SlotCore, 'entriesOfSlot'> = scope.slots
+          const handle = ledger.entriesOfSlot('sidebar.settings')[0]?.store
+          if (
+            !handle ||
+            typeof handle === 'function' ||
+            typeof handle.spec?.actions?.openSection !== 'function'
+          )
+            return () => {}
+          const dispose = scope.slots.register(
+            {
+              name: 'shell.overlay',
+              id: `${ID}.native-settings`,
+              store: handle,
+              inject: (actions) => ({
+                open:
+                  typeof actions.openSection === 'function' ? () => actions.openSection('models') : undefined,
+              }),
+            },
+            NativeSettingsBridge,
+          )
+          return () => {
+            nativeSettingsOpen = undefined
+            dispose()
+          }
+        }),
+      ),
+    )
     scope.effect(() => {
       const style = document.createElement('style')
       style.textContent =
@@ -66,8 +111,13 @@ export function apply(ctx: Context): void {
           {
             name: 'sidebar.right.pane.tab',
             key: ID,
-            inject: () => ({ api }),
-            children: { 'settings.section': { kind: 'list', scope: 'root' } },
+            inject: () => ({
+              api,
+              openNativeSettings: () => {
+                if (!nativeSettingsOpen) throw new Error('Harness 原生设置入口暂不可用')
+                nativeSettingsOpen()
+              },
+            }),
           },
           Panel,
         ),

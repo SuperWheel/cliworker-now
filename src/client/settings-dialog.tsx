@@ -30,7 +30,7 @@ interface SettingsDialogProps {
   api: API
   sessionId: string
   initialCli: CliId
-  renderModels?: (close: () => void) => ReactNode
+  openNativeSettings?: () => void
 }
 interface Catalog {
   cli: CliId
@@ -91,7 +91,13 @@ export function SettingsDialog(props: SettingsDialogProps) {
   // Closing unmounts pending requests and the user-operated account terminal.
   return props.open ? <OpenSettingsDialog {...props} /> : null
 }
-function OpenSettingsDialog({ onClose, api, sessionId, initialCli, renderModels }: SettingsDialogProps) {
+function OpenSettingsDialog({
+  onClose,
+  api,
+  sessionId,
+  initialCli,
+  openNativeSettings,
+}: SettingsDialogProps) {
   const [cli, setCli] = useState(initialCli)
   const [enabled, setEnabled] = useState<Enabled>()
   const [order, setOrder] = useState<readonly CliId[]>(CLI_IDS)
@@ -242,7 +248,7 @@ function OpenSettingsDialog({ onClose, api, sessionId, initialCli, renderModels 
           })}
         </nav>
         <CliSettings
-          renderModels={renderModels}
+          openNativeSettings={openNativeSettings}
           key={`${sessionId}:${cli}`}
           api={api}
           sessionId={sessionId}
@@ -408,7 +414,7 @@ function AccountSummary({
   )
 }
 function CliSettings({
-  renderModels,
+  openNativeSettings,
   api,
   sessionId,
   cli,
@@ -422,7 +428,7 @@ function CliSettings({
   settingsError,
   toggleError,
 }: {
-  renderModels?: (close: () => void) => ReactNode
+  openNativeSettings?: () => void
   api: API
   sessionId: string
   cli: CliId
@@ -528,12 +534,15 @@ function CliSettings({
   }
   const closeAccount = () => {
     setAction(undefined)
-    if (chosenAction?.target === 'models') finishedAccountAction()
   }
   const accountAction = (id: AccountAction) => {
     const item = account?.data?.actions.find((candidate) => candidate.id === id)
     const label =
-      item?.label ?? (id === 'logout' ? '退出登录' : id === 'manage' ? '账号终端' : '登录 / 切换账号')
+      item?.target === 'models'
+        ? id === 'login'
+          ? 'API 登录设置'
+          : '打开原生设置'
+        : (item?.label ?? (id === 'logout' ? '退出登录' : id === 'manage' ? '账号终端' : '登录 / 切换账号'))
     return (
       <Tooltip label={item?.description || label} side="top" portal>
         <Button
@@ -554,10 +563,14 @@ function CliSettings({
             !!account?.error ||
             !!action ||
             !item ||
-            (item.target === 'models' && !renderModels)
+            (item.target === 'models' && !openNativeSettings)
           }
           onClick={() => {
             if (!inactive && item) {
+              if (item.target === 'models') {
+                openNativeSettings?.()
+                return
+              }
               setChosenAction(item)
               setAction(item.id)
             }
@@ -646,6 +659,11 @@ function CliSettings({
             {accountAction('manage')}
           </div>
         </div>
+        {account?.data?.actions.some((item) => item.target === 'models') && (
+          <p className="cwn-account-detail">
+            在原生设置中选择「模型」，管理「zai-coding-cn」的 API 凭据。修改对共享此凭据的 CLI 生效。
+          </p>
+        )}
         {action && enabled && (
           <Modal
             open
@@ -655,23 +673,14 @@ function CliSettings({
             className="cwn-account-dialog"
             contentClassName="cwn-account-dialog-content"
           >
-            {chosenAction?.target === 'models' ? (
-              <div className="cwn-native-model-settings">
-                <p>
-                  当前任务使用 Harness 中「zai-coding-cn」提供商的 API 凭据。修改会对共享此凭据的 CLI 生效。
-                </p>
-                {renderModels?.(closeAccount)}
-              </div>
-            ) : (
-              <AccountTerminal
-                api={api}
-                sessionId={sessionId}
-                cli={cli}
-                action={action}
-                onClose={() => setAction(undefined)}
-                onFinished={finishedAccountAction}
-              />
-            )}
+            <AccountTerminal
+              api={api}
+              sessionId={sessionId}
+              cli={cli}
+              action={action}
+              onClose={() => setAction(undefined)}
+              onFinished={finishedAccountAction}
+            />
           </Modal>
         )}
       </section>

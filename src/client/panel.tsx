@@ -19,8 +19,6 @@ import { CopyText } from './copy-text.tsx'
 import { BrandIcon, Glyph } from './icons.tsx'
 import { WorkerModelMenu } from './worker-model-menu.tsx'
 import { SettingsDialog } from './settings-dialog.tsx'
-import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
-import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 
 const status: Record<WorkerStatus, string> = {
   queued: '排队中',
@@ -30,9 +28,10 @@ const status: Record<WorkerStatus, string> = {
   failed: '失败',
   interrupted: '已中断',
 }
-interface PanelProps extends PropsRenderSlots<'settings.section'> {
+interface PanelProps {
   sessionId: string
   api: API
+  openNativeSettings?: () => void
 }
 export function Panel(props: PanelProps) {
   // In-memory only: project content is never copied into browser localStorage.
@@ -52,7 +51,7 @@ export function Panel(props: PanelProps) {
 function SessionPanel({
   sessionId,
   api,
-  renderSlot,
+  openNativeSettings,
   drafts,
   editDraft,
   clearSubmitted,
@@ -103,6 +102,18 @@ function SessionPanel({
   }, [])
   const [settingsCli, setSettingsCli] = useState<CliId>('antigravity')
   const [settings, setSettings] = useState(false)
+  const nativeSettingsRequested = useRef(false)
+  useEffect(() => {
+    // The native command must run after our Modal releases its focus/inert seat.
+    if (!settings && nativeSettingsRequested.current) {
+      nativeSettingsRequested.current = false
+      try {
+        openNativeSettings?.()
+      } catch {
+        setError('无法打开原生设置。请从 Harness 左侧打开「设置 → 模型」管理 API 登录。')
+      }
+    }
+  }, [settings, openNativeSettings])
   const feed = useRef<HTMLDivElement>(null),
     stick = useRef(true)
   const worker = snapshot.selected
@@ -268,7 +279,14 @@ function SessionPanel({
         )}
       </header>
       <SettingsDialog
-        renderModels={(close) => renderSlot('settings.section', { close }, { only: 'models' })}
+        openNativeSettings={
+          openNativeSettings
+            ? () => {
+                nativeSettingsRequested.current = true
+                setSettings(false)
+              }
+            : undefined
+        }
         open={settings}
         onClose={() => setSettings(false)}
         api={api}

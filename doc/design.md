@@ -251,7 +251,7 @@ ZCode 使用原生精确工具名 denylist 禁止子代理、Skill、工作流�
 
 ## v0.5.1 六个扩展 CLI 的账号来源与原生设置
 
-账号管理按已安装 CLI 的真实能力分流。ZCode、Grok、OMP、Pi、OpenCode 可打开用户操作的原生终端；Harness 0.2.0-rc.2 未提供原生 TUI，空参数不是账号终端，因此不伪造该入口。Host 返回的账号动作可带 `target: models`；Client 对此直接呈现 Harness 原生模型页面，不调用 `accountStart`。Panel 在 slot 注册中声明根作用域 `settings.section` 子槽，以 `renderSlot('settings.section', { close }, { only: 'models' })` 复用原生控件、验证和凭据存储。
+账号管理按已安装 CLI 的真实能力分流。ZCode、Grok、OMP、Pi、OpenCode 可打开用户操作的原生终端；Harness 0.2.0-rc.2 未提供原生 TUI，空参数不是账号终端，因此不伪造该入口。Host 返回的账号动作可带 `target: models`；Client 对此关闭插件设置弹窗，再经适配 Harness 0.2.0-rc.2 的共享 Store 桥打开原生“模型”页，不调用 `accountStart`。桥组件通过框架在根作用域复用原生设置的同一 Store handle，由框架绑定 actions 和管理生命周期；不自行创建 Store 实例，不使用 DOM 点击或不可用的 shortcuts.invoke。此桥依赖该版本的 openSection 能力，能力不匹配时明确提示，不伪装为通用公开导航 API。`settings.section` 的唯一所有者是宿主原生设置组件，插件不能重新声明或跨所有者渲染该插槽；两种加载顺序都必须保持原生设置与插件入口正常。
 
 当前 Pi/OMP/Harness 任务使用智谱 CN API 路由；有 `zaiCredentialRef` 的 OpenCode 同样使用该显式 Harness 引用。登录配置与切换账号在上述原生模型页面完成，同一引用对应的修改影响所有复用它的 CLI。Host 每次经 credentials 服务解析后，仅向选定子进程的环境注入密钥，不写入 argv、插件模型偏好或账号状态响应。这些路由不提供独立原生退出操作，避免删除某份原生账号后仍自动沿用引用造成误解。Pi/OMP 的管理终端不将原生 OAuth 当成当前 API 路由的替代来源；其临时运行目录与任务数据独立，结束后清理。
 
