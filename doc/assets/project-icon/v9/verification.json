@@ -1,0 +1,19 @@
+{
+  "size": [
+    1460,
+    1077
+  ],
+  "mode": "RGBA",
+  "transparent_pixels": 865808,
+  "transparent_corners": true,
+  "subject_bounds_alpha128": [
+    140,
+    133,
+    1325,
+    956
+  ],
+  "subject_ratio": 1.439854191980559,
+  "method": "built-in image_gen edit; copied unchanged",
+  "visual_check": "Noticeably larger rounded speech tail, smaller C counter, fuller C and softened l/i proportions.",
+  "sha256": "e09e14f769e0300b8dbf1b9773192dc1517bb5a72724a0b8200547c9bd1ce770"
+}
