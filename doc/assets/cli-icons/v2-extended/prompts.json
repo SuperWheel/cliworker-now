@@ -1,0 +1,42 @@
+{
+  "mode": "built-in image_gen",
+  "transparent_background": true,
+  "assets": [
+    {
+      "key": "zcode",
+      "source": "/Users/leeyl/.codex/generated_images/01a10b35-6c01-7d03-a7ba-6a680ae73858/exec-52c0254b-ce12-4709-b0de-32626571ae14.png",
+      "prompt": "Use case: background-extraction and style-transfer. Deliver ONE square transparent PNG icon for a CLI name heading, crisp at 24px and 32px. Input is the official mark reference. Preserve its exact recognizable silhouette and proportions, do not invent details. Center symbol at about 76% of canvas width/height, ample clean transparent margin. True alpha transparency outside symbol and inside negative spaces. Flat opaque fills only, no gradient, no shadow, glow, texture, bevel, 3D, background tile, checkerboard, labels, wordmark or extra decoration. Extract only the three sliced geometric Z pieces. Remove the black rounded app tile entirely. Change white Z to solid charcoal #24272D. Preserve diagonal slits between three components.",
+      "reference": "/Applications/ZCode.app/Contents/Resources/icon.png"
+    },
+    {
+      "key": "omp",
+      "source": "/Users/leeyl/.codex/generated_images/01a10b35-6c01-7d03-a7ba-6a680ae73858/exec-c316b18f-f7a5-4036-89d3-44dbb5a8bd66.png",
+      "prompt": "Make a faithful cutout of the purple pi glyph in the attached image. IMPORTANT both vertical legs must have almost EQUAL length, both ending at the SAME baseline for this small-size flat adaptation. Uniform purple fill. Wide horizontal top bar, two tall nearly equal vertical legs. Do not stretch the right leg. No background tile. Transparent alpha background. Flat vector-like simple shape with hard straight edges, no texture, no gradient. Match reference as closely as possible. One isolated centered icon with transparent margin.",
+      "reference": "/Users/leeyl/AI-Project/DeepSeekHarness/cliworker-now/.cache/icon-references/extended/omp.png"
+    },
+    {
+      "key": "pi",
+      "source": "/Users/leeyl/.codex/generated_images/01a10b35-6c01-7d03-a7ba-6a680ae73858/exec-2b6e9dd6-89b1-42d7-a5b9-db8266a77d57.png",
+      "prompt": "Use case: background-extraction and style-transfer. Deliver ONE square transparent PNG icon for a CLI name heading, crisp at 24px and 32px. Input is the official mark reference. Preserve its exact recognizable silhouette and proportions, do not invent details. Center symbol at about 76% of canvas width/height, ample clean transparent margin. True alpha transparency outside symbol and inside negative spaces. Flat opaque fills only, no gradient, no shadow, glow, texture, bevel, 3D, background tile, checkerboard, labels, wordmark or extra decoration. Extract only exact three-color pixel Pi mark from screenshot. Preserve coral top hooked bar, blue stepped left leg/middle and separate ochre right upright. Flat fills coral #F09082 blue #4D9ABF ochre #F1BE58. White screenshot and inner square hole must be fully transparent. Do not change grid geometry or rearrange shapes.",
+      "reference": "/Users/leeyl/AI-Project/DeepSeekHarness/cliworker-now/.cache/icon-references/extended/pi-reference.png"
+    },
+    {
+      "key": "harness",
+      "source": "/Users/leeyl/.codex/generated_images/01a10b35-6c01-7d03-a7ba-6a680ae73858/exec-dcc29889-afb0-4bb8-9651-491a4b51974f.png",
+      "prompt": "Use case: background-extraction and style-transfer. Deliver ONE square transparent PNG icon for a CLI name heading, crisp at 24px and 32px. Input is the official mark reference. Preserve its exact recognizable silhouette and proportions, do not invent details. Center symbol at about 76% of canvas width/height, ample clean transparent margin. True alpha transparency outside symbol and inside negative spaces. Flat opaque fills only, no gradient, no shadow, glow, texture, bevel, 3D, background tile, checkerboard, labels, wordmark or extra decoration. Extract the DeepSeek whale mark only. Preserve silhouette, tail, eye dot opening and belly negative space; remove rounded white app tile and drop shadow. Uniform charcoal #30343C fill throughout whale; all white spaces and eye transparent.",
+      "reference": "/Applications/DeepSeek Harness.app/Contents/Resources/icon.png"
+    },
+    {
+      "key": "opencode",
+      "source": "/Users/leeyl/.codex/generated_images/01a10b35-6c01-7d03-a7ba-6a680ae73858/exec-816055cd-fba6-4e8e-8b32-4216693285dc.png",
+      "prompt": "Use case: background-extraction and style-transfer. Deliver ONE square transparent PNG icon for a CLI name heading, crisp at 24px and 32px. Input is the official mark reference. Preserve its exact recognizable silhouette and proportions, do not invent details. Center symbol at about 76% of canvas width/height, ample clean transparent margin. True alpha transparency outside symbol and inside negative spaces. Flat opaque fills only, no gradient, no shadow, glow, texture, bevel, 3D, background tile, checkerboard, labels, wordmark or extra decoration. Preserve the precise pixel OpenCode square O mark. Outer tall rectangular dark frame has straight square corners, width 4 units height 5 units, thickness 1 unit. Its inner aperture width 2 units height 3 units, upper 1 unit transparent, lower 2 units light gray #CCCCCC. Frame charcoal #242424. Keep the two-tone mark flat, remove only external background, preserve internal gray block. No rounded corners.",
+      "reference": "/Users/leeyl/AI-Project/DeepSeekHarness/cliworker-now/.cache/icon-references/extended/opencode.png"
+    },
+    {
+      "key": "grok",
+      "source": "/Users/leeyl/.codex/generated_images/01a10b35-6c01-7d03-a7ba-6a680ae73858/exec-eefb1d61-96fc-42dc-aced-303e6973d836.png",
+      "prompt": "Use case: background-extraction. Create ONE square transparent PNG icon from the supplied Grok Build repository's current SpaceXAI symbol. Preserve exactly the sweeping diagonal arc and angular intersecting pieces visible in the reference, including all negative spaces and relative proportions. Single uniform charcoal #24272D fill, completely flat, sharp silhouette. Center at 80% of canvas width. Do not invent the older Grok circle logo or any other logo. No background, no tile, no shadow, gradient, text or texture. True alpha transparent background and holes. Small UI header icon.",
+      "reference": "/Users/leeyl/AI-Project/DeepSeekHarness/cliworker-now/.cache/icon-references/extended/grok.png"
+    }
+  ]
+}

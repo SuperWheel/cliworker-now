@@ -1,0 +1,152 @@
+[
+  {
+    "name": "zcode",
+    "file": "zcode.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "mode": "RGBA",
+    "transparent_pixels": 1237029,
+    "corner_alpha": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "subject_bbox_alpha128": [
+      197,
+      277,
+      1068,
+      972
+    ],
+    "optical_scale": 1.1518,
+    "dark_filter": "invert(1)",
+    "sha256": "06d83921e7c25f2fbbf0dc1ebc3ae6319606e37abb14b3d84b4811d8693cd082"
+  },
+  {
+    "name": "omp",
+    "file": "omp.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "mode": "RGBA",
+    "transparent_pixels": 1235124,
+    "corner_alpha": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "subject_bbox_alpha128": [
+      235,
+      259,
+      1019,
+      995
+    ],
+    "optical_scale": 1.2796,
+    "dark_filter": "none",
+    "sha256": "a8bc7e57687eb881bcc34ffa98a6776021c13a659b183effa19930e96e3a04eb"
+  },
+  {
+    "name": "pi",
+    "file": "pi.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "mode": "RGBA",
+    "transparent_pixels": 1193011,
+    "corner_alpha": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "subject_bbox_alpha128": [
+      261,
+      259,
+      1032,
+      1024
+    ],
+    "optical_scale": 1.3012,
+    "dark_filter": "none",
+    "sha256": "db96173eec7542e9be50bbcb75add256e301137ab681a0bcc3cce91c6239a281"
+  },
+  {
+    "name": "harness",
+    "file": "harness.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "mode": "RGBA",
+    "transparent_pixels": 1117686,
+    "corner_alpha": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "subject_bbox_alpha128": [
+      94,
+      256,
+      1183,
+      1054
+    ],
+    "optical_scale": 0.9212,
+    "dark_filter": "invert(1)",
+    "sha256": "f7910e0a42dc67849e3f88f3e6c510dd16d901a4d60844f8154eb1c3f37a8726"
+  },
+  {
+    "name": "opencode",
+    "file": "opencode.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "mode": "RGBA",
+    "transparent_pixels": 1111349,
+    "corner_alpha": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "subject_bbox_alpha128": [
+      309,
+      212,
+      946,
+      1042
+    ],
+    "optical_scale": 1.2087,
+    "dark_filter": "invert(1)",
+    "sha256": "447d9816e901653af7eb73af82317fa3ba016eb11d7740ae2c4c2b9d8d3b7706"
+  },
+  {
+    "name": "grok",
+    "file": "grok.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "mode": "RGBA",
+    "transparent_pixels": 1369977,
+    "corner_alpha": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "subject_bbox_alpha128": [
+      55,
+      328,
+      1232,
+      905
+    ],
+    "optical_scale": 0.8523,
+    "dark_filter": "invert(1)",
+    "sha256": "e97766f251275e7247b3d53117fb4a1ab5bd6b5160b80931d440ebed5491ab92"
+  }
+]
