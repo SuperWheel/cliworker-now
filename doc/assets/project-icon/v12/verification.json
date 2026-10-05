@@ -1,0 +1,17 @@
+{
+  "size": [
+    1402,
+    1122
+  ],
+  "mode": "RGBA",
+  "transparent_pixels": 1246686,
+  "transparent_corners": true,
+  "subject_bounds_alpha128": [
+    296,
+    214,
+    1082,
+    960
+  ],
+  "method": "built-in image_gen edit; copied unchanged",
+  "visual_check": "Geometric straight strokes, consistent rounded ends, closer left frame and l, continuous lower frame under li, no brush hooks."
+}
