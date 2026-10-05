@@ -143,3 +143,7 @@ DSH='/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh'
 - 每轮显示真实耗时（含排队与启动时间），可展开 CLI 已公开的工作记录。没有公开的思考内容不会生成或补写。
 - 发送按钮使用 Harness 0.2.0-rc.2 InputBar 的同一 SVG 路径、34px 圆形样式和主题 token。模型选择使用原生 Menu，并按 ModelSelect 的两项入口和列表样式适配 CLI 目录；不能直接使用其绑定 Harness 主模型的内部状态。
 - **升级本地链接插件后，确认无活动任务，完整退出并重新打开 Desktop。** 插件页“刷新”只刷新目录并不足以重新加载 Host 接口。已定位并验证：旧 Host + 新 Client 会导致 `catalogForCli` HTTP 404，完整重启后模型查询恢复。加载失败时提供中文说明和重试，不把原始 HTTP 堆栈混入对话或模型选项。
+
+## v0.3.4 菜单与按钮微调
+
+模型与思考强度子菜单的“返回”统一位于顶部。插件按钮取消静态描边，鼠标移入/移出采用 180ms 主题色过渡；遵循系统“减少动态效果”，键盘导航保留可见焦点。卡片与输入框仍使用 Harness 原生表面样式。

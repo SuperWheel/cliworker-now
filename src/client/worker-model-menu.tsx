@@ -109,9 +109,12 @@ export function WorkerModelMenu({
             disabled: locked || !chosen,
           },
         ]
-      : pane === 'effort'
-        ? (chosen?.efforts ?? []).map((e) => ({ id: e, label: effortLabel(e), disabled: locked }))
-        : []
+      : [
+          { id: 'back', label: '‹ 返回', disabled: saving },
+          ...(pane === 'effort'
+            ? (chosen?.efforts ?? []).map((e) => ({ id: e, label: effortLabel(e), disabled: locked }))
+            : []),
+        ]
   return (
     <Menu
       open={open}
@@ -124,6 +127,10 @@ export function WorkerModelMenu({
       selectedId={pane === 'effort' ? worker.preference.effort : undefined}
       onClose={close}
       onSelect={(id) => {
+        if (id === 'back') {
+          setPane('root')
+          return
+        }
         if (pane === 'root') {
           setPane(id as 'model' | 'effort')
           return
@@ -154,7 +161,6 @@ export function WorkerModelMenu({
         </Button>
       }
     >
-      {pane !== 'root' && <MenuItemButton onSelect={() => setPane('root')}>‹ 返回</MenuItemButton>}
       {pane === 'model' && (
         <>
           <Input

@@ -66,5 +66,14 @@ export const modelPickerStyles = `
 .cwn-model-popover button[role=menuitem]{min-height:34px;padding:5px 7px;font-size:13px;font-weight:400;line-height:20px;border-radius:var(--dsw-radius-md)}
 .cwn-model-cell{display:flex;align-items:center;gap:6px;width:100%;min-width:0}.cwn-model-cell>span:first-child{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cwn-model-cell-value{color:var(--dsw-alias-label-tertiary);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:230px}
 .cwn-model-search{background:transparent!important;border:0!important;box-shadow:none!important;padding:5px 7px!important;margin:2px 0 3px;height:auto!important}.cwn-model-search input{font-size:12px!important;padding:0!important}.cwn-model-provider,.cwn-model-feedback{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary);padding:8px}.cwn-model-feedback{max-width:280px;white-space:normal}
+/* Scope to plugin buttons, including the portaled menu and header entry. */
+.cwn button,.cwn-entry,.cwn-model-popover button{border:0!important;--dsw-elevation-stroke-color:transparent;box-shadow:none;transition:background-color 180ms cubic-bezier(.2,0,0,1),color 180ms cubic-bezier(.2,0,0,1),opacity 180ms ease}
+.cwn-cli-heading{position:relative}.cwn-cli-heading[aria-expanded=true]:after{content:'';position:absolute;bottom:0;left:0;right:0;height:.5px;background:var(--dsw-alias-border-l2);pointer-events:none}
+.cwn-back:hover:not(:disabled),.cwn-filters button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-solid)!important}
+.cwn-filters button[aria-pressed=true]:hover:not(:disabled){background:color-mix(in srgb,var(--cwn-accent) 18%,transparent)!important}
+.cwn-cli-heading:hover:not(:disabled),.cwn-model-popover button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+.cwn button:focus-visible,.cwn-entry:focus-visible,.cwn-model-popover button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+@media(prefers-reduced-motion:reduce){.cwn button,.cwn-entry,.cwn-model-popover button{transition:none}}
+
 .cwn .cwn-send{padding:0;min-width:34px;min-height:34px;flex:none}.cwn .cwn-send svg{width:16px;height:16px}
 `
