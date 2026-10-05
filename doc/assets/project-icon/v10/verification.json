@@ -1,0 +1,17 @@
+{
+  "size": [
+    1403,
+    1121
+  ],
+  "mode": "RGBA",
+  "subject_bounds_alpha128": [
+    239,
+    217,
+    1196,
+    931
+  ],
+  "subject_ratio": 1.3403361344537814,
+  "transparent_pixels": 1050159,
+  "transparent_corners": true,
+  "method": "built-in image_gen; copied unchanged"
+}

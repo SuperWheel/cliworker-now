@@ -181,3 +181,5 @@ v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的�
 亮色 neutral resting fill 与 hover-solid 视觉近似，灰色筛选/返回按钮及禁用灰色控件的 hover 使用 interactive-bg-active。仅作用于 body:not([data-ds-dark-theme])；已选筛选按钮、发送按钮及暗色样式不变。实测未选中按钮默认 rgba(38,49,72,0.06)，真实 :hover 为 rgba(38,49,72,0.1)，180ms 过渡期间存在中间色。
 
 项目 Logo v9 按用户反馈放大左下对话尾部，大幅收缩 C 内部留白，调整三字母重量和柔和轮廓，保留双蓝色与透明背景，见 [饱满对话版](assets/project-icon/v9/README.md)。
+
+项目 Logo v10 在 v9 基础上适当收窄，重新协调 C、l、i 比例，保留大尾部与小留白，见 [收窄协调版](assets/project-icon/v10/README.md)。
