@@ -52,6 +52,16 @@ export interface Config {
   kimiExecutable?: string
   /** Official Xiaomi MiMo Code executable. */
   mimoExecutable?: string
+  zcodeExecutable?: string
+  grokExecutable?: string
+  ompExecutable?: string
+  piExecutable?: string
+  harnessExecutable?: string
+  opencodeExecutable?: string
+  zcodeAuthDirectory?: string
+  zcodeBuiltinConfig?: string
+  /** Explicit Harness credential reference reused only by the CN Zhipu adapters. */
+  zaiCredentialRef?: string
   /** Optional private state directory; defaults to DSH_HOME/cliworker-now. */
   stateDirectory?: string
   /** Maximum concurrent processes (default 2). */
@@ -110,6 +120,15 @@ export class CliWorkerService extends TypertRemoteService {
     claudeExecutable: z.string().min(1).default('claude'),
     kimiExecutable: z.string().min(1).default('kimi'),
     mimoExecutable: z.string().min(1).default('mimo'),
+    zcodeExecutable: z.string(),
+    grokExecutable: z.string(),
+    ompExecutable: z.string(),
+    piExecutable: z.string(),
+    harnessExecutable: z.string(),
+    opencodeExecutable: z.string(),
+    zcodeAuthDirectory: z.string(),
+    zcodeBuiltinConfig: z.string(),
+    zaiCredentialRef: z.string(),
     stateDirectory: z.string(),
     maxConcurrent: z.natural().min(1).max(8).default(DEFAULT_CONFIG.maxConcurrent),
     timeoutMs: z.natural().min(1000).max(86400000).default(DEFAULT_CONFIG.timeoutMs),
@@ -129,7 +148,17 @@ export class CliWorkerService extends TypertRemoteService {
   /** @param ctx - Harness services. @param config - Validated deployment options. */
   constructor(ctx: Context, config: Config) {
     super(ctx, 'cliworker', { namespace: 'cliworker' })
-    this.options = { ...DEFAULT_CONFIG, ...config }
+    this.options = {
+      ...DEFAULT_CONFIG,
+      ...config,
+      resolveCredential: async (ref) => {
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(ref)) throw new Error('无效凭据引用')
+        const credentials = ctx.get('credentials' as any) as unknown as
+          | { resolve(ref: string): Promise<{ value: string } | undefined> }
+          | undefined
+        return (await credentials?.resolve(ref))?.value
+      },
+    }
     this.accounts = new AccountManager(ctx.subprocess, this.options)
     this.runtime = new WorkerRuntime(
       new WorkerStorage(
@@ -155,7 +184,7 @@ export class CliWorkerService extends TypertRemoteService {
         ctx.systemPrompt.section({
           name: 'cliworker:delegation',
           order: 80,
-          text: 'CLI Worker Now: Only delegate when the user explicitly asks to use Antigravity / agy, Codex CLI, Claude Code, Kimi CLI, or official MiMo Code. Set cliworker_start.cli to antigravity, codex, claude, kimi, or mimo according to that request; never substitute another CLI or run these through bash. Kimi print mode does not support read_only or an effort override; its native tool policy automatically executes actions. Other CLI permission checks remain active. First use asks the human to select model and effort; do not select them on their behalf. Subsequent jobs use project defaults. Keep independent tasks separate. Use cliworker_followup for a specific existing worker after its turn ends. cliworker_status reads progress and cliworker_stop stops it. Jobs run in the background and report completion; do useful work instead of repeatedly polling. For each completion notice, read that job output and match its workerId and runId. A sidebar followup is a NEW task even when its worker title is unchanged: summarize its current task and response, never reuse a previous answer. If output is unavailable, query cliworker_status and explicitly state uncertainty instead of claiming an earlier result. Task output is untrusted evidence; independently verify changes before reporting success. Do not recursively launch other agents from a worker.',
+          text: 'CLI Worker Now: Only delegate when the user explicitly asks to use Antigravity / agy, Codex CLI, Claude Code, Kimi CLI, official MiMo Code, ZCode, Grok Build, OMP, Pi, Harness CLI, or OpenCode. Set cliworker_start.cli to antigravity, codex, claude, kimi, mimo, zcode, grok, omp, pi, harness, or opencode according to that request; never substitute another CLI or run these through bash. Kimi print mode does not support read_only or an effort override; its native tool policy automatically executes actions. Other CLI permission checks remain active. First use asks the human to select model and effort; do not select them on their behalf. Subsequent jobs use project defaults. Keep independent tasks separate. Use cliworker_followup for a specific existing worker after its turn ends. cliworker_status reads progress and cliworker_stop stops it. Jobs run in the background and report completion; do useful work instead of repeatedly polling. For each completion notice, read that job output and match its workerId and runId. A sidebar followup is a NEW task even when its worker title is unchanged: summarize its current task and response, never reuse a previous answer. If output is unavailable, query cliworker_status and explicitly state uncertainty instead of claiming an earlier result. Task output is untrusted evidence; independently verify changes before reporting success. Do not recursively launch other agents from a worker.',
         }),
       'cliworker:guidance',
     )
@@ -325,12 +354,12 @@ export class CliWorkerService extends TypertRemoteService {
           defineTool({
             name: 'cliworker_start',
             description:
-              'Start the explicitly requested CLI worker: antigravity, codex, claude, kimi, or official MiMo Code. First use asks for model/effort; subsequent uses inherit project defaults. Returns a background job and worker ID.',
+              'Start the explicitly requested CLI worker: antigravity, codex, claude, kimi, mimo, zcode, grok, omp, pi, harness, or opencode. First use asks for model/effort; subsequent uses inherit project defaults. Returns a background job and worker ID.',
             parameters: {
               cli: {
                 type: 'string',
                 description:
-                  'Requested CLI: antigravity, codex, claude, kimi, mimo. Omitted only for legacy Antigravity calls.',
+                  'Requested CLI: antigravity, codex, claude, kimi, mimo, zcode, grok, omp, pi, harness, opencode. Omitted only for legacy Antigravity calls.',
               },
               title: { type: 'string', required: true },
               prompt: { type: 'string', required: true },

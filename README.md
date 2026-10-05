@@ -1,10 +1,31 @@
 # CLI Worker Now
 
-DeepSeek Harness 的多 CLI 实时侧栏插件，支持 Antigravity、Codex、Claude Code、Kimi 和小米官方 MiMo Code。模型先由你选择，之后按项目与 CLI 分别沿用；每个子 Agent 都有独立记录，支持停止与结束后续聊。
+DeepSeek Harness 的多 CLI 实时侧栏插件，支持 Antigravity、Codex、Claude Code、Kimi、小米官方 MiMo Code，以及 ZCode、Grok Build、OMP、Pi、Harness 和 OpenCode。模型先由你选择，之后按项目与 CLI 分别沿用；每个子 Agent 都有独立记录，支持停止与结束后续聊。
 
 兼容基线：macOS、Harness **0.2.0-rc.2**、Antigravity CLI **1.2.16**、Node ≥22.19。
 
-ZCode 的真实首轮、续聊、文件写入、取消及权限拒绝已通过隔离验证，尚未加入正式执行器列表。可运行 `node scripts/probe-zcode.mjs` 做无模型、无互联网的协议与进程探测；真实测试需要显式选型和可用的原生 CLI 授权。见 [ZCode 验证记录与接入门槛](doc/zcode-probe.md)。
+新增六个 CLI 保留独立原生协议，复用项目偏好、两层任务树、停止与续聊。Grok 按用户要求只做离线验证，其真实任务/订阅可用性未验收；目录存在不代表账户可用。新增 CLI 的登录仍在原生 CLI 中管理，插件不调用未经验证的账号命令。
+
+新增适配器首版范围：
+
+| CLI | 目录与执行 | 权限与边界 |
+| --- | --- | --- |
+| ZCode 0.16.9 | 配套本机内置目录中的 GLM-5.3-Flash；原生 headless 与 session ID | plan/edit 显式设置，交互权限请求拒绝；独立原生授权目录 |
+| Grok Build 1.0.0 | ACP 动态目录；headless 适配仅离线验证 | 外层只读/项目写入沙箱；未做真实模型测试 |
+| OMP 16.4.4 | RPC，已验收智谱 Coding CN GLM-5.3-Flash | 显式 write 审批、禁模型回退；首版读取/搜索/编辑工具 |
+| Pi 1.0.2 | RPC，原生 zai-coding-cn/GLM-5.3-Flash | 等待 agent_settled；首版读取/搜索/编辑工具 |
+| Harness 0.2.0-rc.2 | ACP 原生目录，headless 执行与原 session ID | 使用自身 read-only/workspace-write 沙箱，避免双层 Seatbelt 冲突 |
+| OpenCode 1.18.21 | 原生 models 与 run JSONL；智谱 GLM-5.3-Flash 已实测 | build/plan、额外权限默认拒绝；免费 MiMo 返回403，未绕过限制 |
+
+除 Harness 使用其原生沙箱外，新增适配器当前要求 macOS Seatbelt；规划模式只允许私有运行状态写入，执行模式额外允许当前项目。Pi/OMP 首版不开放 Bash 或子代理。失败工具、权限拒绝和缺失终态均不视为成功，即使 CLI 退出 0。
+
+ZCode 显式禁用原生子代理、Skill、工作流调度、跨会话工具及 node_repl；原生 CLI 仍会加载用户的全局插件/MCP 配置，已获原生规则允许的 MCP 工具可能执行。无头模式只拒绝需要交互的审批请求，不能等同于关闭全部 MCP。插件不改写用户全局或项目配置。
+
+可通过插件配置设置 `zcodeExecutable`、`grokExecutable`、`ompExecutable`、`piExecutable`、`harnessExecutable`、`opencodeExecutable`。ZCode 的 `zcodeAuthDirectory` 指向已完成原生授权的独立目录，`zcodeBuiltinConfig` 可指向配套内置目录文件；账号目录在任务中只读，需刷新授权时由原生 CLI 完成。Pi 使用官方包 `@earendil-works/pi-coding-agent`，不依赖临时安装目录；本机已固定在私有 `~/.local/share/cliworker-now/runtimes/pi-1.0.2`。
+
+若明确要复用 Harness 智谱凭据，设置 `zaiCredentialRef: ZAI_CODING_CN_API_KEY`。Host 每次通过原生 credentials 服务解析该引用，只向选定的 Pi/OMP/Harness/OpenCode 子进程注入对应环境变量；不把密钥存入插件偏好、argv 或页面。未设置时不自动读取其他账号。OMP 的 `cliworker-zai-cn` 是插件注册的隔离 Provider，不冒充原生内置 Provider。
+
+验证说明：[ZCode](doc/zcode-probe.md)、[Grok](doc/grok-probe.md)、[Pi/OMP](doc/pi-omp-probe.md)、[Harness](doc/harness-probe.md)、[OpenCode](doc/opencode-probe.md)。`node --import tsx scripts/smoke-extended.ts --help` 查看真实适配器验收入口；`--catalog-only` 不发送模型任务。
 
 ## v0.4.0 设置与账号管理
 

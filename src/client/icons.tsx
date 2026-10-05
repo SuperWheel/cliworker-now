@@ -8,7 +8,7 @@ import kimiDark from './assets/kimi-dark.png'
 import mimo from './assets/mimo-code.png'
 import logo from './assets/cliworker-now-logo.png'
 
-const icons = { antigravity, codex, claude, mimo }
+const icons: Partial<Record<CliId, string>> = { antigravity, codex, claude, mimo }
 
 /** User-provided transparent PNGs, bundled locally without remote asset requests. */
 export function BrandIcon({ cli, size = cli ? 22 : 32 }: { cli?: CliId; size?: number }) {
@@ -19,6 +19,17 @@ export function BrandIcon({ cli, size = cli ? 22 : 32 }: { cli?: CliId; size?: n
           <img className="cwn-icon-light" src={kimiLight} alt="" />
           <img className="cwn-icon-dark" src={kimiDark} alt="" />
         </>
+      ) : cli && !icons[cli] ? (
+        <span style={{ fontSize: size * 0.48, fontWeight: 600 }}>
+          {
+            (
+              { zcode: 'Z', grok: 'G', omp: 'O', pi: 'π', harness: 'H', opencode: 'OC' } as Record<
+                string,
+                string
+              >
+            )[cli]
+          }
+        </span>
       ) : (
         <img src={cli ? icons[cli] : logo} alt="" />
       )}

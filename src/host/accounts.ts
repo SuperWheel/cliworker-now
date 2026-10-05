@@ -1,8 +1,9 @@
+import { isExtendedCli } from './extended-adapters.ts'
 import type { SubprocessTerminalHandle } from '@deepseek-ai/dsh-subprocess'
 import { randomUUID } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
 import { stripVTControlCharacters } from 'node:util'
-import { executableFor } from './adapters.ts'
+import { executableFor, resolveCliExecutable } from './adapters.ts'
 import { projectDirectory, type ProcessBackend, type RuntimeConfig } from './process.ts'
 import { CLI_IDS, type CliId } from '../shared/types.ts'
 import type { AccountAction, AccountFrame, AccountStatus } from '../shared/accounts.ts'
@@ -40,7 +41,7 @@ const instructionFor = (cli: CliId, action: AccountAction): string => {
     : '按 CLI 原生流程退出登录；关闭终端不会恢复已退出的账号。'
 }
 const actionsFor = (cli: CliId): AccountStatus['actions'] =>
-  ACTIONS.map((id) => ({
+  (isExtendedCli(cli) ? [] : ACTIONS).map((id) => ({
     id,
     label: id === 'login' ? '登录 / 切换账号' : id === 'logout' ? '退出登录' : '账号终端',
     description: instructionFor(cli, id),
@@ -187,12 +188,20 @@ export class AccountManager {
     const control = AbortSignal.any([signal, this.controller.signal, timer.signal])
     let installed = false
     try {
-      const executable = await abortable(
-        this.backend.resolveExecutable(executableFor(cli, this.config)),
-        control,
-      )
+      const executable = await abortable(resolveCliExecutable(cli, this.backend, this.config), control)
       installed = true
       control.throwIfAborted()
+      if (isExtendedCli(cli))
+        return {
+          cli,
+          installed,
+          state: 'unknown',
+          summary:
+            cli === 'pi' || cli === 'omp' || cli === 'harness' || cli === 'opencode'
+              ? '使用独立 CLI 配置；智谱路由可通过插件凭据引用连接，未验证远端额度'
+              : '使用原生 CLI 账号；请在该 CLI 中管理登录',
+          actions: [],
+        }
       if (cli === 'antigravity') {
         const identity = await abortable(this.identity(cli, control), control)
         return {
@@ -283,6 +292,7 @@ export class AccountManager {
     if (!parent || parent.length > 512) throw new Error('无效的父会话')
     this.controller.signal.throwIfAborted()
     signal.throwIfAborted()
+    if (isExtendedCli(cli)) throw new Error('此 CLI 请在原生终端管理账号；插件未验证其交互登录接口')
     if (!this.backend.spawnTerminal) throw new Error('当前宿主不支持交互终端')
     if (this.reserved.has(cli)) throw new Error('此 CLI 已有账号终端，请先关闭后重试')
     const directory = projectDirectory(cwd)
@@ -318,10 +328,7 @@ export class AccountManager {
     let session: AccountSession | undefined
     let allocation: Promise<AccountSession> | undefined
     try {
-      const executable = await abortable(
-        this.backend.resolveExecutable(executableFor(cli, this.config)),
-        startup,
-      )
+      const executable = await abortable(resolveCliExecutable(cli, this.backend, this.config), startup)
       startup.throwIfAborted()
       allocation = this.backend.spawnTerminal!({
         argv: [executable, ...argumentsFor(cli, action)],

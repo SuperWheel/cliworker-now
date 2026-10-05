@@ -1,3 +1,4 @@
+import { extendedLaunch, isExtendedCli } from './extended-adapters.ts'
 import { appendFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
@@ -14,7 +15,7 @@ import {
   type TimelineItem,
   type CliId,
 } from '../shared/types.ts'
-import { protocolFor, executableFor, workerArguments } from './adapters.ts'
+import { protocolFor, resolveCliExecutable, workerArguments } from './adapters.ts'
 import { spawnManagedAgent } from './managed-agent.ts'
 import { projectDirectory, type ProcessBackend, type RuntimeConfig } from './process.ts'
 import { join } from 'node:path'
@@ -318,24 +319,42 @@ export class WorkerRuntime {
       this.config.maxLineBytes,
     )
     let failure: unknown
+    let release: (() => void) | undefined
+    let quiescent = false
     try {
-      const executable = await this.backend.resolveExecutable(
-        executableFor(cliOf(worker.preference), this.config),
-      )
+      const executable = await resolveCliExecutable(cliOf(worker.preference), this.backend, this.config)
       controller.signal.throwIfAborted()
       worker.status = 'running'
       this.storage.save(worker)
       this.changed()
+      const launch = isExtendedCli(cliOf(worker.preference))
+        ? await extendedLaunch(
+            cliOf(worker.preference),
+            executable,
+            worker.project,
+            worker.preference,
+            worker.mode,
+            task.prompt,
+            join(this.storage.directory, 'native', worker.id),
+            this.config,
+            expectedConversation,
+          )
+        : {
+            argv: workerArguments(
+              executable,
+              worker.project,
+              worker.preference,
+              worker.mode,
+              task.prompt,
+              this.config.timeoutMs,
+              expectedConversation,
+            ),
+          }
+      release = 'cleanup' in launch ? launch.cleanup : undefined
+      controller.signal.throwIfAborted()
       handle = await spawnManagedAgent(this.backend, {
-        argv: workerArguments(
-          executable,
-          worker.project,
-          worker.preference,
-          worker.mode,
-          task.prompt,
-          this.config.timeoutMs,
-          expectedConversation,
-        ),
+        argv: launch.argv,
+        env: 'env' in launch ? launch.env : undefined,
         cwd: worker.project,
         stdio: { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
         graceMs: this.config.graceMs,
@@ -377,12 +396,18 @@ export class WorkerRuntime {
         handle.terminate()
         try {
           if (!(await handle.waitForExit())) throw new Error('CLI cleanup did not reach quiescence')
+          quiescent = true
         } catch (error) {
           failure = error
           this.blocked = `无法确认 CLI 进程已清理，已暂停后续派遣：${String(error)}`
         }
         await Promise.allSettled([...readers, handle.done])
       }
+    }
+    try {
+      if (!handle || quiescent) release?.()
+    } catch (error) {
+      failure ??= error
     }
     if (stderr.trim()) this.storage.append(worker, { kind: 'diagnostic', text: 'CLI 诊断', detail: stderr })
     const error =

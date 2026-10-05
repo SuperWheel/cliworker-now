@@ -10,7 +10,19 @@ export const EFFORTS = [
   'max',
   'ultra',
 ] as const
-export const CLI_IDS = ['antigravity', 'codex', 'claude', 'kimi', 'mimo'] as const
+export const CLI_IDS = [
+  'antigravity',
+  'codex',
+  'claude',
+  'kimi',
+  'mimo',
+  'zcode',
+  'grok',
+  'omp',
+  'pi',
+  'harness',
+  'opencode',
+] as const
 export type CliId = (typeof CLI_IDS)[number]
 export const CLI_LABELS: Record<CliId, string> = {
   antigravity: 'Antigravity',
@@ -18,6 +30,12 @@ export const CLI_LABELS: Record<CliId, string> = {
   claude: 'Claude Code',
   kimi: 'Kimi',
   mimo: 'MiMo',
+  zcode: 'ZCode',
+  grok: 'Grok Build',
+  omp: 'OMP',
+  pi: 'Pi',
+  harness: 'Harness',
+  opencode: 'OpenCode',
 }
 export const cliOf = (preference: Preference): CliId => preference.cli ?? 'antigravity'
 export const effortLabel = (effort: string) => (effort === 'default' ? '沿用 CLI 配置' : effort)

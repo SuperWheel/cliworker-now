@@ -11,7 +11,17 @@ rmSync(join(root, '.cache/typert'), { recursive: true, force: true })
 const tsc = (project) =>
   execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '-p', project], { stdio: 'inherit' })
 tsc('tsconfig.host-build.json')
-cpSync('src/host/terminal-bridge.mjs', 'lib/terminal-bridge.mjs')
+for (const name of [
+  'private-launch',
+  'terminal-bridge',
+
+  'pi-omp-bridge',
+  'harness-catalog',
+  'grok-catalog',
+]) {
+  const source = `src/host/${name}.mjs`
+  if (existsSync(source)) cpSync(source, `lib/${name}.mjs`)
+}
 await build({
   entry: { index: 'lib/types/host/index.js' },
   outDir: 'lib',

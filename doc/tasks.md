@@ -359,7 +359,7 @@
 - [x] 续接完成独立 BigModel 原生授权；GLM-5.3-Flash / low 的首轮、同会话续聊、Write JSON 产物和真实流式输出中 SIGTERM 取消均通过。证据 .test-data/zcode-probe/run-4XC18i/report.json；取消退出 143、无最终 result，进程组退出确认通过。
 - [x] 只读核验 CLI 数据库：真实选型 GLM-5.3-Flash / low；规划为 mode=build 且 planEnabled=true，文件任务为 edit 且 planEnabled=false。脱敏证据 run-4XC18i/runtime-verification.json。
 - [x] build 模式 Write 产生 permission.requested 与 permission.resolved(deny)，目标文件不存在；证据 run-r9wKpm/report.json。CLI 仍退出 0，正式适配必须单独判断权限拒绝。
-- [ ] 正式 CLI 安装/目录、账号互斥、宿主审批及实际子进程清理场景，再接入 Host/Client 并执行隔离插件构建和真实 UI 验收。本阶段未运行插件全套测试、build:preview 或正式构建。
+- [x] 后续已完成正式适配与隔离插件验收；本条仅为探针阶段记录，最终结果见 v0.5.0。
 
 
 ## 六项 CLI 验证汇总（2026-10-05）
@@ -383,3 +383,16 @@
 - [x] 明确标注“模拟账号终端”的真实PTY：点击登录即出现独立弹窗，输入ping得到ECHO: ping；关闭账号弹窗后设置仍可操作，PID5513已不存在。未触发真实登录/退出或修改默认模型/账号。截图 `.test-data/evidence/v0.4.3-synthetic-account-terminal.png`、`v0.4.3-settings-light.png`、`v0.4.3-settings-dark.png`、`v0.4.3-overview-light.png`。
 - [x] 隔离预览标签/服务器已关闭，测试主题恢复深色。Desktop更新前活动worker为0、无打开的账号终端。
 - [x] 正式构建、构建后类型检查及pack通过；Desktop重启后实际确认新Logo字标、账号同行操作、浅描边按钮、刷新图标与目录加载。截图 `.test-data/evidence/v0.4.3-desktop-overview.png`、`v0.4.3-desktop-settings.png`；安装包 `artifacts/dsh-cliworker-now-0.4.3.tgz`。正式环境未触发登录/退出，设置页留供用户检查。
+
+
+## v0.5.0 — 六个 CLI 统一接入（2026-10-05）
+
+- [x] 共享 CLI 列表扩展到 11 项，新增 ZCode、Grok Build、OMP、Pi、Harness、OpenCode 独立目录与执行适配器；复用项目偏好、首次选型、两层任务列表、停止、同会话续聊与持久化恢复。原生 RPC/JSONL 分别解析，不混用协议，不静默回退。
+- [x] Pi/OMP/Harness/OpenCode 按用户授权复用原生 credentials 服务中的智谱引用，只经子进程环境传递；ZCode 使用本次新授权的独立私有目录。Pi 官方 1.0.2 运行时已固定安装；ZCode 实测 Desktop 内置 CLI 无头入口可用。
+- [x] 真实 WorkerRuntime 集成验收：Pi run-lYyKgY、OMP run-js51Io、OpenCode run-0ArlRb、Harness run-Ygfv7g、ZCode run-snDbO7；五个 CLI 各首轮、原会话续聊、JSON 文件任务，共15轮通过。核对原生会话ID、实际模型、工具事件、文件内容/哈希和重开Storage后的时间线。证据位于隔离 worktree 的 .test-data/extended-smoke/。
+- [x] Grok 仅完成离线原生目录、参数、协议和取消验证；没有订阅任务验收。OpenCode 免费 MiMo 两次403保留，不规避免费层限制；经用户改选智谱后真实验收通过。
+- [x] 私有目录逐层拒绝软链、写配置原子替换，避免 Host 在沙箱启动前越界。进程范围确认退出后权限收敛，跳过软链并拒绝硬链接；目录查询使用独立 query 状态。旧验收数据收敛后共498文件，密钥泄漏0、文件权限异常0；原始宽权限审计保留，366项为ZCode公共插件缓存资源。
+- [x] 隔离原生 Harness UI 实测11个导航、六个新增目录查询、模型/强度菜单、原生账号按钮禁用及灰色待确认状态。未保存模型偏好、未执行账号登录/退出。截图 .test-data/evidence/v0.5.0-settings-eleven-cli.png；新增CLI品牌暂用主题文字缩写。
+- [x] ZCode明确禁用原生子代理、Skill、工作流/跨会话调度及node_repl。源码与无模型调用反证确认：CLI仍加载用户全局插件/MCP，plan可直接允许未标注破坏性的MCP，edit显式授权也可放行；无头broker仅拒绝ask分支。文档和目录提示保留这一实际边界，不声称完全MCP隔离。
+- [x] 最终隔离回归：18文件249项测试、Host与Client类型检查通过；build:preview成功，逐文件哈希确认预览src与最终源码一致。新增测试包含分流协议、原生目录、权限拒绝、取消、状态迁移、凭据引用、并发查询、软硬链接边界；真实停止证据沿用前述原生探针，不追加未授权Grok调用。
+- [x] 与 v0.4.3 界面修改完成三方合并，保留其他图标归档改动；主目录18文件271项测试、类型检查、隔离构建、正式构建和pack通过。安装包 artifacts/dsh-cliworker-now-0.5.0.tgz 核验142项，桥脚本齐全且无私有运行数据。更新前Desktop活动worker=0；仅添加本插件智谱凭据引用/ZCode独立目录，其他配置未变。Desktop重启后11个CLI导航与Pi原生目录查询可用，未启动新模型任务或保存偏好。

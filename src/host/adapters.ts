@@ -1,3 +1,9 @@
+import { extendedCatalog, isExtendedCli } from './extended-adapters.ts'
+import { ZCodeProtocol } from './zcode-adapter.ts'
+import { HarnessProtocol } from './harness-adapter.ts'
+import { GrokProtocol } from './grok-adapter.ts'
+import { OpenCodeProtocol } from './opencode-adapter.ts'
+import { BridgeProtocol } from './bridge-protocol.ts'
 import { groupAgyModels, resolveModel } from '../shared/models.ts'
 import { readFileSync, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -24,6 +30,19 @@ export const executableFor = (cli: CliId, config: RuntimeConfig): string => {
   if (cli === 'antigravity') return config.executable
   const configured = config[`${cli}Executable`]
   if (configured && configured !== cli) return configured
+  if (cli === 'zcode') return '/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs'
+  if (cli === 'grok') return join(homedir(), '.grok/bin/grok')
+  if (cli === 'pi') {
+    const managed = join(
+      homedir(),
+      '.local/share/cliworker-now/runtimes/pi-1.0.2/node_modules/@earendil-works/pi-coding-agent/dist/cli.js',
+    )
+    if (existsSync(managed)) return managed
+  }
+  if (cli === 'harness')
+    return existsSync(join(homedir(), '.local/bin/dsh'))
+      ? join(homedir(), '.local/bin/dsh')
+      : '/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh'
   // Desktop processes do not source .zshrc. Recognize official per-user installers.
   const nativeDirectory = cli === 'kimi' ? '.kimi-code/bin' : cli === 'mimo' ? '.mimocode/bin' : '.local/bin'
   const nativePath = join(homedir(), nativeDirectory, cli)
@@ -36,12 +55,14 @@ async function capture(
   argv: string[],
   cwd: string,
   signal: AbortSignal,
+  env?: Record<string, string>,
 ) {
   signal.throwIfAborted()
   const control = AbortSignal.any([signal, AbortSignal.timeout(15000)])
   const process = backend.spawn({
     argv,
     cwd,
+    env,
     stdio: { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
     graceMs: config.graceMs,
     signal: control,
@@ -66,7 +87,8 @@ async function capture(
     return output
   } finally {
     process.terminate()
-    await process.waitForExit()
+    if (!(await process.waitForExit()))
+      throw new Error('CLI catalog process cleanup did not reach quiescence')
     await Promise.allSettled([...readers, process.done])
   }
 }
@@ -77,8 +99,30 @@ export async function catalogFor(
   cwd: string,
   signal: AbortSignal,
 ): Promise<Catalog> {
-  const executable = await backend.resolveExecutable(executableFor(cli, config))
+  const executable = await resolveCliExecutable(cli, backend, config)
   signal.throwIfAborted()
+  if (isExtendedCli(cli)) {
+    const models = await extendedCatalog(
+      cli,
+      executable,
+      (argv, env) => capture(backend, config, argv, cwd, signal, env),
+      config.stateDirectory ?? join(homedir(), '.dsh/cliworker-now'),
+      config,
+    )
+    if (!models.length) throw new Error(`${CLI_LABELS[cli]} 未返回可选模型，请检查原生安装与凭据配置`)
+    return {
+      cli,
+      models,
+      notice:
+        cli === 'zcode'
+          ? 'ZCode 使用配套本机内置目录（首版 GLM-5.3-Flash）；该目录不代表独立账号或额度可用。交互权限请求拒绝；原生允许的全局 MCP 仍可能执行。'
+          : cli === 'grok'
+            ? 'Grok 仅完成离线协议验证；账号、真实任务和续聊尚未验收。模型来自原生目录，不代表订阅可用。'
+            : cli === 'pi' || cli === 'omp'
+              ? '首版接入已验收的智谱 Coding Plan 路由；使用隔离账号目录与项目沙箱，额外执行工具暂未开放。'
+              : '模型来自原生 CLI；目录不代表账号额度。额外权限默认拒绝，失败时不切换 CLI 或模型。',
+    }
+  }
   if (cli === 'antigravity')
     return {
       cli,
@@ -271,7 +315,22 @@ export function protocolFor(
   identify: (id: string) => void,
   maxLineBytes: number,
 ) {
+  if (cli === 'zcode') return new ZCodeProtocol(emit, identify, maxLineBytes)
+  if (cli === 'harness') return new HarnessProtocol(emit, identify, maxLineBytes)
+  if (cli === 'grok') return new GrokProtocol(emit, identify, maxLineBytes)
+  if (cli === 'opencode') return new OpenCodeProtocol(emit, identify, maxLineBytes)
+  if (cli === 'pi' || cli === 'omp') return new BridgeProtocol(emit, identify, maxLineBytes)
   return cli === 'antigravity'
     ? new AgyProtocol(emit, identify, maxLineBytes)
     : new CliProtocol(cli, emit, identify, maxLineBytes)
+}
+
+export async function resolveCliExecutable(
+  cli: CliId,
+  backend: ProcessBackend,
+  config: RuntimeConfig,
+): Promise<string> {
+  const executable = executableFor(cli, config)
+  if (isExtendedCli(cli) && /\.[cm]?js$/.test(executable) && existsSync(executable)) return executable
+  return backend.resolveExecutable(executable)
 }

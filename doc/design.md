@@ -219,7 +219,7 @@ v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的�
 
 ## ZCode 实验性接入（2026-10-05）
 
-- 当前仅提供隔离探针，未增加正式执行器、共享 CLI 枚举或 Desktop 安装变更。真实首轮、续聊、文件产物与运行中停止已通过；下一阶段再接入 Host/Client。
+- 探针阶段已完成；正式 Host/Client 集成及实际交付状态见下方“多 CLI 扩展”与 doc/tasks.md。
 - 无头入口必须显式指定模式，避免默认 yolo。完整交互采用 Host 双向 stdio Bridge，处理 ZCode 自有 NDJSON 与反向 runtime preferences 请求；Client 仍只经 Harness Gateway。
 - Provider、模型、强度及会话 ID 取自真实能力；用户已选 GLM-5.3-Flash，探针使用目录支持的 low。独立 CLI 授权与桌面授权不能混同，不伪造 identity 或套餐 entitlement。
 - 规划模式须验证实际返回状态，不能仅凭请求参数判断。legacy snapshot 的 mode=build 不代表未规划：真实 headless 会话持久化 planEnabled=true；正式适配须读取独立 plan 状态，探针另以 macOS sandbox 限制工作区写入。
@@ -235,3 +235,16 @@ v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的�
 - 账号操作使用独立 Harness Modal，立即展示加载状态与终端，避免终端挂载在设置页滚动区底部。关闭账号弹窗回到设置，关闭/切 CLI/断流清理对应进程。终端初始化异常与启动超过20秒显示重试；关闭清理超过12秒显示未完成反馈而不宣称已停止。
 - Host 对 PTY 分配设置30秒上限；请求取消后仍保留迟到分配的所有权与互斥，取得迟到终端后清理，清理确认前不重复启动。渲染/订阅清理与进程停止独立进行，避免停止RPC阻塞订阅释放。成功创建的账号终端不受启动计时器误终止。
 - AGY目前没有独立login子命令，登录入口进入其原生TUI并显示手动 `/login` 提示；插件不猜测参数、不自动输入、不保存终端记录。
+
+
+## 多 CLI 扩展：ZCode、Grok、OMP、Pi、Harness、OpenCode
+
+新增六个独立适配器复用 WorkerRuntime 的项目写锁、会话互斥、Host 持久化和原生 Gateway。Pi/OMP RPC 通过长期 stdio bridge 转成插件内部事件；其余保留各自 JSONL 解析器，Harness/Grok 模型发现使用只创建空会话的 ACP bridge。禁止用 MiMo 或 ZCode 的相似字段替代其他 CLI 原生协议。
+
+目录与账号事实分开：ZCode app-server 不会读取独立 CLI 账号模型目录，首版使用配套 builtin 的已验收 GLM-5.3-Flash 条目，并明确不是实时账号目录。Grok 未进行付费模型验收；OMP/Pi 首版仅支持已经核验的智谱路由。新增账号区不提供未经核验的 auth/login 命令，也不把凭据存在标为远端已登录。
+
+新增执行状态在插件 stateDirectory/native/workerId 下隔离。目录0700、子进程umask077；确认进程范围退出后对原生拷贝资源再次收敛文件0600，软链不跟随、硬链接拒绝修改。目录查询每次使用独立 query 目录，避免并发配置互相覆盖。ZCode使用单独短路径临时目录以满足Unix socket限制，范围退出后清理。Pi/OMP保存原生返回的sessionFile映射，拒绝路径越界，不从会话ID猜路径。Host只在显式配置zaiCredentialRef时经原生credentials服务解析并注入对应子进程env，不将密钥保存到请求参数。
+
+macOS外层沙箱限制项目/运行状态写入；Harness例外使用自身工具文件门禁和进程沙箱，禁止danger-full-access，因双层Seatbelt会让原生Bash沙箱失败。Pi/OMP首版工具限读取/搜索/文件编辑。所有解析器检查会话身份、完整终态和失败工具；退出0不足以证明完成。清理继续由Harness原生terminal descendant ownership负责，未达到进程范围静止不报告已停止。
+
+ZCode 使用原生精确工具名 denylist 禁止子代理、Skill、工作流及跨会话调度和 node_repl，不硬编码个人 MCP 名单。该版本 CLI 没有独立 runtime 配置入口，仍会加载全局插件/MCP；原生允许的 MCP 可以执行（plan 甚至可能直接允许未标注破坏性的工具），无头 broker 仅拒绝 ask 分支。不能把外层文件沙箱描述为网络/MCP隔离，亦不修改用户配置来伪造隔离。

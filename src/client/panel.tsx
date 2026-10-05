@@ -382,7 +382,7 @@ function SessionPanel({
               <BrandIcon size={42} />
               <h3>让协作过程看得见</h3>
               <p>在主对话中明确派遣任务：</p>
-              <blockquote>用 Codex、Claude Code、Kimi、MiMo 或 Antigravity 帮我检查这个项目</blockquote>
+              <blockquote>用 ZCode、OMP、Pi、Harness 或 OpenCode 帮我检查这个项目</blockquote>
               <p>首次运行先选择模型与思考强度，过程会实时显示在这里。</p>
             </div>
           )}

@@ -20,6 +20,17 @@ export interface RuntimeConfig {
   claudeExecutable?: string
   kimiExecutable?: string
   mimoExecutable?: string
+  zcodeExecutable?: string
+  grokExecutable?: string
+  ompExecutable?: string
+  piExecutable?: string
+  harnessExecutable?: string
+  opencodeExecutable?: string
+  zcodeAuthDirectory?: string
+  zcodeBuiltinConfig?: string
+  stateDirectory?: string
+  zaiCredentialRef?: string
+  resolveCredential?: (ref: string) => Promise<string | undefined>
   maxConcurrent: number
   timeoutMs: number
   graceMs: number
@@ -52,6 +63,12 @@ export function projectDirectory(input: string): string {
     '.config/mimocode',
     '.local/share/mimocode',
     '.agents',
+    '.grok',
+    '.pi',
+    '.omp',
+    '.dsh',
+    '.zcode',
+    '.local/share/opencode',
     '.gemini',
     '.config',
     'Library/Keychains',
