@@ -1,0 +1,11 @@
+{
+  "size": [
+    1254,
+    1254
+  ],
+  "mode": "RGBA",
+  "transparent_pixels": 1258278,
+  "transparent_corners": true,
+  "method": "built-in image_gen edit; copied unchanged",
+  "visual_check": "C body, l and i including dot share visually aligned top and baseline; narrower C and reduced inner whitespace. Small speech tail extends below baseline."
+}
