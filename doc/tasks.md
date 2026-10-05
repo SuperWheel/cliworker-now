@@ -347,3 +347,14 @@
 - [x] 隔离亮暗主题验证通过。1280×720窗口modal受限为672px；加载前后摘要Y=242、模型按钮Y=442.5不变，控件240px、摘要52px。浅色按钮实测default rgba(38,49,72,0.06)，hover rgba(38,49,72,0.1)，transition 0.18s。截图 .test-data/evidence/v0.4.2-settings-light.png、v0.4.2-settings-dark.png。
 - [x] 正式构建、构建后类型检查与打包通过；更新Desktop链接前确认活动worker=0。安装包 artifacts/dsh-cliworker-now-0.4.2.tgz。隔离服务与测试页已关闭，测试主题恢复。
 - [x] 用户解锁后完成Desktop重启验收（2026-10-05 13:12）：确认链接当前0.4.2、活动worker及账号终端为0，重启成功。AGY显示大标题、绿色已登录及邮箱和本地来源说明；Codex显示实际账号，MiMo仅显示API登录；模型目录可加载，原生模型菜单可展开并关闭。未登录/退出或修改账号、开关及模型偏好。截图 .test-data/evidence/v0.4.2-desktop-settings.png。
+
+
+## ZCode 隔离可行性验证（2026-10-05）
+
+- [x] 本机 ZCode 3.14.4 / CLI 0.16.9 的真实帮助、NDJSON capabilities、反向 runtime preferences 请求与空会话验证；实现 scripts/probe-zcode.mjs，不修改正式执行器。
+- [x] 最终离线复测三项 sandbox 边界通过：测试目录可写、目录外拒写、plan 工作区拒写；空闲 app-server SIGTERM 退出及进程组清理通过。证据 .test-data/zcode-probe/run-o2uMDT/report.json；未发送 prompt。探针语法、Prettier 与 git diff --check 通过。原始事件、退出状态与哈希不入 Git。
+- [x] 用户明确选择 GLM-5.3-Flash；根据官方目录选择 low 进行短任务验证。本机原生账号首轮仍报 Select a model before continuing，因此未执行续聊，也不宣称真实调用成功。
+- [x] 临时构建官方完整 CLI：独立 Node 24.14.0 / pnpm 10.33.2、冻结锁文件、跳过安装脚本；17 个相关 workspace 构建及完整 CLI 离线探针通过。未替换桌面安装。
+- [x] 完整 CLI 原生 BigModel 登录可生成授权链接；本次等待超时并清理退出，未完成授权。探针与接入门槛记录在 doc/zcode-probe.md。
+- [ ] 重新完成独立 CLI 原生授权，验收真实首轮、同会话续聊、实际文件比对与运行中任务取消。
+- [ ] 验证实际 plan 状态、权限询问/拒绝、账号互斥及后代清理，再接入 Host/Client 并执行隔离插件构建和真实 UI 验收。本阶段未运行插件全套测试、build:preview 或正式构建。

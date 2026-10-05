@@ -215,3 +215,13 @@ v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的�
 - Antigravity无独立状态命令：按已安装CLI格式有界读取其本地OAuth元数据，仅投影ID token中的邮箱。有效访问凭据或可刷新会话显示本地已登录，明确未远程验证；过期且不可刷新显示未登录，未知格式/读取失败显示待确认。读取上限64KiB，结束清空Buffer并关闭文件，不修改凭据。
 - Codex先用login status；ChatGPT方式通过app-server的initialize/initialized/account/read(refreshToken:false)读取CLI有效账号源，支持其file/keyring/auto策略，不直接读取auth.json。explicitGatewayOauth:true阻止隐式Gateway登录，不发任务/登录请求；4秒/64KiB限制，完成或取消后等待进程范围清理。不支持查询时省略邮箱。
 - Claude的auth status --json只投影已登录claude.ai邮箱；API与helper方式只显示API。MiMo auth whoami的API分支只显示API，不投影UID/密钥；Kimi配置不冒充已认证。以上覆盖此前仅显示状态摘要的行为。
+
+
+## ZCode 实验性接入（2026-10-05）
+
+- 当前仅提供隔离探针，未增加正式执行器、共享 CLI 枚举或 Desktop 安装变更。真实首轮、续聊、文件产物与运行中停止通过后再进入产品集成。
+- 无头入口必须显式指定模式，避免默认 yolo。完整交互采用 Host 双向 stdio Bridge，处理 ZCode 自有 NDJSON 与反向 runtime preferences 请求；Client 仍只经 Harness Gateway。
+- Provider、模型、强度及会话 ID 取自真实能力；用户已选 GLM-5.3-Flash，探针使用目录支持的 low。独立 CLI 授权与桌面授权不能混同，不伪造 identity 或套餐 entitlement。
+- 规划模式须验证实际返回状态，不能仅凭请求参数判断。已观察到 legacy session/create 请求 plan 却返回 build；探针额外通过 macOS sandbox 限制工作区写入。
+- 个人模型配置、会话库、日志与 socket 均隔离；原生登录写入独立测试 profile。事件与凭据留在忽略目录，停止需确认进程组退出。正式实现继续遵守宿主权限、项目锁和账号操作互斥。
+- 入口、能力差异、官方源码构建与待验收项见 [ZCode 验证记录](zcode-probe.md)。

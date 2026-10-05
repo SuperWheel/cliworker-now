@@ -4,6 +4,8 @@ DeepSeek Harness 的多 CLI 实时侧栏插件，支持 Antigravity、Codex、Cl
 
 兼容基线：macOS、Harness **0.2.0-rc.2**、Antigravity CLI **1.2.16**、Node ≥22.19。
 
+ZCode 正在隔离验证，尚未加入正式执行器列表。可运行 `node scripts/probe-zcode.mjs` 做无模型、无互联网的协议与进程探测；真实测试需要显式选型和可用的原生 CLI 授权。见 [ZCode 验证记录与接入门槛](doc/zcode-probe.md)。
+
 ## v0.4.0 设置与账号管理
 
 - 标题栏入口是 Finder 左侧的 24px Logo 小按钮；侧栏标题下取消分隔线。
