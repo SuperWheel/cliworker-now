@@ -1,0 +1,16 @@
+{
+  "size": [
+    1254,
+    1254
+  ],
+  "mode": "RGBA",
+  "alpha_range": [
+    0,
+    255
+  ],
+  "sha256": "d5c1b7cdc7e723d152d66c395f58a691800beba125af48ab49a758bce4149a90",
+  "source": "official-v1/cliworker-now.png",
+  "method": "built-in image_gen; copied unchanged",
+  "alpha_identical_to_original": false,
+  "preview": "browser screenshot; same generated black image displayed black and inverse white"
+}
