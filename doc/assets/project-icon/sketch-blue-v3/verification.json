@@ -1,0 +1,13 @@
+{
+  "size": [
+    1254,
+    1254
+  ],
+  "mode": "RGBA",
+  "transparent_pixels": 1164362,
+  "transparent_corners": true,
+  "sha256": "c1edb158dcdf7eb84a44347521aa26b848cde8cafb41978c2dd540c4ed8cf289",
+  "method": "built-in image_gen; copied unchanged",
+  "edit_target": "exec-8e60cb23-4f6e-447d-8243-c8b96b88ad87.png",
+  "visual_check": "Generated image inspected: light-blue dot now a vertical rounded irregular block; l has gentle contour variation and flared foot. No small-size browser check."
+}
