@@ -1,0 +1,12 @@
+{
+  "size": [
+    1254,
+    1254
+  ],
+  "mode": "RGBA",
+  "transparent_pixels": 1130104,
+  "transparent_corners": true,
+  "sha256": "4d535928840d61fde8453c9545452457035d87024dc5be6913b6e4a8126e5e84",
+  "method": "built-in image_gen; copied unchanged",
+  "visual_check": "Inspected generated image; C inner gap narrowed, lower rail curved, stems moved left, organic light-blue dot. Design candidate; no browser small-size verification this turn."
+}
