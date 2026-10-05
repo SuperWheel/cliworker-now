@@ -8,6 +8,7 @@ import type { CliId } from '../src/shared/types.ts'
 
 // Simulated PTY/Gateway and renderer only; these tests never invoke an installed CLI.
 const terminals = vi.hoisted(() => [] as any[])
+const faults = vi.hoisted(() => ({ constructor: false, open: false }))
 vi.mock('@xterm/xterm', () => ({
   Terminal: class {
     options: Record<string, any>
@@ -17,9 +18,18 @@ vi.mock('@xterm/xterm', () => ({
     write = vi.fn()
     dispose = vi.fn()
     focus = vi.fn()
-    open = vi.fn()
+    open = vi.fn(() => {
+      if (faults.open) {
+        faults.open = false
+        throw new Error('simulated renderer initialization failure')
+      }
+    })
     loadAddon = vi.fn()
     constructor(options: Record<string, any>) {
+      if (faults.constructor) {
+        faults.constructor = false
+        throw new Error('simulated terminal initialization failure')
+      }
       this.options = options
       terminals.push(this)
     }
@@ -59,6 +69,7 @@ const started = (id: string) => ok(JSON.stringify({ id, instruction: '模拟账�
 class AccountStream {
   private queue: AccountFrame[] = []
   private done = false
+  private failure?: Error
   private wake?: () => void
   accept = vi.fn()
   dispose = vi.fn(async () => {
@@ -73,8 +84,13 @@ class AccountStream {
     this.done = true
     this.wake?.()
   }
+  fail() {
+    this.failure = new Error('simulated stream failure')
+    this.wake?.()
+  }
   async *[Symbol.asyncIterator]() {
     for (;;) {
+      if (this.failure) throw this.failure
       const frame = this.queue.shift()
       if (frame) yield { value: JSON.stringify(frame), accept: this.accept }
       else if (this.done) return
@@ -89,6 +105,8 @@ class AccountStream {
 const mounted: ReactTestRenderer[] = []
 beforeEach(() => {
   terminals.length = 0
+  faults.constructor = false
+  faults.open = false
   vi.stubGlobal('document', { body: {} })
   vi.stubGlobal('getComputedStyle', () => ({ getPropertyValue: () => '' }))
   vi.stubGlobal(
@@ -115,6 +133,7 @@ afterEach(async () => {
   await act(async () => {
     for (const renderer of mounted.splice(0)) renderer.unmount()
   })
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
@@ -167,11 +186,15 @@ async function setup(initiallyOpen = true) {
       starts[index].resolve(started(id))
     })
   }
-  const close = async () => {
+  const click = async (label: string) => {
     await act(async () => {
-      renderer.root.findByType('button').props.onClick()
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes(label))!
+        .props.onClick()
     })
   }
+  const close = () => click('关闭终端')
   const unmount = async () => {
     await act(async () => {
       renderer.unmount()
@@ -191,6 +214,7 @@ async function setup(initiallyOpen = true) {
     update,
     start,
     close,
+    click,
     unmount,
   }
 }
@@ -297,4 +321,123 @@ it('cleans up an old delayed start without stopping the newly selected CLI termi
   expect(fixture.accountWatch.mock.calls.map((args) => args[1])).toEqual(['new-terminal'])
   expect(terminals[1].options.disableStdin).toBe(false)
   expect(fixture.onFinished).not.toHaveBeenCalled()
+})
+
+it('shows a recoverable error instead of an endless spinner when terminal construction fails', async () => {
+  faults.constructor = true
+  const fixture = await setup()
+  expect(fixture.accountStart).not.toHaveBeenCalled()
+  expect(JSON.stringify(fixture.renderer.toJSON())).toContain('账号终端显示未能初始化')
+  expect(fixture.renderer.root.findAllByProps({ 'data-state': 'ongoing' })).toHaveLength(0)
+  await fixture.click('重试')
+  expect(fixture.accountStart).toHaveBeenCalledOnce()
+  await fixture.start()
+  expect(terminals[0].options.disableStdin).toBe(false)
+})
+
+it('disposes a partially initialized terminal and can retry without crashing the parent page', async () => {
+  faults.open = true
+  const fixture = await setup()
+  expect(fixture.accountStart).not.toHaveBeenCalled()
+  expect(terminals[0].dispose).toHaveBeenCalledOnce()
+  await fixture.click('重试')
+  expect(terminals[0].dispose).toHaveBeenCalledOnce()
+  await fixture.start()
+  expect(terminals[1].options.disableStdin).toBe(false)
+})
+
+it('bounds an unresponsive startup, supports retry, and still cleans a late old terminal', async () => {
+  vi.useFakeTimers()
+  const fixture = await setup()
+  const oldSignal = fixture.accountStart.mock.calls[0][3] as AbortSignal
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20_000)
+  })
+  expect(oldSignal.aborted).toBe(true)
+  expect(JSON.stringify(fixture.renderer.toJSON())).toContain('启动超过 20 秒')
+  expect(fixture.renderer.root.findAllByProps({ 'data-state': 'ongoing' })).toHaveLength(0)
+  await fixture.click('重试')
+  expect(fixture.accountStart).toHaveBeenCalledTimes(2)
+  await fixture.start('retry-terminal', 1)
+  await fixture.start('timed-out-terminal', 0)
+  expect(fixture.accountStop.mock.calls).toEqual([['parent', 'timed-out-terminal']])
+  expect(fixture.accountWatch.mock.calls.map((args) => args[1])).toEqual(['retry-terminal'])
+  expect(terminals[1].options.disableStdin).toBe(false)
+})
+
+it('lets a failed RPC be retried without automatically retrying the login action', async () => {
+  const fixture = await setup()
+  await act(async () => {
+    fixture.starts[0].reject(new Error('simulated gateway failure'))
+  })
+  expect(fixture.accountStart).toHaveBeenCalledOnce()
+  expect(fixture.renderer.root.findAllByProps({ 'data-state': 'ongoing' })).toHaveLength(0)
+  await fixture.click('重试')
+  expect(fixture.accountStart).toHaveBeenCalledTimes(2)
+  await fixture.start('retry-terminal', 1)
+  expect(terminals[1].options.disableStdin).toBe(false)
+})
+
+it('bounds the closing spinner and waits for cleanup before permitting a retry', async () => {
+  vi.useFakeTimers()
+  const fixture = await setup()
+  await fixture.start()
+  const cleanup = deferred()
+  fixture.accountStop.mockImplementation(() => cleanup.promise)
+  await fixture.close()
+  expect(fixture.renderer.root.findAllByProps({ 'data-state': 'ongoing' })).toHaveLength(1)
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(12_000)
+  })
+  expect(fixture.renderer.root.findAllByProps({ 'data-state': 'ongoing' })).toHaveLength(0)
+  expect(JSON.stringify(fixture.renderer.toJSON())).toContain('清理完成前不会启动新的登录')
+  expect(fixture.onClose).not.toHaveBeenCalled()
+  await fixture.click('重试')
+  expect(fixture.accountStart).toHaveBeenCalledOnce()
+  await act(async () => {
+    cleanup.resolve(ok())
+  })
+  expect(fixture.accountStart).toHaveBeenCalledTimes(2)
+  await fixture.start('retry-terminal', 1)
+})
+
+it('drops unsent input once the user starts closing the terminal', async () => {
+  const fixture = await setup()
+  await fixture.start()
+  const first = deferred()
+  const cleanup = deferred()
+  fixture.accountWrite.mockImplementationOnce(() => first.promise)
+  fixture.accountStop.mockImplementation(() => cleanup.promise)
+  await act(async () => {
+    terminals[0].input('first')
+    terminals[0].input('queued')
+  })
+  await fixture.close()
+  await act(async () => {
+    first.resolve(ok())
+  })
+  expect(fixture.accountWrite.mock.calls).toEqual([['parent', 'terminal-a', 'first']])
+  await act(async () => {
+    cleanup.resolve(ok())
+  })
+})
+
+it('immediately releases a failed stream even while process cleanup is still pending', async () => {
+  const fixture = await setup()
+  await fixture.start()
+  const cleanup = deferred()
+  fixture.accountStop.mockImplementation(() => cleanup.promise)
+  await act(async () => {
+    fixture.streams[0].fail()
+  })
+  expect(fixture.streams[0].dispose).toHaveBeenCalledOnce()
+  expect(fixture.accountStop).toHaveBeenCalledWith('parent', 'terminal-a')
+  expect(terminals[0].options.disableStdin).toBe(true)
+  expect(fixture.onFinished).toHaveBeenCalledOnce()
+  await fixture.unmount()
+  expect(fixture.streams[0].dispose).toHaveBeenCalledOnce()
+  expect(fixture.accountStop).toHaveBeenCalledOnce()
+  await act(async () => {
+    cleanup.resolve(ok())
+  })
 })

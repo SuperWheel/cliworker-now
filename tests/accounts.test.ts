@@ -416,6 +416,67 @@ describe('user-operated account terminals (synthetic PTY)', () => {
     expect(() => f.manager.start('p', 'codex', 'login', f.cwd, f.signal)).toThrow()
   })
 
+  it('times out a stalled PTY allocation promptly and cleans its late process before allowing retry', async () => {
+    vi.useFakeTimers()
+    const f = fixture()
+    const allocated = deferred<SubprocessTerminalHandle>()
+    vi.mocked(f.backend.spawnTerminal!).mockReturnValueOnce(allocated.promise)
+    const opening = f.manager.start('p', 'codex', 'login', f.cwd, f.signal)
+    const failed = expect(opening).rejects.toThrow('启动超时')
+    await vi.advanceTimersByTimeAsync(30_000)
+    await failed
+    expect(f.manager.isBusy('codex')).toBe(true)
+    expect(vi.mocked(f.backend.spawnTerminal!).mock.calls[0]![0].signal?.aborted).toBe(true)
+    expect(() => f.manager.start('p', 'codex', 'login', f.cwd, f.signal)).toThrow('已有账号终端')
+    allocated.resolve(f.terminal)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.terminal.terminate).toHaveBeenCalledOnce()
+    expect(f.manager.isBusy('codex')).toBe(false)
+  })
+
+  it('keeps a connected login terminal alive beyond startup timeout and request cancellation', async () => {
+    vi.useFakeTimers()
+    const f = fixture()
+    const request = new AbortController()
+    const { id } = await f.manager.start('p', 'antigravity', 'login', f.cwd, request.signal)
+    const watching = f.manager.watch('p', id, f.signal)[Symbol.asyncIterator]()
+    await watching.next()
+    const spec = vi.mocked(f.backend.spawnTerminal!).mock.calls[0]![0]
+    await vi.advanceTimersByTimeAsync(31_000)
+    request.abort()
+    expect(spec.signal?.aborted).toBe(false)
+    expect(f.terminal.terminate).not.toHaveBeenCalled()
+    await f.manager.write('p', id, '/login\r')
+    expect(f.terminal.write).toHaveBeenCalledWith('/login\r')
+    await f.manager.stop('p', id)
+    await watching.return?.()
+  })
+
+  it('returns cancellation before a slow provider settles but retains ownership until cleanup', async () => {
+    const f = fixture()
+    const allocated = deferred<SubprocessTerminalHandle>()
+    vi.mocked(f.backend.spawnTerminal!).mockReturnValueOnce(allocated.promise)
+    const request = new AbortController()
+    const opening = f.manager.start('p', 'codex', 'login', f.cwd, request.signal)
+    await tick()
+    const failed = expect(opening).rejects.toThrow('已取消')
+    request.abort()
+    await failed
+    expect(f.manager.isBusy('codex')).toBe(true)
+    allocated.resolve(f.terminal)
+    await tick()
+    expect(f.terminal.terminate).toHaveBeenCalledOnce()
+    expect(f.manager.isBusy('codex')).toBe(false)
+  })
+
+  it('releases a rejected allocation for retry without exposing provider errors', async () => {
+    const f = fixture()
+    vi.mocked(f.backend.spawnTerminal!).mockRejectedValueOnce(new Error('SECRET provider details'))
+    await expect(f.manager.start('p', 'claude', 'login', f.cwd, f.signal)).rejects.toThrow('无法启动账号终端')
+    expect(f.manager.isBusy('claude')).toBe(false)
+    expect((await f.manager.start('p', 'claude', 'login', f.cwd, f.signal)).id).toBeTruthy()
+  })
+
   it('closing a parent cancels its pending allocation without affecting a different parent', async () => {
     const f = fixture()
     const other = fixture()

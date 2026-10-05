@@ -15,6 +15,7 @@ import {
 import { readCodexAccount } from './codex-account.ts'
 
 const STATUS_TIMEOUT = 10_000
+const STARTUP_TIMEOUT = 30_000
 const TERMINAL_TIMEOUT = 30 * 60_000
 const MAX_OUTPUT_BYTES = 256 * 1024
 const MAX_FRAMES = 512
@@ -305,47 +306,70 @@ export class AccountManager {
     signal: AbortSignal,
     scope: ParentScope,
   ) {
-    const startup = AbortSignal.any([
-      signal,
-      scope.controller.signal,
-      this.controller.signal,
-      AbortSignal.timeout(30_000),
-    ])
+    const timeout = new AbortController()
+    const timer = setTimeout(() => timeout.abort(), STARTUP_TIMEOUT)
+    timer.unref?.()
+    const startup = AbortSignal.any([signal, scope.controller.signal, this.controller.signal, timeout.signal])
+    // Provider cancellation belongs to allocation, not the interactive login's
+    // lifetime. A completed login terminal must not inherit this request/timer.
+    const allocationControl = new AbortController()
+    const cancelAllocation = () => allocationControl.abort()
+    startup.addEventListener('abort', cancelAllocation, { once: true })
     let session: AccountSession | undefined
+    let allocation: Promise<AccountSession> | undefined
     try {
       const executable = await abortable(
         this.backend.resolveExecutable(executableFor(cli, this.config)),
         startup,
       )
       startup.throwIfAborted()
-      const terminal = await this.backend.spawnTerminal!({
+      allocation = this.backend.spawnTerminal!({
         argv: [executable, ...argumentsFor(cli, action)],
         cwd,
         rows: 24,
         cols: 80,
         terminalType: 'xterm-256color',
         graceMs: this.config.graceMs,
-        signal: startup,
-      })
-      void terminal.done.catch(() => undefined)
-      session = {
-        id: randomUUID(),
-        parent,
-        scope,
-        cli,
-        terminal,
-        frames: [],
-        bytes: 0,
-        seq: 0,
-        state: 'running',
-        stopping: false,
-        changed: new Set(),
-        output: Promise.resolve(),
-      }
-      this.sessions.set(session.id, session)
-      this.emit(session, { status: 'running' })
-      session.output = this.readTerminal(session)
-      void session.output.catch(() => undefined)
+        signal: allocationControl.signal,
+      }).then(
+        async (terminal) => {
+          void terminal.done.catch(() => undefined)
+          session = {
+            id: randomUUID(),
+            parent,
+            scope,
+            cli,
+            terminal,
+            frames: [],
+            bytes: 0,
+            seq: 0,
+            state: 'running',
+            stopping: false,
+            changed: new Set(),
+            output: Promise.resolve(),
+          }
+          this.sessions.set(session.id, session)
+          this.emit(session, { status: 'running' })
+          session.output = this.readTerminal(session)
+          void session.output.catch(() => undefined)
+          // Even if an uncooperative provider ignores cancellation, a late PTY
+          // is adopted and cleaned up before releasing its CLI reservation.
+          if (startup.aborted) {
+            await this.finish(session, 'closed', '启动已取消')
+            startup.throwIfAborted()
+          }
+          return session
+        },
+        (error) => {
+          this.reserved.delete(cli)
+          throw error
+        },
+      )
+      this.track(allocation)
+      scope.pending.add(allocation)
+      const pendingAllocation = allocation
+      void allocation.finally(() => scope.pending.delete(pendingAllocation)).catch(() => undefined)
+      session = await abortable(allocation, startup)
       if (startup.aborted) {
         await this.finish(session, 'closed', '启动已取消')
         startup.throwIfAborted()
@@ -359,7 +383,7 @@ export class AccountManager {
         void this.finish(published, 'closed', '账号终端未连接，已自动关闭').catch(() => undefined)
       }, 30_000)
       session.attachDeadline.unref?.()
-      void terminal.done
+      void session.terminal.done
         .then(
           (outcome) =>
             this.finish(
@@ -372,11 +396,21 @@ export class AccountManager {
         .catch(() => undefined)
       return { id: session.id, instruction: instructionFor(cli, action) }
     } catch (error) {
-      if (!session) this.reserved.delete(cli)
+      // An allocation still in flight may own a process already; never permit a
+      // second login until its late handle/rejection establishes cleanup.
+      if (!session && !allocation) this.reserved.delete(cli)
+      if (session && startup.aborted && !session.cleanup)
+        await this.finish(session, 'closed', '启动已取消').catch(() => undefined)
       if (error instanceof Error && error.message === '此 CLI 已有账号终端，请先关闭后重试') throw error
+      if (timeout.signal.aborted) throw new Error('账号终端启动超时，正在回收启动过程；请稍后重试')
       throw new Error(
-        session ? '账号终端启动已取消或清理失败，请关闭设置后重试' : '无法启动账号终端，请检查 CLI 安装',
+        session || startup.aborted
+          ? '账号终端启动已取消或清理失败，请关闭设置后重试'
+          : '无法启动账号终端，请检查 CLI 安装',
       )
+    } finally {
+      clearTimeout(timer)
+      startup.removeEventListener('abort', cancelAllocation)
     }
   }
 

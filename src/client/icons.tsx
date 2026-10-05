@@ -34,6 +34,7 @@ const paths = {
   tool: 'm5 7 5 5-5 5m8 0h6',
   settings: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1Z',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
+  logout: 'M9 4H5v16h4M12 12h9m-4-4 4 4-4 4',
 } as const
 export function Glyph({ name }: { name: keyof typeof paths | 'stop' | 'copy' }) {
   if (name === 'settings') return <IconSettingsOutlineRegular size={18} />

@@ -45,6 +45,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   IconSettingsOutlineRegular: () => createElement('svg'),
   IconCopyOutlineRegular: () => createElement('svg'),
   IconChevronDownOutlineRegular: () => createElement('svg'),
+  IconRefreshOutlineRegular: () => createElement('svg'),
   Menu: ({ anchor, open, items = [], onSelect }: any) =>
     createElement(
       'div',
@@ -90,6 +91,11 @@ const status = (cli: CliId, changes: Partial<AccountStatus> = {}) =>
     actions: [],
     ...changes,
   })
+const accountActions: AccountStatus['actions'] = [
+  { id: 'login', label: '模拟 Host 的登录标题', description: '模拟登录能力说明' },
+  { id: 'logout', label: '模拟 Host 的退出标题', description: '模拟退出能力说明' },
+  { id: 'manage', label: '模拟 Host 的终端标题', description: '模拟管理能力说明' },
+]
 async function setup(overrides: Record<string, any> = {}) {
   const catalogForCli = vi.fn(async (_session, cli: CliId) => catalog(cli))
   const accountStatus = vi.fn(async (_session, cli: CliId) => status(cli))
@@ -213,8 +219,10 @@ it('never treats unknown account status as logged out or mounts a terminal witho
   expect(t.text()).not.toContain('未登录')
   expect(t.button('登录')).toBeUndefined()
   expect(terminal.started).not.toHaveBeenCalled()
-  await t.click('模拟管理账号')
+  await t.click('账号终端')
   expect(terminal.started).toHaveBeenCalledExactlyOnceWith('antigravity', 'manage')
+  const dialog = t.r.root.findByProps({ role: 'dialog', 'aria-label': 'Antigravity · 账号终端' })
+  expect(dialog.findByProps({ 'data-terminal': 'antigravity' })).toBeDefined()
   await t.click('Codex 设置')
   expect(terminal.stopped).toHaveBeenCalledExactlyOnceWith('antigravity', 'manage')
   expect(terminal.started).toHaveBeenCalledTimes(1)
@@ -236,12 +244,101 @@ it('refreshes real capability data after a user-operated account flow finishes',
     status(cli, { actions: [{ id: 'login', label: '模拟登录', description: '模拟' }] }),
   )
   const t = await setup({ accountStatus })
-  await t.click('模拟登录')
+  await t.click('登录 / 切换账号')
   await t.click('完成模拟账号操作')
   expect(accountStatus.mock.calls.filter((call) => call[1] === 'antigravity')).toHaveLength(2)
   expect(t.catalogForCli).toHaveBeenCalledTimes(2)
   await t.click('关闭设置')
   expect(terminal.stopped).toHaveBeenCalledExactlyOnceWith('antigravity', 'login')
+})
+
+it('opens an account action in its own dialog only after a click and dismisses it without closing settings', async () => {
+  const t = await setup({ accountStatus: accountFixture({ actions: accountActions }) })
+  expect(t.r.root.findAllByProps({ role: 'dialog' })).toHaveLength(1)
+  expect(terminal.started).not.toHaveBeenCalled()
+  await t.click('刷新状态')
+  await t.click('刷新模型')
+  expect(terminal.started).not.toHaveBeenCalled()
+
+  await t.click('登录 / 切换账号')
+  expect(terminal.started).toHaveBeenCalledExactlyOnceWith('antigravity', 'login')
+  expect(t.r.root.findAllByProps({ role: 'dialog' })).toHaveLength(2)
+  const dialog = t.r.root.findByProps({ role: 'dialog', 'aria-label': 'Antigravity · 登录 / 切换账号' })
+  expect(dialog.findByProps({ 'data-terminal': 'antigravity' })).toBeDefined()
+  expect(t.button('登录 / 切换账号').props.disabled).toBe(true)
+  expect(t.button('账号终端').props.disabled).toBe(true)
+
+  await t.click('关闭账号操作')
+  expect(terminal.stopped).toHaveBeenCalledExactlyOnceWith('antigravity', 'login')
+  expect(t.r.root.findAllByProps({ role: 'dialog' })).toHaveLength(1)
+  expect(t.r.root.findByProps({ role: 'dialog', 'aria-label': 'CLI Worker 设置' })).toBeDefined()
+  expect(t.button('登录 / 切换账号').props.disabled).toBe(false)
+  expect(terminal.started).toHaveBeenCalledTimes(1)
+})
+
+it.each(['关闭账号操作', 'Codex 设置'])(
+  'cleans up the account action via %s even when its completion status refresh fails',
+  async (dismiss) => {
+    const accountStatus = accountFixture({ actions: accountActions })
+    const t = await setup({ accountStatus })
+    await t.click('登录 / 切换账号')
+    accountStatus.mockImplementation(async (_parent, cli: CliId) => {
+      if (cli === 'antigravity') throw new Error('模拟：操作后状态查询失败')
+      return status(cli)
+    })
+    await t.click('完成模拟账号操作')
+    expect(visibleText(accountSummary(t.r))).toContain('模拟：操作后状态查询失败')
+    expect(
+      t.r.root.findByProps({ role: 'dialog', 'aria-label': 'Antigravity · 登录 / 切换账号' }),
+    ).toBeDefined()
+    expect(t.button('关闭账号操作').props.disabled).not.toBe(true)
+    await t.click(dismiss)
+    expect(terminal.stopped).toHaveBeenCalledExactlyOnceWith('antigravity', 'login')
+    expect(t.r.root.findAllByProps({ role: 'dialog' })).toHaveLength(1)
+    expect(t.r.root.findAllByProps({ 'data-terminal': 'antigravity' })).toHaveLength(0)
+    await t.click('Antigravity 设置')
+    expect(terminal.started).toHaveBeenCalledTimes(1)
+    expect(t.button('登录 / 切换账号').props.disabled).toBe(true)
+  },
+)
+
+it.each<AccountStatus['state']>(['unknown', 'configured', 'unauthenticated', 'unavailable'])(
+  'does not offer logout for %s status even if the CLI declares that capability',
+  async (state) => {
+    const t = await setup({ accountStatus: accountFixture({ state, actions: accountActions }) })
+    expect(t.button('退出登录')).toBeUndefined()
+    expect(terminal.started).not.toHaveBeenCalled()
+  },
+)
+
+it('offers logout alongside an authenticated account and dispatches only logout after an explicit click', async () => {
+  const t = await setup({
+    accountStatus: accountFixture({
+      state: 'authenticated',
+      authMethod: 'oauth',
+      verification: 'cli',
+      accountLabel: 'fixture@example.invalid',
+      actions: accountActions,
+    }),
+  })
+  expect(
+    accountSummary(t.r)
+      .findAllByType('button')
+      .some((button) => button.props['aria-label'] === '退出登录'),
+  ).toBe(true)
+  expect(t.button('退出登录').props.disabled).toBe(false)
+  expect(terminal.started).not.toHaveBeenCalled()
+  await t.click('刷新状态')
+  await t.click('Codex 设置')
+  expect(t.button('退出登录')).toBeUndefined()
+  await t.click('Antigravity 设置')
+  expect(terminal.started).not.toHaveBeenCalled()
+  await t.click('退出登录')
+  expect(terminal.started).toHaveBeenCalledExactlyOnceWith('antigravity', 'logout')
+  expect(t.r.root.findByProps({ role: 'dialog', 'aria-label': 'Antigravity · 退出登录' })).toBeDefined()
+  await t.click('关闭账号操作')
+  expect(terminal.stopped).toHaveBeenCalledExactlyOnceWith('antigravity', 'logout')
+  expect(terminal.started).toHaveBeenCalledTimes(1)
 })
 
 it('uses Kimi supported default effort without a saved preference and can persist it', async () => {
@@ -304,7 +401,7 @@ it('keeps the same account action and form controls while discovery is pending a
   })
   const actionButtons = () =>
     t.r.root.findByProps({ className: 'cwn-account-actions' }).findAllByType('button')
-  expect(actionButtons()).toHaveLength(3)
+  expect(actionButtons().map((button) => button.props['aria-label'])).toEqual(['登录 / 切换账号', '账号终端'])
   expect(actionButtons().every((button) => button.props.disabled)).toBe(true)
   expect(t.button('默认模型')).toBeDefined()
   expect(t.button('默认思考强度')).toBeDefined()
@@ -315,8 +412,8 @@ it('keeps the same account action and form controls while discovery is pending a
     )
     pendingModels.resolve(catalog('antigravity'))
   })
-  expect(actionButtons()).toHaveLength(3)
-  expect(actionButtons()[0]!.props.disabled).toBe(false)
+  expect(actionButtons().map((button) => button.props['aria-label'])).toEqual(['登录 / 切换账号', '账号终端'])
+  expect(t.button('登录 / 切换账号').props.disabled).toBe(false)
   expect(t.r.root.findAllByProps({ className: 'cwn-settings-section' })).toHaveLength(sectionsBefore)
   expect(t.button('默认模型').props.disabled).toBe(false)
 })
@@ -581,8 +678,41 @@ it('discloses when an account identity comes from local login information rather
     }),
   })
   expect(visibleText(accountSummary(t.r))).toContain('fixture-local@example.invalid')
-  expect(visibleText(accountSummary(t.r))).toContain('本地登录信息，未进行远程验证')
+  expect(visibleText(accountSummary(t.r))).not.toContain('本地登录信息，未进行远程验证')
+  expect(accountSummary(t.r).findAllByProps({ label: '本地登录信息，未进行远程验证' })).toHaveLength(1)
 })
+it.each([
+  { authMethod: 'oauth', verification: 'cli', source: '登录状态由 CLI 提供' },
+  { authMethod: 'api', verification: 'cli', source: '使用 CLI 当前配置的 API 凭据' },
+  { authMethod: 'api', verification: 'local', source: '本地登录信息，未进行远程验证' },
+] as const)(
+  'keeps $authMethod/$verification provenance in its tooltip without adding static form notes',
+  async ({ authMethod, verification, source }) => {
+    const t = await setup({
+      accountStatus: accountFixture({
+        state: 'authenticated',
+        authMethod,
+        verification,
+        summary: '模拟：Host 账号说明',
+      }),
+      catalogForCli: vi.fn(async (_parent, cli: CliId) =>
+        remote({
+          cli,
+          models: [{ id: `${cli}-fixture`, efforts: ['default'] }],
+          notice: '模拟：CLI 协议适配静态备注',
+        }),
+      ),
+    })
+    const visible = visibleText(t.r.root)
+    expect(visible).not.toContain(source)
+    expect(visible).not.toContain('模拟：CLI 协议适配静态备注')
+    expect(visible).not.toContain('仅影响此项目、此 CLI 之后新建的子 Agent')
+    expect(visible).not.toContain('已有会话保留原配置')
+    expect(accountSummary(t.r).findAllByProps({ label: source })).toHaveLength(1)
+    expect(t.button('默认模型')).toBeDefined()
+    expect(t.button('默认思考强度')).toBeDefined()
+  },
+)
 it('keeps the account summary mounted during refresh and failure without displaying stale login success or identity', async () => {
   const accountStatus = accountFixture({
     state: 'authenticated',

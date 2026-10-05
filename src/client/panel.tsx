@@ -242,8 +242,13 @@ function SessionPanel({
           </>
         ) : (
           <>
-            <BrandIcon size={32} />
-            <h2>CLI Worker</h2>
+            <div className="cwn-wordmark">
+              <BrandIcon size={36} />
+              <h2 aria-label="CLI Worker Now">
+                <span>cli worker</span>
+                <small>NOW</small>
+              </h2>
+            </div>
             <Tooltip label="默认设置" side="bottom" portal>
               <Button
                 type="button"

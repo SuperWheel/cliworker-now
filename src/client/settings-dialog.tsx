@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Button,
   Menu,
@@ -7,6 +7,7 @@ import {
   Switch,
   Tooltip,
   IconChevronDownOutlineRegular,
+  IconRefreshOutlineRegular,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   CLI_IDS,
@@ -19,7 +20,7 @@ import {
 import type { AccountAction, AccountStatus } from '../shared/accounts.ts'
 import { modelName } from '../shared/models.ts'
 import { AccountTerminal } from './account-terminal.tsx'
-import { BrandIcon } from './icons.tsx'
+import { BrandIcon, Glyph } from './icons.tsx'
 import { operationMessage } from './operation-error.ts'
 import { value, type API } from './workers.ts'
 
@@ -43,11 +44,6 @@ interface AccountEntry {
   data?: AccountStatus
   error?: string
 }
-const ACCOUNT_ACTIONS: { id: AccountAction; label: string }[] = [
-  { id: 'login', label: '登录 / 切换账号' },
-  { id: 'logout', label: '退出登录' },
-  { id: 'manage', label: '账号终端' },
-]
 function readEnabled(raw: string): Enabled {
   const parsed = JSON.parse(raw)
   if (!parsed?.enabled || CLI_IDS.some((id) => typeof parsed.enabled[id] !== 'boolean')) {
@@ -331,7 +327,9 @@ function AccountSummary({
   enabled,
   loading,
   settingsError,
+  logout,
 }: {
+  logout?: ReactNode
   account?: AccountEntry
   enabled?: boolean
   loading: boolean
@@ -386,19 +384,24 @@ function AccountSummary({
   return (
     <div className="cwn-account-summary" data-account-state={current ? data?.state : undefined} role="status">
       <div className="cwn-account-status-line">
-        <span className="cwn-account-login" data-state={state}>
-          <span className="cwn-account-status-dot" data-state={state} aria-hidden="true" />
-          {label}
-        </span>
+        <Tooltip label={detail || label} side="top" portal>
+          <span className="cwn-account-login" data-state={state}>
+            <span className="cwn-account-status-dot" data-state={state} aria-hidden="true" />
+            {label}
+          </span>
+        </Tooltip>
         {authenticated && !apiLogin && (
           <span className="cwn-account-label" title={data.accountLabel}>
             {data.accountLabel || 'CLI 未提供账号信息'}
           </span>
         )}
+        {authenticated && logout}
       </div>
-      <div className="cwn-account-detail" title={detail}>
-        {detail}
-      </div>
+      {!authenticated && detail && (
+        <div className="cwn-account-detail" role="status">
+          {detail}
+        </div>
+      )}
     </div>
   )
 }
@@ -518,6 +521,47 @@ function CliSettings({
     onRefreshAccount()
     refreshModels((n) => n + 1)
   }
+  const accountAction = (id: AccountAction) => {
+    const item = account?.data?.actions.find((candidate) => candidate.id === id)
+    const label = id === 'logout' ? '退出登录' : id === 'manage' ? '账号终端' : '登录 / 切换账号'
+    return (
+      <Tooltip label={item?.description || label} side="top" portal>
+        <Button
+          type="button"
+          variant={id === 'logout' ? 'ghost' : 'outline'}
+          size="md"
+          className={
+            id === 'logout'
+              ? 'cwn-account-logout'
+              : id === 'manage'
+                ? 'cwn-account-manage'
+                : 'cwn-account-login-action'
+          }
+          aria-label={label}
+          disabled={inactive || accountLoading || !!account?.error || !!action || !item}
+          onClick={() => {
+            if (!inactive && item) setAction(item.id)
+          }}
+        >
+          {id === 'logout' ? (
+            <>
+              <Glyph name="logout" />
+              退出
+            </>
+          ) : id === 'manage' ? (
+            <>
+              <Glyph name="tool" />
+              账号终端
+            </>
+          ) : account?.data?.state === 'authenticated' ? (
+            '切换账号'
+          ) : (
+            '登录账号'
+          )}
+        </Button>
+      </Tooltip>
+    )
+  }
   return (
     <div className="cwn-settings-pane" aria-label={`${CLI_LABELS[cli]} 配置`}>
       <div className="cwn-cli-identity" data-enabled={enabled !== false}>
@@ -552,57 +596,52 @@ function CliSettings({
           <h3>账号与登录</h3>
           <div className="cwn-settings-section-tools">
             <SectionProgress loading={accountLoading} label={`正在读取 ${CLI_LABELS[cli]} 账号…`} />
-            <Button
-              type="button"
-              variant="ghost"
-              size="md"
-              disabled={inactive || accountLoading}
-              onClick={onRefreshAccount}
-            >
-              刷新状态
-            </Button>
+            <Tooltip label="刷新登录状态" side="top" portal>
+              <Button
+                type="button"
+                variant="ghost"
+                size="md"
+                className="cwn-refresh"
+                aria-label="刷新状态"
+                disabled={inactive || accountLoading}
+                onClick={onRefreshAccount}
+              >
+                <IconRefreshOutlineRegular size={16} />
+              </Button>
+            </Tooltip>
           </div>
         </div>
-        <AccountSummary
-          account={account}
-          enabled={enabled}
-          loading={accountLoading}
-          settingsError={settingsError}
-        />
-        <div className="cwn-account-actions">
-          {ACCOUNT_ACTIONS.map((slot) => {
-            const item = account?.data?.actions.find((candidate) => candidate.id === slot.id)
-            return (
-              <Tooltip
-                key={slot.id}
-                label={item?.description || '当前 CLI 未提供此账号操作'}
-                side="bottom"
-                portal
-              >
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="md"
-                  disabled={inactive || accountLoading || !!account?.error || !!action || !item}
-                  onClick={() => {
-                    if (!inactive && item) setAction(item.id)
-                  }}
-                >
-                  {item?.label || slot.label}
-                </Button>
-              </Tooltip>
-            )
-          })}
+        <div className="cwn-account-row">
+          <AccountSummary
+            account={account}
+            enabled={enabled}
+            loading={accountLoading}
+            settingsError={settingsError}
+            logout={accountAction('logout')}
+          />
+          <div className="cwn-account-actions">
+            {accountAction('login')}
+            {accountAction('manage')}
+          </div>
         </div>
         {action && enabled && (
-          <AccountTerminal
-            api={api}
-            sessionId={sessionId}
-            cli={cli}
-            action={action}
+          <Modal
+            open
             onClose={() => setAction(undefined)}
-            onFinished={finishedAccountAction}
-          />
+            title={`${CLI_LABELS[cli]} · ${action === 'login' ? '登录 / 切换账号' : action === 'logout' ? '退出登录' : '账号终端'}`}
+            closeLabel="关闭账号操作"
+            className="cwn-account-dialog"
+            contentClassName="cwn-account-dialog-content"
+          >
+            <AccountTerminal
+              api={api}
+              sessionId={sessionId}
+              cli={cli}
+              action={action}
+              onClose={() => setAction(undefined)}
+              onFinished={finishedAccountAction}
+            />
+          </Modal>
         )}
       </section>
       <section className="cwn-settings-section" aria-label="项目默认设置">
@@ -613,15 +652,19 @@ function CliSettings({
               loading={!settingsError && enabled !== false && (modelLoading || settingsPending)}
               label={`正在读取 ${CLI_LABELS[cli]} 模型…`}
             />
-            <Button
-              type="button"
-              variant="ghost"
-              size="md"
-              disabled={inactive || modelLoading || saving}
-              onClick={() => refreshModels((n) => n + 1)}
-            >
-              刷新模型
-            </Button>
+            <Tooltip label="刷新模型列表" side="top" portal>
+              <Button
+                type="button"
+                variant="ghost"
+                size="md"
+                className="cwn-refresh"
+                aria-label="刷新模型"
+                disabled={inactive || modelLoading || saving}
+                onClick={() => refreshModels((n) => n + 1)}
+              >
+                <IconRefreshOutlineRegular size={16} />
+              </Button>
+            </Tooltip>
           </div>
         </div>
         <form
@@ -661,9 +704,8 @@ function CliSettings({
             />
           </label>
           <p className="cwn-settings-notice cwn-settings-hint" role="status">
-            {modelError || catalog?.notice || ''}
+            {modelError || ''}
           </p>
-          <p className="cwn-settings-hint">仅影响此项目、此 CLI 之后新建的子 Agent，已有会话保留原配置。</p>
           <div className="cwn-settings-save">
             <Button
               type="submit"

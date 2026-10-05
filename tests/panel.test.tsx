@@ -38,6 +38,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   IconSendOutlineRegular: () => createElement('svg'),
   IconCopyOutlineRegular: () => createElement('svg'),
   IconChevronDownOutlineRegular: () => createElement('svg'),
+  IconRefreshOutlineRegular: () => createElement('svg'),
   MarkdownText: ({ text }: any) => createElement('div', {}, text),
   MenuItemButton: ({ children, onSelect, disabled }: any) =>
     createElement('button', { onClick: onSelect, disabled }, children),
