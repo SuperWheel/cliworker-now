@@ -3,7 +3,7 @@ import { ConversationTimeline } from './conversation-timeline.tsx'
 import { modelName } from '../shared/models.ts'
 import { operationMessage } from './operation-error.ts'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   active,
   CLI_IDS,
@@ -213,21 +213,22 @@ function SessionPanel({
       <header className="cwn-head">
         {selected ? (
           <>
-            <Button
-              ref={back}
-              type="button"
-              variant="outline"
-              size="sm"
-              className="cwn-back"
-              aria-label="返回子 Agent 列表"
-              title="返回子 Agent 列表"
-              onClick={() => {
-                setSettings(false)
-                select('')
-              }}
-            >
-              <Glyph name="back" />
-            </Button>
+            <Tooltip label="返回子 Agent 列表" side="bottom" portal>
+              <Button
+                ref={back}
+                type="button"
+                variant="outline"
+                size="sm"
+                className="cwn-back"
+                aria-label="返回子 Agent 列表"
+                onClick={() => {
+                  setSettings(false)
+                  select('')
+                }}
+              >
+                <Glyph name="back" />
+              </Button>
+            </Tooltip>
             <h2 title={worker?.title}>
               {worker?.title ?? snapshot.workers.find((w) => w.id === selected)?.title ?? '正在加载…'}
             </h2>
@@ -271,21 +272,22 @@ function SessionPanel({
           <>
             <BrandIcon size={22} />
             <h2>CLI Worker</h2>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="cwn-settings-button"
-              aria-label="默认设置"
-              title="默认设置"
-              disabled={busy}
-              onClick={() => {
-                setSettings(!settings)
-                if (!settings) void loadCatalog(settingsCli)
-              }}
-            >
-              <Glyph name="settings" />
-            </Button>
+            <Tooltip label="默认设置" side="bottom" portal>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="cwn-settings-button"
+                aria-label="默认设置"
+                disabled={busy}
+                onClick={() => {
+                  setSettings(!settings)
+                  if (!settings) void loadCatalog(settingsCli)
+                }}
+              >
+                <Glyph name="settings" />
+              </Button>
+            </Tooltip>
           </>
         )}
       </header>

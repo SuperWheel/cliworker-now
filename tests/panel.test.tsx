@@ -9,6 +9,11 @@ const clipboard = vi.hoisted(() => vi.fn().mockResolvedValue(true))
 // Only the native control skins is replaced; actual Panel, hooks and stream consumer run.
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   writeClipboard: clipboard,
+  Tooltip: ({ children }: any) => children,
+  useAnchoredPosition: () => null,
+  useDismissOnOutsidePointer: () => {},
+  IconCheckOutlineRegular: () => createElement('svg'),
+  IconChevronRightOutlineRegular: () => createElement('svg'),
   IconDatabaseOutlineRegular: () => createElement('svg'),
   IconGaugeOutlineRegular: () => createElement('svg'),
   IconSettingsOutlineRegular: () => createElement('svg'),

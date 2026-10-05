@@ -16,6 +16,7 @@ import { protocolFor, executableFor, workerArguments } from './adapters.ts'
 import { spawnManagedAgent } from './managed-agent.ts'
 import { projectDirectory, type ProcessBackend, type RuntimeConfig } from './process.ts'
 import { join } from 'node:path'
+import { AgyContextReader } from './agy-context.ts'
 import { attachTelemetry, TelemetryReader } from './telemetry.ts'
 import { WorkerStorage } from './storage.ts'
 
@@ -33,6 +34,7 @@ export interface Submission {
 }
 
 export class WorkerRuntime {
+  private agyContextReader = new AgyContextReader()
   private telemetryReader = new TelemetryReader()
   private tasks = new Map<string, Task>()
   private queue: Task[] = []
@@ -69,14 +71,20 @@ export class WorkerRuntime {
     const worker = selected ? this.get(parent, selected) : undefined
     const timeline = worker ? this.timeline(worker) : []
     const telemetry = worker ? this.runTelemetry(worker, worker.runId) : undefined
+    const context =
+      worker && cliOf(worker.preference) === 'antigravity'
+        ? this.agyContextReader.read(worker.conversationId)
+        : undefined
     return {
-      telemetry: telemetry
-        ? {
-            usage: telemetry.usage,
-            contextUsed: telemetry.contextUsed,
-            contextCapacity: telemetry.contextCapacity,
-          }
-        : undefined,
+      telemetry:
+        telemetry || context
+          ? {
+              usage: telemetry?.usage,
+              contextUsed: telemetry?.contextUsed,
+              contextCapacity: telemetry?.contextCapacity,
+              ...context,
+            }
+          : undefined,
       workers,
       selected: worker,
       timeline: timeline.slice(-this.config.maxTimelineItems),

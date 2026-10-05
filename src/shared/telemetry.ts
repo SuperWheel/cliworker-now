@@ -7,6 +7,8 @@ export interface TokenUsage {
   scope: 'response' | 'run' | 'session' | 'reported'
 }
 export interface Telemetry {
+  contextEstimated?: boolean
+  contextSource?: string
   usage?: TokenUsage
   contextUsed?: number
   contextCapacity?: number

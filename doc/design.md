@@ -155,6 +155,15 @@ v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的�
 
 - Host `TelemetryReader` 从已归属 worker/run 的私有 raw.jsonl 增量读取公开统计字段，内存缓存按文件大小/mtime 刷新；只投影数据，不重写历史记录。文件丢失、未完成行或坏 JSON 不阻塞对话。单文件读取上限 64MiB，缓存最多 128 个运行；超限显示不可用，不伪造不完整总量。
 - Antigravity `step_update.usage` 按 step_index 覆盖而非累加，绑定对应回复；`result.usage` 是 CLI 会话累计，独立放在底栏。Codex `turn.completed.usage` 明确标记 CLI 报告值，不把恢复会话的计数跨轮相加；Claude result 包含独立缓存桶；MiMo step_finish 按 part.id 去重后在当前运行内求和。Kimi 未提供可核验计数时留空。
-- 统计在历史分页前绑定，底栏取当前运行，不能跟随历史分页跳到旧运行。上下文要求独立的占用与容量；不从模型名字猜容量，不使用累计输入/输出代替占用。当前 Antigravity 无这两项数据，因此显示圆环及 `—`，悬停解释原因。
+- 统计在历史分页前绑定，底栏取当前运行，不能跟随历史分页跳到旧运行。上下文要求独立的占用与容量；不从模型名字猜容量，不使用累计输入/输出代替占用。Antigravity 的流式输出无这两项数据，v0.3.6 增加以下可选的本地元数据适配。
 - 回复栏用量与时间使用宿主次级字号，复用数据库图标。日期遵循 Harness 的本地日历切分：同日 HH:mm、同年 M月D日 HH:mm、跨年 YYYY年M月D日 HH:mm。底栏依次状态、Token、上下文圆环，窄栏截断及换行保护。
 - 灰色按钮、可折叠 summary 和统计项提供 180ms 悬停变色；禁用按钮仅外观反馈，原生 disabled 语义保留；减少动态效果偏好关闭过渡。
+
+
+## v0.3.6 原生交互与上下文元数据
+
+- 替代 v0.3.5 通用 180ms hover：按 Harness 对应控件分别使用原生颜色和时间，WorkStatus 为 100ms 颜色过渡、复制/统计按钮为原生 hover；不统一叠加自定义高亮。复制提示复用 Tooltip，模型列表复用 Menu。分隔线使用 border-l2，复制操作区 28px，圆角及字体增量来自主题。
+- 用量和上下文详情使用 useAnchoredPosition / useDismissOnOutsidePointer，顶部间距 8px、视口边距 12px、Esc 关闭；原生背景、阴影、圆角。上下文面板宽 264px。底栏状态改回彩色圆点。
+- Host 的 AgyContextReader 仅接收插件 worker 的 UUID conversation_id，只读打开 ~/.gemini/antigravity-cli/conversations/<id>.db，先核对 trajectory_meta.cascade_id，再读取最新 gen_metadata 的 data。8 MiB 上限，文件与 WAL 修改戳缓存最多 128 会话。失败不影响主快照。
+- 依据 CLI 1.2.16 嵌入的 protobuf 描述核验字段路径：chat_model(1) → chat_start_metadata(9) → context_window_metadata(10) → estimated_tokens_used(1)、max_context_tokens(4)。只传递数值与来源标识；不解码或展示该元数据中的提示词内容。非负安全整数占用、正安全整数容量才可显示，未知或损坏数据回退未知。
+- 本地上下文是最近一次请求的 CLI 估算，详情标注来源与精确数值；与日志中的本轮/回复/累计 Token 用量独立，不将累计用量当成上下文。

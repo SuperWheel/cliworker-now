@@ -5,6 +5,8 @@ import {
   Menu,
   MenuItemButton,
   IconChevronDownOutlineRegular,
+  IconChevronRightOutlineRegular,
+  IconCheckOutlineRegular,
   type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
@@ -96,7 +98,7 @@ export function WorkerModelMenu({
     <span className="cwn-model-cell">
       <span>{label}</span>
       <span className="cwn-model-cell-value">{text}</span>
-      <span aria-hidden="true">›</span>
+      <IconChevronRightOutlineRegular size={12} />
     </span>
   )
   const items: MenuEntry[] =
@@ -157,7 +159,7 @@ export function WorkerModelMenu({
         >
           <span>{name}</span>
           <span className="cwn-model-effort">{effortLabel(worker.preference.effort)}</span>
-          <IconChevronDownOutlineRegular size={12} />
+          <IconChevronDownOutlineRegular className="cwn-model-chevron" size={12} />
         </Button>
       }
     >
@@ -186,7 +188,7 @@ export function WorkerModelMenu({
               >
                 <span className="cwn-model-cell">
                   <span>{m.id}</span>
-                  {m.id === chosen?.id && <span aria-hidden="true">✓</span>}
+                  {m.id === chosen?.id && <IconCheckOutlineRegular size={14} />}
                 </span>
               </MenuItemButton>
             ))}

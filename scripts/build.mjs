@@ -96,6 +96,7 @@ await build({
     alwaysBundle: ['zod', 'dsh-cliworker-now/remote'],
     neverBundle: [
       'react',
+      'react-dom',
       'react/jsx-runtime',
       '@deepseek-ai/cordis',
       '@deepseek-ai/dsh-client-ui-primitives',
