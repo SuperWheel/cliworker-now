@@ -1,10 +1,12 @@
-# CLI Worker Now · 正式 Logo v1
+# CLI Worker Now · 唯一正式 Logo
 
-用户于 2026-10-05 确认 sketch-blue-v4 为当前正式 Logo。亮色主版本原样复制，未更改轮廓或像素；夜间版本使用内置 image_gen 生成，采用浅蓝主体与冰蓝圆点，保持相同构形。生成式配色存在细微轮廓差异，不宣称逐像素一致。
+用户最终明确只采用 exec-38a6f3bc-7633-4832-8bc0-24c8571c7f6f.png。本目录的 cliworker-now.png 是该文件的逐字节副本，亮暗主题均使用同一图形、同一配色。
 
-- [正式主 Logo / 亮色 PNG](cliworker-now-light.png)
-- [夜间配色 PNG](cliworker-now-dark.png)
-- [明暗对照页面](preview.html)
-- [版本及透明通道记录](manifest.json)
+- [正式透明 PNG](cliworker-now.png)
+- [原图排版效果图](preview.png)
+- [可打开的展示页](preview.html)
+- [版本记录](manifest.json)
 
-两份素材均为透明 RGBA PNG，已核验透明角及文件哈希。夜间配色是本轮新稿，尚未收到用户后续评价；本轮未进行浏览器小尺寸验证。正式素材已归档，插件运行时及 Desktop 安装未在本轮更新。历史稿保留，后续品牌素材以此目录为准。按用户要求不保存提示词。
+夜间改色方案已取消采用；cliworker-now-dark.png 仅作为历史文件保留。brand-preview-imagegen.png 曾重绘轮廓，已作废，不应作为正式 Logo 参考。cliworker-now-light.png 是原图的历史同内容副本。
+
+新效果图直接引用正式原始 PNG，由浏览器渲染；没有用生成式模型重绘 Logo，没有使用滤镜或非等比拉伸。插件运行时及 Desktop 安装未在本轮更新。

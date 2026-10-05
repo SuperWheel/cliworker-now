@@ -1,10 +1,10 @@
 {
   "version": "official-v1",
   "selected_on": "2026-10-05",
-  "primary": "cliworker-now-light.png",
-  "dark_variant": "cliworker-now-dark.png",
-  "primary_status": "user-approved official logo; exact copy of sketch-blue-v4",
-  "dark_status": "newly generated night palette; no subsequent user approval yet",
+  "primary": "cliworker-now.png",
+  "dark_variant": null,
+  "primary_status": "sole user-approved official logo, exact original PNG",
+  "dark_status": "rejected by user; historical file only, not used",
   "method": "primary copied unchanged; dark variant built-in image_gen, copied unchanged",
   "integration": "asset archive only; runtime and Desktop unchanged",
   "verification": {
@@ -29,5 +29,24 @@
       "sha256": "a421b428b50d970a213d1c43d867750083820d05fce834501b65ce78198c8e2d"
     }
   },
-  "notes": "Generated dark variant visually inspected. Shape follows approved mark but is not a pixel-identical mask. No browser small-size validation this turn."
+  "notes": "Preview embeds the identical original PNG on both backgrounds; previous imagegen mockup is superseded.",
+  "preview": "preview.png",
+  "primary_sha256": "1dab209b70d93af5571dfc24663b6be2b746e48b61d2093f94fddd2cb6156318",
+  "preview_verification": {
+    "method": "browser screenshot of preview.html",
+    "all_10_images_use": "cliworker-now.png",
+    "all_images_loaded": true,
+    "display_slots_px": [
+      228,
+      32,
+      24,
+      32,
+      48
+    ],
+    "backgrounds": [
+      "white",
+      "charcoal"
+    ],
+    "visual_inspection": "passed; original logo referenced directly without redraw or recolor"
+  }
 }

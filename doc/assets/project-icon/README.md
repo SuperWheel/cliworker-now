@@ -1,9 +1,7 @@
 # 项目 Logo
 
-当前正式主 Logo 为 [official-v1](official-v1/README.md)，由用户于 2026-10-05 选定 sketch-blue-v4。
+唯一正式版本为 [official-v1/cliworker-now.png](official-v1/cliworker-now.png)，对应用户指定的 exec-38a6f3bc-7633-4832-8bc0-24c8571c7f6f.png。亮暗背景均使用同一原图，夜间配色已取消采用。
 
-- [正式主版本](official-v1/cliworker-now-light.png)
-- [夜间配色](official-v1/cliworker-now-dark.png)
-- [明暗对照](official-v1/preview.html)
+[效果图](official-v1/preview.png) · [展示页](official-v1/preview.html) · [版本说明](official-v1/README.md)
 
-其余目录保留为设计历史，不代表当前采用版本。此索引表示品牌素材选定状态，运行时接入状态见版本说明。
+其他文件保留为设计历史。素材选择不代表插件运行时已更新。
