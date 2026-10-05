@@ -205,3 +205,13 @@ v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的�
 - 左侧导航根据打开弹窗时的 enabled 快照稳定排序；本次toggle保留顺序，下次打开或页面刷新再将关闭项移到末尾。关闭项名称和品牌图灰化，当前CLI顶部始终显示品牌、名称及开关。
 - 账号连接检测按CLI独立取消和缓存，每个CLI最多一个在途请求，不阻塞导航。authenticated绿色，unauthenticated/unavailable/查询失败红色，configured/unknown灰色且不伪称已登录；仅Antigravity真实模型目录返回后可标绿色目录已连接。
 - 首次加载与刷新均保留账号摘要、操作位、模型/强度、说明与保存区域；区域标题旁的固定槽显示spinner。切CLI和关闭弹窗取消旧请求；禁用时关闭菜单并停止该CLI的发现请求，恢复开启不会重弹旧菜单。
+
+
+## v0.4.2 设置页层次与登录身份
+
+- 保留原生 Modal/Menu/Button/Switch/Tooltip；弹窗宽800px、导航188px，固定高度700px且受宿主可用高度限制。CLI页首40px图标与24px/32px标题，副标题说明用途。设置行采用原生14px/22px标签、12px/18px说明、16px上下间距及0.5px border-l2分隔；240px以内的控件右对齐，md按钮仍为36px。
+- 账号摘要固定预留52px。authenticated显示绿色点与绿色“已登录”，白名单邮箱跟随其后；api仅显示“API 登录”，即使响应携带账号字段也不展示。载入/错误/关闭状态不显示旧邮箱或旧绿色状态。来源及限制显示在次行。
+- AccountStatus增添可选authMethod、accountLabel、verification；只传认证方式、邮箱及来源，不传token、API key、原始CLI输出，不持久化账号身份。
+- Antigravity无独立状态命令：按已安装CLI格式有界读取其本地OAuth元数据，仅投影ID token中的邮箱。有效访问凭据或可刷新会话显示本地已登录，明确未远程验证；过期且不可刷新显示未登录，未知格式/读取失败显示待确认。读取上限64KiB，结束清空Buffer并关闭文件，不修改凭据。
+- Codex先用login status；ChatGPT方式通过app-server的initialize/initialized/account/read(refreshToken:false)读取CLI有效账号源，支持其file/keyring/auto策略，不直接读取auth.json。explicitGatewayOauth:true阻止隐式Gateway登录，不发任务/登录请求；4秒/64KiB限制，完成或取消后等待进程范围清理。不支持查询时省略邮箱。
+- Claude的auth status --json只投影已登录claude.ai邮箱；API与helper方式只显示API。MiMo auth whoami的API分支只显示API，不投影UID/密钥；Kimi配置不冒充已认证。以上覆盖此前仅显示状态摘要的行为。

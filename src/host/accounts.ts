@@ -6,6 +6,13 @@ import { executableFor } from './adapters.ts'
 import { projectDirectory, type ProcessBackend, type RuntimeConfig } from './process.ts'
 import { CLI_IDS, type CliId } from '../shared/types.ts'
 import type { AccountAction, AccountFrame, AccountStatus } from '../shared/accounts.ts'
+import {
+  accountEmail,
+  localAccountIdentity,
+  type AccountIdentity,
+  type AccountIdentitySource,
+} from './account-identity.ts'
+import { readCodexAccount } from './codex-account.ts'
 
 const STATUS_TIMEOUT = 10_000
 const TERMINAL_TIMEOUT = 30 * 60_000
@@ -46,26 +53,35 @@ const argumentsFor = (cli: CliId, action: AccountAction): string[] => {
 }
 
 /** No raw command output, exception text, account tokens, or key prefixes cross this boundary. */
-function summarize(
-  cli: CliId,
-  raw: string,
-  exitCode: number | null,
-): Pick<AccountStatus, 'state' | 'summary'> {
+function summarize(cli: CliId, raw: string, exitCode: number | null): AccountIdentity {
   const text = stripVTControlCharacters(raw)
   if (cli === 'codex') {
     if (exitCode === 0 && /\bLogged in using ChatGPT\b/.test(text))
-      return { state: 'authenticated', summary: '已通过 ChatGPT 登录' }
+      return {
+        state: 'authenticated',
+        summary: '已通过 ChatGPT 登录',
+        authMethod: 'oauth',
+        verification: 'cli',
+      }
     if (exitCode === 0 && /\bLogged in using (?:an )?API key\b/i.test(text))
-      return { state: 'authenticated', summary: '已使用 API Key 登录' }
+      return { state: 'authenticated', summary: 'API 登录', authMethod: 'api', verification: 'cli' }
     if (/^Not logged in\s*$/m.test(text)) return { state: 'unauthenticated', summary: '尚未登录' }
   } else if (cli === 'claude') {
     try {
       const value = JSON.parse(text)
       if (value.loggedIn === false) return { state: 'unauthenticated', summary: '尚未登录' }
       if (exitCode === 0 && value.loggedIn === true) {
-        const method =
-          value.authMethod === 'oauth_token' ? 'OAuth' : value.authMethod === 'api_key' ? 'API Key' : ''
-        return { state: 'authenticated', summary: method ? `已通过 ${method} 登录` : '已登录' }
+        // Claude's installed auth/status implementation only returns email for
+        // claude.ai sessions. Environment OAuth tokens do not identify an account.
+        const oauth = value.authMethod === 'oauth_token' || value.authMethod === 'claude.ai'
+        const api = value.authMethod === 'api_key' || value.authMethod === 'api_key_helper'
+        return {
+          state: 'authenticated',
+          summary: api ? 'API 登录' : oauth ? '已通过 OAuth 登录' : 'CLI 报告已登录',
+          authMethod: api ? 'api' : oauth ? 'oauth' : undefined,
+          accountLabel: value.authMethod === 'claude.ai' ? accountEmail(value.email) : undefined,
+          verification: 'cli',
+        }
       }
     } catch {
       /* Unknown output is not evidence of logout. */
@@ -74,14 +90,29 @@ function summarize(
     // The non-JSON command prints only IDs/type/model counts/source. Configuration
     // existence does not validate a cached token; never label this authenticated.
     if (exitCode === 0 && /^\S+\s+type=\S+\s+models=\d+\s+source=oauth\s*$/m.test(text))
-      return { state: 'configured', summary: '已配置 OAuth 提供商；登录有效性请在 CLI 内确认' }
+      return {
+        state: 'configured',
+        summary: '已配置 OAuth 提供商；登录有效性请在 CLI 内确认',
+        authMethod: 'oauth',
+        verification: 'cli',
+      }
     if (exitCode === 0 && /^\S+\s+type=\S+\s+models=\d+\s+source=\S+\s*$/m.test(text))
       return { state: 'configured', summary: '已配置提供商；可在账号终端管理' }
     if (exitCode === 0 && /^No providers configured\.\s*$/m.test(text))
       return { state: 'unauthenticated', summary: '尚未配置提供商' }
   } else if (cli === 'mimo') {
-    if (exitCode === 0 && /Provider: MiMo\b/.test(text))
-      return { state: 'configured', summary: '已配置 MiMo 凭据；账号详情可在原生终端查看' }
+    if (exitCode === 0 && /Provider: MiMo\b/.test(text)) {
+      // Installed whoami source emits User ID only in the type === 'api'
+      // metadata branch. Never expose that metadata or a key prefix for API auth.
+      if (/\bType:\s*api\b|\bUser ID:/.test(text))
+        return {
+          state: 'authenticated',
+          summary: 'API 登录；CLI 报告本地凭据已配置，未进行远程校验',
+          authMethod: 'api',
+          verification: 'local',
+        }
+      return { state: 'configured', summary: '已配置 MiMo 凭据；CLI 未提供可显示的账号', verification: 'cli' }
+    }
     if (/Not logged in\. Run `mimo auth login` to log in\./.test(text))
       return { state: 'unauthenticated', summary: '尚未登录 MiMo' }
   }
@@ -121,7 +152,7 @@ interface AccountSession {
   expiry?: ReturnType<typeof setTimeout>
 }
 
-/** User-only auth processes. No credentials are read from disk or persisted by this manager. */
+/** User-only auth processes. Only allowlisted identity metadata leaves the Host. */
 export class AccountManager {
   private readonly sessions = new Map<string, AccountSession>()
   private readonly reserved = new Set<CliId>()
@@ -134,6 +165,7 @@ export class AccountManager {
   constructor(
     private backend: ProcessBackend,
     private config: RuntimeConfig,
+    private identity: AccountIdentitySource = localAccountIdentity(),
   ) {}
 
   isBusy(cli: CliId): boolean {
@@ -160,14 +192,18 @@ export class AccountManager {
       )
       installed = true
       control.throwIfAborted()
-      if (cli === 'antigravity')
+      if (cli === 'antigravity') {
+        const identity = await abortable(this.identity(cli, control), control)
         return {
           cli,
           installed,
-          state: 'unknown',
-          summary: 'CLI 已安装；请在原生账号终端查看和管理登录',
+          ...(identity ?? {
+            state: 'unknown' as const,
+            summary: 'CLI 已安装；请在原生账号终端查看和管理登录',
+          }),
           actions: this.backend.spawnTerminal ? actionsFor(cli) : [],
         }
+      }
       const argv =
         cli === 'codex'
           ? ['login', 'status']
@@ -200,10 +236,16 @@ export class AccountManager {
       const readers = [read(child.stdout), read(child.stderr)]
       try {
         const [outcome] = await abortable(Promise.all([child.done, ...readers]), control)
+        let status = summarize(cli, raw, outcome.exitCode)
+        if (cli === 'codex' && status.state === 'authenticated' && status.authMethod === 'oauth') {
+          const identity = await readCodexAccount(this.backend, this.config, executable, cwd, control)
+          // A logout/account switch between the two reads replaces the first result.
+          if (identity) status = identity
+        }
         return {
           cli,
           installed,
-          ...summarize(cli, raw, outcome.exitCode),
+          ...status,
           actions: this.backend.spawnTerminal ? actionsFor(cli) : [],
         }
       } finally {

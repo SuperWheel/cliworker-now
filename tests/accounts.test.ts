@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { PassThrough, Readable } from 'node:stream'
+import { PassThrough, Readable, Writable } from 'node:stream'
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,6 +12,7 @@ import type {
 import { AccountManager } from '../src/host/accounts.ts'
 import { DEFAULT_CONFIG, type ProcessBackend } from '../src/host/process.ts'
 import type { CliId } from '../src/shared/types.ts'
+import type { AccountIdentitySource } from '../src/host/account-identity.ts'
 
 // All subprocesses in this suite are synthetic. No real login/logout is run.
 const roots: string[] = []
@@ -54,14 +55,29 @@ function fixture() {
   }
   let raw = '',
     exitCode = 0
+  let codexAccount: unknown
   const statusProcesses: SubprocessHandle[] = []
   const backend: ProcessBackend = {
     resolveExecutable: vi.fn(async (name) => (name.startsWith('/') ? name : `/synthetic/${name}`)),
     spawnTerminal: vi.fn(async () => terminal),
-    spawn: vi.fn(() => {
+    spawn: vi.fn((spec) => {
+      const appServer = spec.argv.includes('app-server')
       const child: SubprocessHandle = {
-        stdin: undefined,
-        stdout: Readable.from([raw]),
+        stdin: appServer
+          ? new Writable({
+              write(_chunk, _encoding, callback) {
+                callback()
+              },
+            })
+          : undefined,
+        stdout: Readable.from(
+          appServer
+            ? [
+                JSON.stringify({ id: 1, result: {} }) + '\n',
+                JSON.stringify({ id: 2, result: codexAccount }) + '\n',
+              ]
+            : [raw],
+        ),
         stderr: Readable.from([]),
         control: undefined,
         collected: {},
@@ -73,11 +89,13 @@ function fixture() {
       return child
     }),
   }
-  const manager = new AccountManager(backend, DEFAULT_CONFIG)
+  const identity = vi.fn<AccountIdentitySource>(async () => undefined)
+  const manager = new AccountManager(backend, DEFAULT_CONFIG, identity)
   managers.push(manager)
   return {
     cwd,
     manager,
+    identity,
     backend,
     terminal,
     output,
@@ -87,6 +105,9 @@ function fixture() {
     status: (text: string, code = 0) => {
       raw = text
       exitCode = code
+    },
+    codexAccount: (account: unknown) => {
+      codexAccount = { account }
     },
     delayCleanup: () => {
       waitCleanup = true
@@ -101,7 +122,7 @@ describe('account status safety (synthetic CLI output)', () => {
     const f = fixture()
     f.status('Logged in using an API key - sk-SECRET-DO-NOT-EXPOSE')
     const codex = await f.manager.status('codex', f.cwd, f.signal)
-    expect(codex).toMatchObject({ state: 'authenticated', summary: '已使用 API Key 登录' })
+    expect(codex).toMatchObject({ state: 'authenticated', summary: 'API 登录', authMethod: 'api' })
     expect(JSON.stringify(codex)).not.toContain('SECRET')
     f.status(
       JSON.stringify({
@@ -129,7 +150,7 @@ describe('account status safety (synthetic CLI output)', () => {
     expect(kimiCall.argv).not.toContain('--json')
     f.status('Provider: MiMo\nUser ID: private-uid\n')
     const mimo = await f.manager.status('mimo', f.cwd, f.signal)
-    expect(mimo).toMatchObject({ state: 'configured' })
+    expect(mimo).toMatchObject({ state: 'authenticated', authMethod: 'api', verification: 'local' })
     expect(JSON.stringify(mimo)).not.toContain('private-uid')
     f.status('Transport error with SECRET', 1)
     expect(await f.manager.status('codex', f.cwd, f.signal)).toMatchObject({ state: 'unknown' })
@@ -141,6 +162,87 @@ describe('account status safety (synthetic CLI output)', () => {
       installed: true,
     })
     expect(f.backend.spawn).toHaveBeenCalledTimes(count)
+  })
+
+  it('only projects the account returned for the current authenticated session', async () => {
+    const f = fixture()
+    f.identity.mockResolvedValue({
+      state: 'authenticated',
+      summary: 'Local',
+      authMethod: 'oauth',
+      accountLabel: 'person@example.com',
+      verification: 'local',
+    })
+    f.codexAccount({ type: 'chatgpt', email: 'person@example.com' })
+    f.status('Logged in using ChatGPT')
+    expect(await f.manager.status('codex', f.cwd, f.signal)).toMatchObject({
+      accountLabel: 'person@example.com',
+      authMethod: 'oauth',
+      verification: 'cli',
+    })
+    f.status('Not logged in', 1)
+    const loggedOut = await f.manager.status('codex', f.cwd, f.signal)
+    expect(loggedOut.state).toBe('unauthenticated')
+    expect(loggedOut.accountLabel).toBeUndefined()
+    f.status('Logged in using an API key - sk-SECRET')
+    const api = await f.manager.status('codex', f.cwd, f.signal)
+    expect(api.authMethod).toBe('api')
+    expect(api.accountLabel).toBeUndefined()
+    expect(f.identity).not.toHaveBeenCalled()
+  })
+
+  it('shows Claude email only for a confirmed claude.ai status and clears it after logout', async () => {
+    const f = fixture()
+    f.status(
+      JSON.stringify({
+        loggedIn: true,
+        authMethod: 'claude.ai',
+        email: 'person@example.com',
+        accessToken: 'SECRET',
+        orgId: 'PRIVATE',
+      }),
+    )
+    const loggedIn = await f.manager.status('claude', f.cwd, f.signal)
+    expect(loggedIn).toMatchObject({
+      state: 'authenticated',
+      accountLabel: 'person@example.com',
+      authMethod: 'oauth',
+    })
+    expect(JSON.stringify(loggedIn)).not.toMatch(/SECRET|PRIVATE/)
+    f.status(JSON.stringify({ loggedIn: false, authMethod: 'claude.ai', email: 'person@example.com' }), 1)
+    expect((await f.manager.status('claude', f.cwd, f.signal)).accountLabel).toBeUndefined()
+    f.status(
+      JSON.stringify({
+        loggedIn: true,
+        authMethod: 'api_key',
+        email: 'person@example.com',
+        apiKeySource: 'sk-SECRET',
+      }),
+    )
+    const api = await f.manager.status('claude', f.cwd, f.signal)
+    expect(api).toMatchObject({ state: 'authenticated', authMethod: 'api' })
+    expect(api.accountLabel).toBeUndefined()
+    expect(JSON.stringify(api)).not.toContain('SECRET')
+  })
+
+  it('uses safe local Antigravity identity without launching any login or task process', async () => {
+    const f = fixture()
+    f.identity.mockResolvedValue({
+      state: 'authenticated',
+      summary: '本地登录会话已保存；未进行远程有效性校验',
+      authMethod: 'oauth',
+      accountLabel: 'person@example.com',
+      verification: 'local',
+    })
+    expect(await f.manager.status('antigravity', f.cwd, f.signal)).toMatchObject({
+      state: 'authenticated',
+      accountLabel: 'person@example.com',
+      verification: 'local',
+    })
+    expect(f.backend.spawn).not.toHaveBeenCalled()
+    expect(f.backend.spawnTerminal).not.toHaveBeenCalled()
+    f.identity.mockResolvedValue({ state: 'unauthenticated', summary: '尚未登录', verification: 'local' })
+    expect((await f.manager.status('antigravity', f.cwd, f.signal)).accountLabel).toBeUndefined()
   })
 
   it('bounds oversized discovery and turns executable failures into safe unavailable summaries', async () => {

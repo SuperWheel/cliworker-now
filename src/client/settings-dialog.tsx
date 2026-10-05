@@ -80,7 +80,12 @@ function connectionStatus(
   }
   return {
     state: 'connected',
-    label: account.data.state === 'authenticated' ? '已连接，账号已登录' : '模型目录已连接；账号未验证',
+    label:
+      account.data.state === 'authenticated'
+        ? account.data.verification === 'local'
+          ? '已保存登录信息，未进行远程验证'
+          : '已连接，账号已登录'
+        : '模型目录已连接；账号未验证',
   }
 }
 
@@ -319,6 +324,84 @@ function SectionProgress({ loading, label }: { loading: boolean; label: string }
     </span>
   )
 }
+
+/** Render only the Host's safe identity projection, never raw CLI output. */
+function AccountSummary({
+  account,
+  enabled,
+  loading,
+  settingsError,
+}: {
+  account?: AccountEntry
+  enabled?: boolean
+  loading: boolean
+  settingsError: string
+}) {
+  const data = account?.data
+  const current = enabled === true && !loading && !settingsError && !account?.error
+  const authenticated = current && data?.state === 'authenticated'
+  const apiLogin = authenticated && data.authMethod === 'api'
+  const state =
+    enabled === false
+      ? 'disabled'
+      : authenticated
+        ? 'connected'
+        : (current && ['unavailable', 'unauthenticated'].includes(data?.state ?? '')) || !!account?.error
+          ? 'failed'
+          : 'unknown'
+  const label =
+    enabled === false
+      ? '已关闭'
+      : settingsError
+        ? '状态暂不可用'
+        : loading
+          ? '正在读取登录信息…'
+          : account?.error
+            ? '状态暂不可用'
+            : authenticated
+              ? apiLogin
+                ? 'API 登录'
+                : '已登录'
+              : data?.state === 'unauthenticated'
+                ? '未登录'
+                : data?.state === 'configured'
+                  ? '已配置'
+                  : '状态待确认'
+  const detail =
+    enabled === false
+      ? '开启后即可管理账号与模型。'
+      : settingsError
+        ? '请重新打开设置后重试'
+        : loading
+          ? ''
+          : account?.error
+            ? account.error
+            : authenticated
+              ? data.verification === 'local'
+                ? '本地登录信息，未进行远程验证'
+                : apiLogin
+                  ? '使用 CLI 当前配置的 API 凭据'
+                  : '登录状态由 CLI 提供'
+              : (data?.summary ?? '')
+  return (
+    <div className="cwn-account-summary" data-account-state={current ? data?.state : undefined} role="status">
+      <div className="cwn-account-status-line">
+        <span className="cwn-account-login" data-state={state}>
+          <span className="cwn-account-status-dot" data-state={state} aria-hidden="true" />
+          {label}
+        </span>
+        {authenticated && !apiLogin && (
+          <span className="cwn-account-label" title={data.accountLabel}>
+            {data.accountLabel || 'CLI 未提供账号信息'}
+          </span>
+        )}
+      </div>
+      <div className="cwn-account-detail" title={detail}>
+        {detail}
+      </div>
+    </div>
+  )
+}
 function CliSettings({
   api,
   sessionId,
@@ -439,8 +522,11 @@ function CliSettings({
     <div className="cwn-settings-pane" aria-label={`${CLI_LABELS[cli]} 配置`}>
       <div className="cwn-cli-identity" data-enabled={enabled !== false}>
         <div className="cwn-settings-cli-name">
-          <BrandIcon cli={cli} size={24} />
-          <h2>{CLI_LABELS[cli]}</h2>
+          <BrandIcon cli={cli} size={40} />
+          <div>
+            <h2>{CLI_LABELS[cli]}</h2>
+            <p className="cwn-cli-subtitle">管理账号与模型偏好</p>
+          </div>
         </div>
         <div className="cwn-cli-toggle">
           <SectionProgress
@@ -477,13 +563,12 @@ function CliSettings({
             </Button>
           </div>
         </div>
-        <p className="cwn-account-summary" data-account-state={account?.data?.state} role="status">
-          {enabled === false
-            ? '此 CLI 已关闭'
-            : settingsError
-              ? '请重新打开设置后重试'
-              : account?.error || account?.data?.summary || `正在读取 ${CLI_LABELS[cli]} 账号…`}
-        </p>
+        <AccountSummary
+          account={account}
+          enabled={enabled}
+          loading={accountLoading}
+          settingsError={settingsError}
+        />
         <div className="cwn-account-actions">
           {ACCOUNT_ACTIONS.map((slot) => {
             const item = account?.data?.actions.find((candidate) => candidate.id === slot.id)
@@ -546,8 +631,11 @@ function CliSettings({
             void save()
           }}
         >
-          <label>
-            模型
+          <label className="cwn-setting-row">
+            <span className="cwn-setting-row-text">
+              <span>模型</span>
+              <span className="cwn-setting-description">此项目新任务使用的默认模型</span>
+            </span>
             <NativeChoice
               label="默认模型"
               selected={model}
@@ -556,8 +644,11 @@ function CliSettings({
               onChange={changeModel}
             />
           </label>
-          <label>
-            思考强度
+          <label className="cwn-setting-row">
+            <span className="cwn-setting-row-text">
+              <span>思考强度</span>
+              <span className="cwn-setting-description">仅提供当前模型支持的选项</span>
+            </span>
             <NativeChoice
               label="默认思考强度"
               selected={effort}

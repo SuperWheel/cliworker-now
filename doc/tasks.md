@@ -335,3 +335,15 @@
 - [x] 142项测试通过（10文件），含10项开关持久/竞争/取消约束、20项设置状态和加载布局、19项Panel、25项账号管理及原进程/协议测试。Host+Client类型检查、隔离构建、正式构建、pack均通过。
 - [x] 隔离原生Harness真实UI验收：加载前后modal700px、账号按钮/模型选择器/保存按钮位置完全相同；Codex单独关闭后灰化且原位，重开排末，恢复开启成功；亮暗主题、真实目录与账号状态可读。测试开关已恢复全开；未执行登录/退出或修改模型默认值。
 - [x] 更新前确认Desktop活动worker为0；重启后实际打开新设置页，开关和模型查询可用，无新增RPC404。证据见 .test-data/evidence/v0.4.1-settings-light.png、v0.4.1-settings-dark.png、v0.4.1-settings-disabled-dark.png、v0.4.1-desktop-settings.png。安装包 artifacts/dsh-cliworker-now-0.4.1.tgz。
+
+
+## v0.4.2 — 原生设置层次与登录身份（2026-10-05）
+
+- [x] 原生设置页排版：40px品牌图标、24px CLI大标题与副标题；左说明/右控件、细分隔线，导航188px、弹窗800px，模型/强度控件240px；保持36px按钮、固定高度、独立滚动与灰色悬停过渡。
+- [x] 账号区显示绿色点+“已登录”及安全邮箱；API只显示“API 登录”。本地会话与CLI状态明确区分来源；读取中、失败及关闭后隐藏旧邮箱。摘要固定52px，不因有无身份跳动。
+- [x] AGY按已安装CLI格式读取本地OAuth元数据，仅投影邮箱并标明未远程验证。Codex使用自身account/read获取有效账号源，拒绝通过可能过期的auth.json猜测；4秒/64KiB限制并等待进程范围清理。Claude仅投影已登录claude.ai邮箱，MiMo只显示API方式，Kimi配置仍不是已登录。
+- [x] 167项测试（12文件）与Host/Client类型检查通过。新增账号投影/过期/异常/密钥排除、Codex RPC握手/取消/清理及客户端状态边界测试。独立复核44项账号相关测试通过。
+- [x] 隔离构建通过；真实Harness浏览器验证AGY绿色状态+邮箱+本地来源、Codex邮箱来自CLI、MiMo API标签无账号字段。未执行真实登录/退出、没有更改账号或模型偏好。
+- [x] 隔离亮暗主题验证通过。1280×720窗口modal受限为672px；加载前后摘要Y=242、模型按钮Y=442.5不变，控件240px、摘要52px。浅色按钮实测default rgba(38,49,72,0.06)，hover rgba(38,49,72,0.1)，transition 0.18s。截图 .test-data/evidence/v0.4.2-settings-light.png、v0.4.2-settings-dark.png。
+- [x] 正式构建、构建后类型检查与打包通过；更新Desktop链接前确认活动worker=0。安装包 artifacts/dsh-cliworker-now-0.4.2.tgz。隔离服务与测试页已关闭，测试主题恢复。
+- [ ] Desktop重启验收：Mac锁屏，工具无法操作桌面；新bundle已构建到现有链接，仍需解锁后重启Harness并核验。

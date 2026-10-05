@@ -512,3 +512,119 @@ it('never upgrades an explicit unauthenticated account to connected after a mode
   ).toBe('failed')
   expect(t.button('Antigravity 设置').findByProps({ role: 'img' }).props['aria-label']).toBe('模拟：请先登录')
 })
+
+function accountSummary(renderer: ReactTestRenderer) {
+  return renderer.root.find(
+    (node) =>
+      typeof node.props.className === 'string' &&
+      node.props.className.split(/\s+/).includes('cwn-account-summary'),
+  )
+}
+function visibleText(node: ReturnType<typeof accountSummary>): string {
+  return node.children.map((child) => (typeof child === 'string' ? child : visibleText(child))).join(' ')
+}
+function accountFixture(changes: Partial<AccountStatus>) {
+  return vi.fn(async (_parent, cli: CliId) => status(cli, cli === 'antigravity' ? changes : {}))
+}
+
+it('shows the authenticated OAuth account with its login indicator in the persistent account summary', async () => {
+  const t = await setup({
+    accountStatus: accountFixture({
+      state: 'authenticated',
+      authMethod: 'oauth',
+      verification: 'cli',
+      accountLabel: 'Fixture Person · fixture@example.invalid',
+      summary: '模拟：原生 CLI 报告已登录',
+    }),
+  })
+  const summary = accountSummary(t.r)
+  expect(visibleText(summary)).toContain('已登录')
+  expect(visibleText(summary)).toContain('Fixture Person · fixture@example.invalid')
+  expect(summary.findByProps({ className: 'cwn-account-status-dot' }).props['data-state']).toBe('connected')
+})
+it('labels API authentication distinctly and never renders an API account label supplied by the host', async () => {
+  const t = await setup({
+    accountStatus: accountFixture({
+      state: 'authenticated',
+      authMethod: 'api',
+      verification: 'cli',
+      accountLabel: 'SIMULATED_SECRET_MUST_NOT_RENDER',
+      summary: '模拟：API 凭据已配置',
+    }),
+  })
+  expect(visibleText(accountSummary(t.r))).toContain('API 登录')
+  expect(t.text()).not.toContain('SIMULATED_SECRET_MUST_NOT_RENDER')
+  expect(accountSummary(t.r).findByProps({ className: 'cwn-account-status-dot' }).props['data-state']).toBe(
+    'connected',
+  )
+})
+it('uses an honest fallback when the authenticated OAuth CLI does not provide an account identity', async () => {
+  const t = await setup({
+    accountStatus: accountFixture({
+      state: 'authenticated',
+      authMethod: 'oauth',
+      verification: 'cli',
+      summary: '模拟：已登录',
+    }),
+  })
+  expect(visibleText(accountSummary(t.r))).toContain('已登录')
+  expect(visibleText(accountSummary(t.r))).toContain('CLI 未提供账号信息')
+})
+it('discloses when an account identity comes from local login information rather than remote verification', async () => {
+  const t = await setup({
+    accountStatus: accountFixture({
+      state: 'authenticated',
+      authMethod: 'oauth',
+      verification: 'local',
+      accountLabel: 'fixture-local@example.invalid',
+      summary: '模拟：本地登录信息',
+    }),
+  })
+  expect(visibleText(accountSummary(t.r))).toContain('fixture-local@example.invalid')
+  expect(visibleText(accountSummary(t.r))).toContain('本地登录信息，未进行远程验证')
+})
+it('keeps the account summary mounted during refresh and failure without displaying stale login success or identity', async () => {
+  const accountStatus = accountFixture({
+    state: 'authenticated',
+    authMethod: 'oauth',
+    verification: 'cli',
+    accountLabel: 'stale-fixture@example.invalid',
+    summary: '模拟：已登录',
+  })
+  const t = await setup({ accountStatus })
+  const before = accountSummary(t.r)
+  expect(visibleText(before)).toContain('stale-fixture@example.invalid')
+  const refresh = deferred()
+  accountStatus.mockImplementation((_parent, cli: CliId) =>
+    cli === 'antigravity' ? refresh.promise : Promise.resolve(status(cli)),
+  )
+  await t.click('刷新状态')
+  expect(accountSummary(t.r)).toBe(before)
+  expect(visibleText(accountSummary(t.r))).not.toContain('stale-fixture@example.invalid')
+  expect(visibleText(accountSummary(t.r))).not.toContain('已登录')
+  expect(accountSummary(t.r).findAllByProps({ 'data-state': 'connected' })).toHaveLength(0)
+  await act(async () => refresh.reject(new Error('模拟：账号状态刷新失败')))
+  expect(accountSummary(t.r)).toBe(before)
+  expect(visibleText(accountSummary(t.r))).toContain('模拟：账号状态刷新失败')
+  expect(visibleText(accountSummary(t.r))).not.toContain('stale-fixture@example.invalid')
+  expect(visibleText(accountSummary(t.r))).not.toContain('已登录')
+  expect(accountSummary(t.r).findAllByProps({ 'data-state': 'connected' })).toHaveLength(0)
+})
+it('keeps the same summary region after disabling a CLI while removing the previous authenticated identity', async () => {
+  const t = await setup({
+    accountStatus: accountFixture({
+      state: 'authenticated',
+      authMethod: 'oauth',
+      verification: 'cli',
+      accountLabel: 'disabled-fixture@example.invalid',
+      summary: '模拟：已登录',
+    }),
+  })
+  const before = accountSummary(t.r)
+  await t.click('启用 Antigravity')
+  expect(accountSummary(t.r)).toBe(before)
+  expect(visibleText(accountSummary(t.r))).not.toContain('disabled-fixture@example.invalid')
+  expect(visibleText(accountSummary(t.r))).not.toContain('已登录')
+  expect(accountSummary(t.r).findAllByProps({ 'data-state': 'connected' })).toHaveLength(0)
+  expect(t.button('登录 / 切换账号').props.disabled).toBe(true)
+})
