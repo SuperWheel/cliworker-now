@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useState } from 'react'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { CLI_LABELS, cliOf, type TimelineItem, type Worker } from '../shared/types.ts'
+import { messageClock } from '../shared/telemetry.ts'
+import { UsageIndicator } from './telemetry.tsx'
 import { CopyText } from './copy-text.tsx'
 import { Glyph } from './icons.tsx'
 const labels: Record<string, string> = {
@@ -97,12 +99,9 @@ export function ConversationTimeline({ items, worker }: { items: TimelineItem[];
                   {item.kind === 'assistant' && item.text && (
                     <CopyText text={item.text} label="复制回复" iconOnly />
                   )}
-                  <time>
-                    {new Date(item.time).toLocaleTimeString('zh-CN', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      hour12: false,
-                    })}
+                  {item.kind === 'assistant' && <UsageIndicator usage={item.usage} reply />}
+                  <time dateTime={item.time} title={new Date(item.time).toLocaleString('zh-CN')}>
+                    {messageClock(item.time)}
                   </time>
                   {item.kind === 'user' && item.text && (
                     <CopyText text={item.text} label="复制消息" iconOnly />

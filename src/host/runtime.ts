@@ -15,6 +15,8 @@ import {
 import { protocolFor, executableFor, workerArguments } from './adapters.ts'
 import { spawnManagedAgent } from './managed-agent.ts'
 import { projectDirectory, type ProcessBackend, type RuntimeConfig } from './process.ts'
+import { join } from 'node:path'
+import { attachTelemetry, TelemetryReader } from './telemetry.ts'
 import { WorkerStorage } from './storage.ts'
 
 interface Task {
@@ -31,6 +33,7 @@ export interface Submission {
 }
 
 export class WorkerRuntime {
+  private telemetryReader = new TelemetryReader()
   private tasks = new Map<string, Task>()
   private queue: Task[] = []
   private running = new Set<Task>()
@@ -65,7 +68,15 @@ export class WorkerRuntime {
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
     const worker = selected ? this.get(parent, selected) : undefined
     const timeline = worker ? this.timeline(worker) : []
+    const telemetry = worker ? this.runTelemetry(worker, worker.runId) : undefined
     return {
+      telemetry: telemetry
+        ? {
+            usage: telemetry.usage,
+            contextUsed: telemetry.contextUsed,
+            contextCapacity: telemetry.contextCapacity,
+          }
+        : undefined,
       workers,
       selected: worker,
       timeline: timeline.slice(-this.config.maxTimelineItems),
@@ -74,9 +85,18 @@ export class WorkerRuntime {
     }
   }
   private timeline(worker: Worker): TimelineItem[] {
-    return foldEvents(
+    const rows = foldEvents(
       this.storage.history(worker.id),
       active(worker.status) ? undefined : { runId: worker.runId, status: worker.status },
+    )
+    for (const runId of new Set(rows.map((row) => row.id.split(':')[0]!)))
+      attachTelemetry(rows, runId, this.runTelemetry(worker, runId))
+    return rows
+  }
+  private runTelemetry(worker: Worker, runId: string) {
+    return this.telemetryReader.read(
+      join(this.storage.directory, `${worker.id}.${runId}.raw.jsonl`),
+      cliOf(worker.preference),
     )
   }
   history(parent: string, workerId: string, anchor: string, direction: string): HistoryPage {

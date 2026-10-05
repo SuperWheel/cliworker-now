@@ -9,6 +9,8 @@ const clipboard = vi.hoisted(() => vi.fn().mockResolvedValue(true))
 // Only the native control skins is replaced; actual Panel, hooks and stream consumer run.
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   writeClipboard: clipboard,
+  IconDatabaseOutlineRegular: () => createElement('svg'),
+  IconGaugeOutlineRegular: () => createElement('svg'),
   IconSettingsOutlineRegular: () => createElement('svg'),
   IconSendOutlineRegular: () => createElement('svg'),
   IconCopyOutlineRegular: () => createElement('svg'),
@@ -501,12 +503,10 @@ it('model menu updates an idle worker without dispatching or changing project de
   const configureWorker = vi.fn().mockResolvedValue({ ok: true, value: '{}' })
   const configure = vi.fn()
   Object.assign(t.api.cliworker, {
-    catalogForCli: vi
-      .fn()
-      .mockResolvedValue({
-        ok: true,
-        value: JSON.stringify({ models: [{ id: 'next-model', efforts: ['low'] }] }),
-      }),
+    catalogForCli: vi.fn().mockResolvedValue({
+      ok: true,
+      value: JSON.stringify({ models: [{ id: 'next-model', efforts: ['low'] }] }),
+    }),
     configureWorker,
     configure,
   })

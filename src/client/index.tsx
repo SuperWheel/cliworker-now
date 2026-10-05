@@ -10,7 +10,7 @@ import remoteContribution from 'dsh-cliworker-now/remote'
 import { active } from '../shared/types.ts'
 import { Panel } from './panel.tsx'
 import { useWorkers, type API } from './workers.ts'
-import { styles, nativeChatStyles, modelPickerStyles } from './styles.ts'
+import { styles, nativeChatStyles, modelPickerStyles, telemetryStyles } from './styles.ts'
 import { BrandIcon } from './icons.tsx'
 
 const ID = 'dsh-cliworker-now'
@@ -24,7 +24,7 @@ export function apply(ctx: Context): void {
     const api: API = { $stream: (options) => remote.$stream(options), cliworker: worker }
     scope.effect(() => {
       const style = document.createElement('style')
-      style.textContent = styles + nativeChatStyles + modelPickerStyles
+      style.textContent = styles + nativeChatStyles + modelPickerStyles + telemetryStyles
       document.head.append(style)
       return () => style.remove()
     })

@@ -1,3 +1,4 @@
+import { ComposerTelemetry } from './telemetry.tsx'
 import { ConversationTimeline } from './conversation-timeline.tsx'
 import { modelName } from '../shared/models.ts'
 import { operationMessage } from './operation-error.ts'
@@ -646,11 +647,11 @@ function SessionPanel({
               )}
             </div>
           </div>
-          <div className="cwn-compose-state">
-            <span className={`cwn-dot ${worker.status}`} />
-            {status[worker.status]}
-            <span className="cwn-compose-cli">{CLI_LABELS[cliOf(worker.preference)]}</span>
-          </div>
+          <ComposerTelemetry
+            worker={worker}
+            telemetry={snapshot.telemetry}
+            statusLabel={status[worker.status]}
+          />
         </form>
       )}
     </section>

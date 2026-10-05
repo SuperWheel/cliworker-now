@@ -1,3 +1,4 @@
+import type { Telemetry, TokenUsage } from './telemetry.ts'
 export const EFFORTS = [
   'default',
   'none',
@@ -65,6 +66,7 @@ export interface WorkerEvent {
   detail?: string
 }
 export interface TimelineItem {
+  usage?: TokenUsage
   id: string
   kind: WorkerEvent['kind']
   text: string
@@ -78,6 +80,7 @@ export interface TimelineItem {
   runOutcome?: WorkerStatus
 }
 export interface WorkerSnapshot {
+  telemetry?: Telemetry
   workers: Worker[]
   selected?: Worker
   timeline: TimelineItem[]
