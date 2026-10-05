@@ -1,0 +1,33 @@
+{
+  "size": [
+    1459,
+    1078
+  ],
+  "mode": "RGBA",
+  "transparent_pixels": 834224,
+  "transparent_corners": true,
+  "subject_bounds_alpha128": [
+    119,
+    104,
+    1308,
+    966
+  ],
+  "subject_width": 1189,
+  "subject_height": 862,
+  "subject_ratio": 1.3793503480278422,
+  "method": "built-in image_gen; copied without pixel editing",
+  "visual_preview": {
+    "checked": true,
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "slot_sizes_px": [
+      24,
+      32,
+      48
+    ],
+    "screenshot": "preview.png",
+    "aspect_preserved_by": "object-fit: contain"
+  }
+}
