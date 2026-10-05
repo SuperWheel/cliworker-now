@@ -1,0 +1,13 @@
+{
+  "size": [
+    1254,
+    1254
+  ],
+  "mode": "RGBA",
+  "transparent_pixels": 1149620,
+  "transparent_corners": true,
+  "sha256": "1dab209b70d93af5571dfc24663b6be2b746e48b61d2093f94fddd2cb6156318",
+  "method": "built-in image_gen; copied unchanged",
+  "edit_target": "exec-bf8fc3c5-0cbf-49bc-bc2f-05b4f98c970c.png",
+  "visual_check": "Generated result inspected: straighter fuller l, l and i shifted slightly left, asymmetric softer i dot and restrained stem contours. No small-size browser validation."
+}
