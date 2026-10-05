@@ -1,0 +1,33 @@
+{
+  "version": "official-v1",
+  "selected_on": "2026-10-05",
+  "primary": "cliworker-now-light.png",
+  "dark_variant": "cliworker-now-dark.png",
+  "primary_status": "user-approved official logo; exact copy of sketch-blue-v4",
+  "dark_status": "newly generated night palette; no subsequent user approval yet",
+  "method": "primary copied unchanged; dark variant built-in image_gen, copied unchanged",
+  "integration": "asset archive only; runtime and Desktop unchanged",
+  "verification": {
+    "cliworker-now-light.png": {
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGBA",
+      "transparent_pixels": 1149620,
+      "transparent_corners": true,
+      "sha256": "1dab209b70d93af5571dfc24663b6be2b746e48b61d2093f94fddd2cb6156318"
+    },
+    "cliworker-now-dark.png": {
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGBA",
+      "transparent_pixels": 1133922,
+      "transparent_corners": true,
+      "sha256": "a421b428b50d970a213d1c43d867750083820d05fce834501b65ce78198c8e2d"
+    }
+  },
+  "notes": "Generated dark variant visually inspected. Shape follows approved mark but is not a pixel-identical mask. No browser small-size validation this turn."
+}
