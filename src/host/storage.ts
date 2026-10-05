@@ -12,6 +12,7 @@ import {
 import { join } from 'node:path'
 import { randomUUID, createHash } from 'node:crypto'
 import { z } from 'zod'
+import type { CliSettings } from '../shared/cli-settings.ts'
 import {
   CLI_IDS,
   EFFORTS,
@@ -27,6 +28,8 @@ const preferenceSchema = z.object({
   model: z.string().min(1),
   effort: z.enum(EFFORTS),
 })
+const cliSettingsSchema = z.object({ enabled: z.partialRecord(z.enum(CLI_IDS), z.boolean()) })
+const enabledByDefault = () => Object.fromEntries(CLI_IDS.map((cli) => [cli, true])) as CliSettings['enabled']
 const workerSchema = z.object({
   id: z.uuid(),
   parentSessionId: z.string().min(1),
@@ -72,6 +75,7 @@ export class WorkerStorage {
   private events = new Map<string, WorkerEvent[]>()
   private token = randomUUID()
   private lock: string
+  private enabled = enabledByDefault()
   constructor(readonly directory: string) {
     mkdirSync(directory, { recursive: true, mode: 0o700 })
     chmodSync(directory, 0o700)
@@ -95,6 +99,12 @@ export class WorkerStorage {
       flag: 'wx',
     })
     try {
+      const settingsPath = join(directory, 'cli-settings.json')
+      if (existsSync(settingsPath)) {
+        const settings = cliSettingsSchema.parse(JSON.parse(readFileSync(settingsPath, 'utf8')))
+        this.enabled = { ...this.enabled, ...settings.enabled }
+        chmodSync(settingsPath, 0o600)
+      }
       for (const file of readdirSync(directory).filter((name) => name.endsWith('.worker.json'))) {
         const worker = workerSchema.parse(JSON.parse(readFileSync(join(directory, file), 'utf8')))
         if (`${worker.id}.worker.json` !== file) throw new Error('Worker storage identity mismatch')
@@ -110,6 +120,16 @@ export class WorkerStorage {
       this.close()
       throw error
     }
+  }
+  cliSettings(): CliSettings {
+    return { enabled: { ...this.enabled } }
+  }
+  setCliEnabled(cli: CliId, enabled: boolean): CliSettings {
+    const id = z.enum(CLI_IDS).parse(cli)
+    const next = { ...this.enabled, [id]: z.boolean().parse(enabled) }
+    atomicJSON(join(this.directory, 'cli-settings.json'), { enabled: next })
+    this.enabled = next
+    return this.cliSettings()
   }
   private projectKey(project: string, cli: CliId = 'antigravity'): string {
     return createHash('sha256')

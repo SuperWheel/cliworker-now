@@ -181,10 +181,12 @@ export class CliWorkerService extends TypertRemoteService {
       throw new Error('Harness 当前为只读权限；外部 CLI 需要可写运行状态，请先明确切换项目权限')
   }
   private async choose(agent: Agent, signal: AbortSignal, cli: CliId): Promise<Preference> {
+    this.runtime.assertCliEnabled(cli)
     const project = this.project(agent)
     const key = JSON.stringify([project, cli])
     const saved = this.runtime.storage.preference(project, cli)
     const catalog = await catalogFor(cli, this.ctx.subprocess, this.options, project, signal)
+    this.runtime.assertCliEnabled(cli)
     const models = catalog.models
     if (saved) {
       try {
@@ -198,6 +200,7 @@ export class CliWorkerService extends TypertRemoteService {
     if (waiting) {
       const result = await waiting
       signal.throwIfAborted()
+      this.runtime.assertCliEnabled(cli)
       return result
     }
     this.pending.set(agent.id, (this.pending.get(agent.id) ?? 0) + 1)
@@ -217,6 +220,7 @@ export class CliWorkerService extends TypertRemoteService {
         ],
       })
       signal.throwIfAborted()
+      this.runtime.assertCliEnabled(cli)
       const model = answer.answers.find((a) => a.id === 'cliworker_model')?.selected[0]
       const chosen = models.find((m) => m.id === model)
       if (!chosen?.efforts?.length) throw new Error('请选择列表中的模型')
@@ -235,6 +239,7 @@ export class CliWorkerService extends TypertRemoteService {
           ],
         })
         signal.throwIfAborted()
+        this.runtime.assertCliEnabled(cli)
         effort = selection.answers.find((a) => a.id === 'cliworker_effort')?.selected[0] as typeof effort
       }
       const preference = resolveModel(preferenceSchema.parse({ cli, model, effort }), models)
@@ -262,6 +267,7 @@ export class CliWorkerService extends TypertRemoteService {
     workerId?: string,
   ): string {
     this.assertExecution(agent)
+    this.runtime.assertCliEnabled(cliOf(preference))
     if (this.accounts.isBusy(cliOf(preference)))
       throw new Error('此 CLI 正在管理账号，请先关闭账号终端再启动任务')
     const project = this.project(agent)
@@ -466,13 +472,52 @@ export class CliWorkerService extends TypertRemoteService {
       throw failure(error)
     }
   }
+  /** @param parentSessionId - Owning Harness session. @param signal - Query lifetime. @returns Profile-wide CLI enablement JSON. */
+  @Remote('cliSettings')
+  async cliSettings(parentSessionId: string, signal: AbortSignal): Promise<string> {
+    try {
+      await this.parent(parentSessionId)
+      signal.throwIfAborted()
+      return JSON.stringify(this.runtime.storage.cliSettings())
+    } catch (error) {
+      throw failure(error)
+    }
+  }
+  /** @param parentSessionId - Owning session. @param cli - Selected CLI. @param enabled - Allow new CLI operations. @param signal - Mutation admission lifetime. @returns Updated profile-wide CLI enablement JSON. */
+  @Remote('setCliEnabled')
+  async setCliEnabled(
+    parentSessionId: string,
+    cli: string,
+    enabled: boolean,
+    signal: AbortSignal,
+  ): Promise<string> {
+    try {
+      await this.parent(parentSessionId)
+      signal.throwIfAborted()
+      const id = validate.enum(CLI_IDS).parse(cli)
+      const next = validate.boolean().parse(enabled)
+      // The check, persistence, and account startup reservation are synchronous;
+      // a pending managed terminal cannot be disabled during its async startup.
+      if (!next && this.accounts.isBusy(id))
+        throw new Error('此 CLI 正在管理账号，请先关闭账号终端再关闭 CLI')
+      signal.throwIfAborted()
+      return JSON.stringify(this.runtime.setCliEnabled(id, next))
+    } catch (error) {
+      throw failure(error)
+    }
+  }
   /** @param parentSessionId - Owning session. @param cli - Selected CLI. @param signal - Query lifetime. @returns Safe account status JSON. */
   @Remote('accountStatus')
   async accountStatus(parentSessionId: string, cli: string, signal: AbortSignal): Promise<string> {
     try {
       const id = validate.enum(CLI_IDS).parse(cli)
       const project = this.project(await this.parent(parentSessionId))
-      return JSON.stringify(await this.accounts.status(id, project, signal))
+      signal.throwIfAborted()
+      this.runtime.assertCliEnabled(id)
+      const status = await this.accounts.status(id, project, signal)
+      signal.throwIfAborted()
+      this.runtime.assertCliEnabled(id)
+      return JSON.stringify(status)
     } catch (error) {
       throw failure(error)
     }
@@ -490,6 +535,7 @@ export class CliWorkerService extends TypertRemoteService {
       const operation = validate.enum(['login', 'logout', 'manage']).parse(action)
       const parent = await this.parent(parentSessionId)
       this.assertExecution(parent)
+      this.runtime.assertCliEnabled(id)
       this.runtime.assertAccountIdle(id)
       if (!this.accountParents.has(parent.id)) {
         const dispose = parent.ctx.effect(
@@ -561,16 +607,7 @@ export class CliWorkerService extends TypertRemoteService {
   /** @param parentSessionId - Parent session identity. @param signal - Caller lifetime. @returns JSON model catalog and project preference. */
   @Remote('catalog')
   async catalog(parentSessionId: string, signal: AbortSignal): Promise<string> {
-    try {
-      const agent = await this.parent(parentSessionId)
-      const project = this.project(agent)
-      return JSON.stringify({
-        ...(await catalogFor('antigravity', this.ctx.subprocess, this.options, project, signal)),
-        preference: this.runtime.storage.preference(project),
-      })
-    } catch (error) {
-      throw failure(error)
-    }
+    return this.catalogForCli(parentSessionId, 'antigravity', signal)
   }
   /** @param parentSessionId - Parent session identity. @param cli - Selected CLI. @param signal - Caller lifetime. @returns CLI catalog and saved project preference. */
   @Remote('catalogForCli')
@@ -578,8 +615,11 @@ export class CliWorkerService extends TypertRemoteService {
     try {
       const id = validate.enum(CLI_IDS).parse(cli)
       const project = this.project(await this.parent(parentSessionId))
+      this.runtime.assertCliEnabled(id)
+      const catalog = await catalogFor(id, this.ctx.subprocess, this.options, project, signal)
+      this.runtime.assertCliEnabled(id)
       return JSON.stringify({
-        ...(await catalogFor(id, this.ctx.subprocess, this.options, project, signal)),
+        ...catalog,
         preference: this.runtime.storage.preference(project, id),
       })
     } catch (error) {
@@ -593,10 +633,12 @@ export class CliWorkerService extends TypertRemoteService {
       const agent = await this.parent(parentSessionId)
       let preference = preferenceSchema.parse(JSON.parse(selection))
       const project = this.project(agent)
+      this.runtime.assertCliEnabled(cliOf(preference))
       const catalog = await catalogFor(cliOf(preference), this.ctx.subprocess, this.options, project, signal)
       validatePreference(preference, catalog)
       preference = resolveModel(preference, catalog.models)
       signal.throwIfAborted()
+      this.runtime.assertCliEnabled(cliOf(preference))
       this.runtime.storage.setPreference(project, preference)
       this.runtime.changed()
       return JSON.stringify(preference)
@@ -617,6 +659,7 @@ export class CliWorkerService extends TypertRemoteService {
       const worker = this.runtime.get(agent.id, workerId)
       const preference = preferenceSchema.parse(JSON.parse(selection))
       if (cliOf(preference) !== cliOf(worker.preference)) throw new Error('已有会话不能切换 CLI')
+      this.runtime.assertCliEnabled(cliOf(preference))
       const catalog = await catalogFor(
         cliOf(preference),
         this.ctx.subprocess,
@@ -626,6 +669,7 @@ export class CliWorkerService extends TypertRemoteService {
       )
       validatePreference(preference, catalog)
       signal.throwIfAborted()
+      this.runtime.assertCliEnabled(cliOf(preference))
       return JSON.stringify(
         this.runtime.configureWorker(agent.id, workerId, resolveModel(preference, catalog.models)),
       )
@@ -646,6 +690,7 @@ export class CliWorkerService extends TypertRemoteService {
       signal.throwIfAborted()
       this.assertExecution(agent)
       const worker = this.runtime.get(agent.id, workerId)
+      this.runtime.assertCliEnabled(cliOf(worker.preference))
       validatePreference(
         worker.preference,
         await catalogFor(

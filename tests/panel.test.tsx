@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, expect, it, vi } from 'vitest'
 import { Panel } from '../src/client/panel.tsx'
 import type { API, Snapshot } from '../src/client/workers.ts'
-import type { Worker, HistoryPage } from '../src/shared/types.ts'
+import { CLI_IDS, type Worker, type HistoryPage } from '../src/shared/types.ts'
 
 const clipboard = vi.hoisted(() => vi.fn().mockResolvedValue(true))
 // Only the native control skins is replaced; actual Panel, hooks and stream consumer run.
@@ -11,6 +11,14 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   writeClipboard: clipboard,
   Tooltip: ({ children }: any) => children,
   StateDot: () => createElement('span', { 'data-loading': true }),
+  Switch: ({ checked, onChange, label, disabled }: any) =>
+    createElement('button', {
+      role: 'switch',
+      'aria-label': label,
+      'aria-checked': checked,
+      disabled,
+      onClick: () => onChange(!checked),
+    }),
   Modal: ({ open, title, children, onClose, closeLabel }: any) =>
     open
       ? createElement(
@@ -135,6 +143,10 @@ async function setup(openFirst = true) {
     cliworker: {
       followup,
       history,
+      cliSettings: vi.fn(async () => ({
+        ok: true,
+        value: JSON.stringify({ enabled: Object.fromEntries(CLI_IDS.map((id) => [id, true])) }),
+      })),
       accountStatus: vi.fn(async (_parent, cli) => ({
         ok: true,
         value: JSON.stringify({

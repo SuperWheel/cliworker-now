@@ -195,3 +195,13 @@ v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的�
 - 已核验启动参数：Codex login/logout；Claude auth login/logout；Kimi login；MiMo auth login/logout。Antigravity 和 Kimi 退出采用空 argv 启动 TUI，由用户手动输入 /login 或 /logout。manage 打开原生 TUI，插件不自动输入指令。
 - 账号终端通过 subprocess.spawnTerminal 参数数组管理；xterm 6.0.0 / fit 0.11.0 渲染 ANSI，禁用自动链接导航，不加载剪贴板写入附加组件。不持久化账号终端输入或输出，CLI 自身按其原生流程保管凭据。
 - 状态查询 10 秒/64KiB 上限，终端内存 256KiB/512帧、输入单包16KiB、最多30分钟，30秒未订阅自动清理；关闭/断流/卸载清理，确认进程组退出才释放 CLI 锁。清理失败保留锁并可重试，不报告成功。
+
+
+## v0.4.1 CLI 开关与设置布局
+
+- 每个 CLI 的 enabled 保存到插件私有 cli-settings.json（目录0700、文件0600、原子替换），当前 Harness 运行配置共享，独立于项目模型偏好。旧安装缺少该文件时全开。Gateway cliSettings/setCliEnabled 校验父会话、CLI、布尔值及取消信号。
+- 禁用在模型询问前、异步查询后及最终任务提交层检查；拒绝该 CLI 的新任务、续聊、配置变更和账号终端启动及账号探测。已有记录、任务状态与停止仍可用。有活动 worker 或账号终端时拒绝关闭，不隐式杀进程。
+- 设置复用原生 Modal、Switch、Button、Menu、StateDot、Tooltip。Modal 固定700px并受原生可用窗口高度限制，内部 pane 独立滚动；操作Button md=36px，Switch 保持原生36×20px及动效，选择器300px。通用hover规则排除switch和主按钮，避免覆盖其原生颜色。
+- 左侧导航根据打开弹窗时的 enabled 快照稳定排序；本次toggle保留顺序，下次打开或页面刷新再将关闭项移到末尾。关闭项名称和品牌图灰化，当前CLI顶部始终显示品牌、名称及开关。
+- 账号连接检测按CLI独立取消和缓存，每个CLI最多一个在途请求，不阻塞导航。authenticated绿色，unauthenticated/unavailable/查询失败红色，configured/unknown灰色且不伪称已登录；仅Antigravity真实模型目录返回后可标绿色目录已连接。
+- 首次加载与刷新均保留账号摘要、操作位、模型/强度、说明与保存区域；区域标题旁的固定槽显示spinner。切CLI和关闭弹窗取消旧请求；禁用时关闭菜单并停止该CLI的发现请求，恢复开启不会重弹旧菜单。

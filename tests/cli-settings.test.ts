@@ -1,0 +1,271 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { CLI_IDS, type Worker } from '../src/shared/types.ts'
+import { CliWorkerService } from '../src/host/index.ts'
+import { WorkerStorage } from '../src/host/storage.ts'
+import { WorkerRuntime } from '../src/host/runtime.ts'
+import { DEFAULT_CONFIG, type ProcessBackend } from '../src/host/process.ts'
+import { catalogFor, type Catalog } from '../src/host/adapters.ts'
+
+vi.mock('../src/host/adapters.ts', async (original) => ({
+  ...(await original<object>()),
+  catalogFor: vi.fn(),
+}))
+
+// Synthetic storage, parent context and subprocesses; no real CLI/account is changed.
+const cleanups: (() => void | Promise<void>)[] = []
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
+  vi.clearAllMocks()
+})
+const preference = { cli: 'antigravity' as const, model: 'fixture', effort: 'low' as const }
+const catalog: Catalog = {
+  cli: 'antigravity',
+  models: [{ id: 'fixture', label: 'Synthetic fixture', efforts: ['low'] }],
+  notice: 'Synthetic fixture',
+}
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((yes) => (resolve = yes))
+  return { promise, resolve }
+}
+function fixture() {
+  const project = realpathSync(mkdtempSync(join(tmpdir(), 'cwn-enabled-test-')))
+  cleanups.push(() => rmSync(project, { recursive: true, force: true }))
+  const storage = new WorkerStorage(join(project, 'state'))
+  const backend: ProcessBackend = {
+    resolveExecutable: vi.fn(async () => '/synthetic/agy'),
+    spawn: vi.fn(() => {
+      throw new Error('No CLI process should be started by this fixture')
+    }),
+  }
+  const runtime = new WorkerRuntime(storage, backend, DEFAULT_CONFIG)
+  cleanups.push(() => runtime.close())
+  const accounts = { isBusy: vi.fn(() => false), start: vi.fn(), status: vi.fn() }
+  const ask = vi.fn()
+  const jobs = { start: vi.fn() }
+  const agent = {
+    id: 'parent',
+    session: { header: { cwd: project, origin: 'user' } },
+    ctx: {
+      get: (name: string) =>
+        ({
+          userQuestions: { ask },
+          jobs,
+          sandboxPolicy: { resolve: () => ({ mode: 'workspace-write' }) },
+        })[name],
+    },
+  }
+  const tools = new Map<string, any>()
+  const service = Object.create(CliWorkerService.prototype) as CliWorkerService
+  Object.defineProperties(service, {
+    ctx: {
+      value: {
+        subprocess: backend,
+        tools: { register: (tool: any) => tools.set(tool.name, tool) },
+        effect: (setup: () => unknown) => setup(),
+      },
+    },
+    parent: { value: vi.fn(async () => agent) },
+    runtime: { value: runtime },
+    accounts: { value: accounts },
+    options: { value: DEFAULT_CONFIG },
+    disposed: { value: new AbortController() },
+    pending: { value: new Map() },
+    preferenceWaits: { value: new Map() },
+    accountParents: { value: new Map() },
+  })
+  ;(service as any).registerTools()
+  vi.mocked(catalogFor).mockResolvedValue(catalog)
+  const worker: Worker = {
+    id: randomUUID(),
+    runId: randomUUID(),
+    parentSessionId: agent.id,
+    project,
+    title: 'Synthetic worker',
+    preference,
+    mode: 'accept-edits',
+    status: 'completed',
+    conversationId: 'synthetic-conversation',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }
+  storage.save(worker)
+  storage.append(worker, { kind: 'user', text: 'Synthetic question' })
+  storage.append(worker, { kind: 'assistant', text: 'Synthetic answer' })
+  const signal = new AbortController().signal
+  return {
+    project,
+    storage,
+    backend,
+    runtime,
+    service,
+    worker,
+    accounts,
+    ask,
+    jobs,
+    signal,
+    start: () =>
+      tools
+        .get('cliworker_start')
+        .execute({ cli: 'antigravity', title: 'Synthetic', prompt: 'Synthetic task' }, { agent, signal }),
+  }
+}
+
+describe('profile-wide CLI enablement', () => {
+  it('defaults all CLIs on, persists independently, and stores only private validated booleans', () => {
+    const { storage } = fixture()
+    expect(storage.cliSettings().enabled).toEqual(Object.fromEntries(CLI_IDS.map((id) => [id, true])))
+    storage.setCliEnabled('codex', false)
+    const returned = storage.cliSettings()
+    returned.enabled.antigravity = false
+    expect(storage.cliSettings().enabled.antigravity).toBe(true)
+    expect(statSync(join(storage.directory, 'cli-settings.json')).mode & 0o777).toBe(0o600)
+    storage.close()
+    const restored = new WorkerStorage(storage.directory)
+    cleanups.push(() => restored.close())
+    expect(restored.cliSettings().enabled.codex).toBe(false)
+    expect(restored.cliSettings().enabled.antigravity).toBe(true)
+    expect(() => restored.setCliEnabled('codex', 'false' as any)).toThrow()
+    expect(() => restored.setCliEnabled('unknown' as any, true)).toThrow()
+  })
+
+  it('rejects corrupt settings without silently re-enabling a disabled CLI', () => {
+    const { storage } = fixture()
+    storage.close()
+    writeFileSync(join(storage.directory, 'cli-settings.json'), '{"enabled":{"codex":"false"}}')
+    expect(() => new WorkerStorage(storage.directory)).toThrow()
+  })
+
+  it('does not read or mutate CLI settings when the caller cancels during parent resolution', async () => {
+    const { service, storage } = fixture()
+    const parent = deferred<unknown>()
+    ;(service as any).parent.mockReturnValue(parent.promise)
+    const controller = new AbortController()
+    const read = expect(service.cliSettings('parent', controller.signal)).rejects.toThrow('Caller closed')
+    const write = expect(
+      service.setCliEnabled('parent', 'antigravity', false, controller.signal),
+    ).rejects.toThrow('Caller closed')
+    controller.abort(new Error('Caller closed'))
+    parent.resolve({ id: 'parent' })
+    await Promise.all([read, write])
+    expect(storage.cliSettings().enabled.antigravity).toBe(true)
+  })
+
+  it('disables dispatch and followup while retaining history, status, stop, and other CLIs', async () => {
+    const { service, runtime, storage, project, worker, signal, start, backend, accounts } = fixture()
+    const settings = JSON.parse(await service.setCliEnabled('parent', 'antigravity', false, signal))
+    expect(settings.enabled.antigravity).toBe(false)
+    expect(JSON.parse(await service.cliSettings('parent', signal))).toEqual(settings)
+    await expect(start()).rejects.toThrow('已关闭')
+    await expect(service.followup('parent', worker.id, 'Next', signal)).rejects.toThrow('已关闭')
+    await expect(service.catalogForCli('parent', 'antigravity', signal)).rejects.toThrow('已关闭')
+    await expect(service.catalog('parent', signal)).rejects.toThrow('已关闭')
+    await expect(service.configure('parent', JSON.stringify(preference), signal)).rejects.toThrow('已关闭')
+    await expect(
+      service.configureWorker('parent', worker.id, JSON.stringify(preference), signal),
+    ).rejects.toThrow('已关闭')
+    await expect(service.accountStart('parent', 'antigravity', 'login', signal)).rejects.toThrow('已关闭')
+    expect(() => runtime.submit('parent', project, 'New', 'Task', preference, 'accept-edits')).toThrow(
+      '已关闭',
+    )
+    expect(catalogFor).not.toHaveBeenCalled()
+    expect(backend.spawn).not.toHaveBeenCalled()
+    expect(accounts.start).not.toHaveBeenCalled()
+    const snapshot = runtime.snapshot('parent', worker.id)
+    expect(snapshot.timeline.some((item) => item.text === 'Synthetic answer')).toBe(true)
+    const anchor = snapshot.timeline.at(-1)!.id
+    const history = JSON.parse(await service.history('parent', worker.id, anchor, 'before'))
+    expect(history.items[0].text).toBe('Synthetic question')
+    expect(JSON.parse(await service.stop('parent', worker.id)).status).toBe('completed')
+    await expect(service.accountStatus('parent', 'antigravity', signal)).rejects.toThrow('已关闭')
+    expect(accounts.status).not.toHaveBeenCalled()
+    expect(storage.cliSettings().enabled.codex).toBe(true)
+  })
+
+  it('refuses disabling active tasks and pending account terminals without interrupting them', async () => {
+    const { service, runtime, project, storage, accounts, signal } = fixture()
+    const task = runtime.submit('parent', project, 'Queued', 'Task', preference, 'accept-edits')
+    expect(() => runtime.setCliEnabled('antigravity', false)).toThrow('还有运行或排队')
+    expect(task.worker.status).toBe('queued')
+    await runtime.stop('parent', task.worker.id)
+    accounts.isBusy.mockReturnValue(true)
+    await expect(service.setCliEnabled('parent', 'antigravity', false, signal)).rejects.toThrow('账号终端')
+    expect(storage.cliSettings().enabled.antigravity).toBe(true)
+    accounts.isBusy.mockReturnValue(false)
+    await service.setCliEnabled('parent', 'antigravity', false, signal)
+    expect(storage.cliSettings().enabled.antigravity).toBe(false)
+    expect(task.worker.status).toBe('interrupted')
+  })
+
+  it('does not publish a connected account status after the CLI is disabled during probing', async () => {
+    const { service, signal, accounts } = fixture()
+    const status = deferred<unknown>()
+    accounts.status.mockReturnValueOnce(status.promise)
+    const pending = service.accountStatus('parent', 'antigravity', signal)
+    const rejected = expect(pending).rejects.toThrow('已关闭')
+    await vi.waitFor(() => expect(accounts.status).toHaveBeenCalledTimes(1))
+    await service.setCliEnabled('parent', 'antigravity', false, signal)
+    status.resolve({ cli: 'antigravity', state: 'authenticated' })
+    await rejected
+  })
+
+  it('checks disabled state after in-flight model discovery before asking for a model', async () => {
+    const { service, start, ask, jobs, signal } = fixture()
+    const loading = deferred<Catalog>()
+    vi.mocked(catalogFor).mockReturnValueOnce(loading.promise)
+    const pending = start()
+    const rejected = expect(pending).rejects.toThrow('已关闭')
+    await service.setCliEnabled('parent', 'antigravity', false, signal)
+    loading.resolve(catalog)
+    await rejected
+    expect(ask).not.toHaveBeenCalled()
+    expect(jobs.start).not.toHaveBeenCalled()
+  })
+
+  it('checks disabled state after model selection before persisting or publishing a task', async () => {
+    const { service, start, ask, jobs, storage, project, signal } = fixture()
+    const answer = deferred<unknown>()
+    ask.mockReturnValueOnce(answer.promise)
+    const pending = start()
+    const rejected = expect(pending).rejects.toThrow('已关闭')
+    await vi.waitFor(() => expect(ask).toHaveBeenCalledTimes(1))
+    await service.setCliEnabled('parent', 'antigravity', false, signal)
+    answer.resolve({ answers: [{ id: 'cliworker_model', selected: ['fixture'] }] })
+    await rejected
+    expect(storage.preference(project, 'antigravity')).toBeUndefined()
+    expect(jobs.start).not.toHaveBeenCalled()
+  })
+
+  it('refuses a configuration change completed after the CLI was disabled', async () => {
+    const { service, signal, storage, project } = fixture()
+    const loading = deferred<Catalog>()
+    vi.mocked(catalogFor).mockReturnValueOnce(loading.promise)
+    const pending = service.configure('parent', JSON.stringify(preference), signal)
+    const rejected = expect(pending).rejects.toThrow('已关闭')
+    await vi.waitFor(() => expect(catalogFor).toHaveBeenCalledTimes(1))
+    await service.setCliEnabled('parent', 'antigravity', false, signal)
+    loading.resolve(catalog)
+    await rejected
+    expect(storage.preference(project, 'antigravity')).toBeUndefined()
+  })
+
+  it('refuses a followup after an in-flight lookup and resumes eligibility when re-enabled', async () => {
+    const { service, signal, worker, jobs, runtime } = fixture()
+    const loading = deferred<Catalog>()
+    vi.mocked(catalogFor).mockReturnValueOnce(loading.promise)
+    const pending = service.followup('parent', worker.id, 'Next task', signal)
+    const rejected = expect(pending).rejects.toThrow('已关闭')
+    await vi.waitFor(() => expect(catalogFor).toHaveBeenCalledTimes(1))
+    await service.setCliEnabled('parent', 'antigravity', false, signal)
+    loading.resolve(catalog)
+    await rejected
+    expect(jobs.start).not.toHaveBeenCalled()
+    await service.setCliEnabled('parent', 'antigravity', true, signal)
+    expect(() => runtime.assertCliEnabled('antigravity')).not.toThrow()
+    await expect(service.catalogForCli('parent', 'antigravity', signal)).resolves.toContain('fixture')
+  })
+})

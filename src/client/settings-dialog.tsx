@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Button,
   Menu,
   Modal,
   StateDot,
+  Switch,
   Tooltip,
   IconChevronDownOutlineRegular,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -35,6 +36,53 @@ interface Catalog {
   preference?: Preference
   notice?: string
 }
+type Enabled = Record<CliId, boolean>
+type CatalogConnection = 'unknown' | 'success' | 'failed'
+interface AccountEntry {
+  loading: boolean
+  data?: AccountStatus
+  error?: string
+}
+const ACCOUNT_ACTIONS: { id: AccountAction; label: string }[] = [
+  { id: 'login', label: '登录 / 切换账号' },
+  { id: 'logout', label: '退出登录' },
+  { id: 'manage', label: '账号终端' },
+]
+function readEnabled(raw: string): Enabled {
+  const parsed = JSON.parse(raw)
+  if (!parsed?.enabled || CLI_IDS.some((id) => typeof parsed.enabled[id] !== 'boolean')) {
+    throw new Error('CLI 开关状态不完整，请重新打开设置')
+  }
+  return parsed.enabled
+}
+function connectionStatus(
+  enabled: boolean | undefined,
+  account?: AccountEntry,
+  catalogConnection: CatalogConnection = 'unknown',
+  liveCatalog = false,
+) {
+  if (enabled === false) return { state: 'disabled', label: '已关闭' }
+  if (enabled === undefined || !account || account.loading) return { state: 'pending', label: '正在检查连接' }
+  if (
+    account.error ||
+    !account.data?.installed ||
+    ['unavailable', 'unauthenticated'].includes(account.data.state)
+  ) {
+    return { state: 'failed', label: account.error || account.data?.summary || '连接失败' }
+  }
+  if (catalogConnection === 'failed') return { state: 'failed', label: '模型目录读取失败，请刷新模型重试' }
+  if (account.data.state !== 'authenticated' && !(catalogConnection === 'success' && liveCatalog)) {
+    return {
+      state: 'unknown',
+      label:
+        account.data.state === 'configured' ? '已配置凭据，连接状态待验证' : 'CLI 已安装，连接状态待验证',
+    }
+  }
+  return {
+    state: 'connected',
+    label: account.data.state === 'authenticated' ? '已连接，账号已登录' : '模型目录已连接；账号未验证',
+  }
+}
 
 /** Native modal owns focus, dismissal, theme, elevation and entrance animation. */
 export function SettingsDialog(props: SettingsDialogProps) {
@@ -43,6 +91,113 @@ export function SettingsDialog(props: SettingsDialogProps) {
 }
 function OpenSettingsDialog({ onClose, api, sessionId, initialCli }: SettingsDialogProps) {
   const [cli, setCli] = useState(initialCli)
+  const [enabled, setEnabled] = useState<Enabled>()
+  const [order, setOrder] = useState<readonly CliId[]>(CLI_IDS)
+  const [settingsError, setSettingsError] = useState('')
+  const [togglingCli, setTogglingCli] = useState<CliId>()
+  const [toggleErrors, setToggleErrors] = useState<Partial<Record<CliId, string>>>({})
+  const [accounts, setAccounts] = useState<Partial<Record<CliId, AccountEntry>>>({})
+  const [verifiedCatalogs, setVerifiedCatalogs] = useState<Partial<Record<CliId, CatalogConnection>>>({})
+  const catalogResult = useCallback((id: CliId, verified: CatalogConnection) => {
+    setVerifiedCatalogs((old) => ({ ...old, [id]: verified }))
+  }, [])
+  const enabledRef = useRef(enabled)
+  enabledRef.current = enabled
+  const probes = useRef(new Map<CliId, AbortController>())
+  const toggleController = useRef<AbortController>()
+
+  const refreshAccount = useCallback(
+    (id: CliId) => {
+      if (!enabledRef.current?.[id] || probes.current.has(id)) return
+      const controller = new AbortController()
+      probes.current.set(id, controller)
+      setAccounts((old) => ({ ...old, [id]: { data: old[id]?.data, loading: true } }))
+      void (async () => {
+        try {
+          const next: AccountStatus = JSON.parse(
+            value(await api.cliworker.accountStatus(sessionId, id, controller.signal)),
+          )
+          if (next.cli !== id) throw new Error('收到不匹配的 CLI 账号状态，请重试')
+          if (!controller.signal.aborted)
+            setAccounts((old) => ({ ...old, [id]: { data: next, loading: false } }))
+        } catch (error) {
+          if (!controller.signal.aborted)
+            setAccounts((old) => ({ ...old, [id]: { loading: false, error: operationMessage(error) } }))
+        } finally {
+          if (probes.current.get(id) === controller) probes.current.delete(id)
+        }
+      })()
+    },
+    [api, sessionId],
+  )
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void (async () => {
+      try {
+        const next = readEnabled(value(await api.cliworker.cliSettings(sessionId, controller.signal)))
+        if (controller.signal.aborted) return
+        enabledRef.current = next
+        setEnabled(next)
+        // Keep this ordering for the lifetime of the open dialog. A toggle does
+        // not move the row under the pointer; reopening applies the saved order.
+        setOrder([...CLI_IDS].sort((a, b) => Number(next[b]) - Number(next[a])))
+      } catch (error) {
+        if (!controller.signal.aborted) setSettingsError(operationMessage(error))
+      }
+    })()
+    return () => {
+      controller.abort()
+      toggleController.current?.abort()
+      for (const probe of probes.current.values()) probe.abort()
+      probes.current.clear()
+    }
+  }, [api, sessionId])
+  useEffect(() => {
+    if (!enabled) return
+    for (const id of CLI_IDS) {
+      if (enabled[id]) {
+        if (!accounts[id]) refreshAccount(id)
+      } else {
+        probes.current.get(id)?.abort()
+        probes.current.delete(id)
+        if (accounts[id])
+          setAccounts((old) => {
+            const next = { ...old }
+            delete next[id]
+            return next
+          })
+      }
+    }
+    // A completed or failed probe is cached until explicitly refreshed. This
+    // effect runs only when enablement changes, never on each response/render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, refreshAccount])
+
+  async function toggleCli(id: CliId, nextValue: boolean) {
+    if (!enabled || toggleController.current) return
+    const controller = new AbortController()
+    toggleController.current = controller
+    setTogglingCli(id)
+    setToggleErrors((old) => ({ ...old, [id]: '' }))
+    try {
+      const next = readEnabled(
+        value(await api.cliworker.setCliEnabled(sessionId, id, nextValue, controller.signal)),
+      )
+      if (!controller.signal.aborted) {
+        enabledRef.current = next
+        setEnabled(next)
+        if (!next[id]) catalogResult(id, 'unknown')
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) setToggleErrors((old) => ({ ...old, [id]: operationMessage(error) }))
+    } finally {
+      if (!controller.signal.aborted) {
+        toggleController.current = undefined
+        setTogglingCli(undefined)
+      }
+    }
+  }
   return (
     <Modal
       open
@@ -54,22 +209,51 @@ function OpenSettingsDialog({ onClose, api, sessionId, initialCli }: SettingsDia
     >
       <div className="cwn-settings-layout">
         <nav className="cwn-settings-nav" aria-label="CLI 设置导航">
-          {CLI_IDS.map((id) => (
-            <Button
-              key={id}
-              type="button"
-              variant="ghost"
-              size="md"
-              aria-label={`${CLI_LABELS[id]} 设置`}
-              aria-pressed={cli === id}
-              onClick={() => setCli(id)}
-            >
-              <BrandIcon cli={id} size={22} />
-              {CLI_LABELS[id]}
-            </Button>
-          ))}
+          {order.map((id) => {
+            const connection = settingsError
+              ? { state: 'disabled', label: '无法读取 CLI 开关状态' }
+              : connectionStatus(enabled?.[id], accounts[id], verifiedCatalogs[id], id === 'antigravity')
+            return (
+              <Button
+                key={id}
+                type="button"
+                variant="ghost"
+                size="md"
+                aria-label={`${CLI_LABELS[id]} 设置`}
+                aria-pressed={cli === id}
+                data-enabled={enabled?.[id] !== false}
+                onClick={() => setCli(id)}
+              >
+                <BrandIcon cli={id} size={22} />
+                <span className="cwn-settings-nav-label">{CLI_LABELS[id]}</span>
+                <Tooltip label={connection.label} side="right" portal>
+                  <span className="cwn-settings-nav-status" role="img" aria-label={connection.label}>
+                    {connection.state === 'pending' ? (
+                      <StateDot state="ongoing" size={12} />
+                    ) : (
+                      <span className="cwn-connection-dot" data-state={connection.state} />
+                    )}
+                  </span>
+                </Tooltip>
+              </Button>
+            )
+          })}
         </nav>
-        <CliSettings key={`${sessionId}:${cli}`} api={api} sessionId={sessionId} cli={cli} />
+        <CliSettings
+          key={`${sessionId}:${cli}`}
+          api={api}
+          sessionId={sessionId}
+          cli={cli}
+          enabled={enabled?.[cli]}
+          account={accounts[cli]}
+          onRefreshAccount={() => refreshAccount(cli)}
+          onCatalogResult={catalogResult}
+          onToggle={(next) => void toggleCli(cli, next)}
+          toggleBusy={!!togglingCli}
+          toggling={togglingCli === cli}
+          settingsError={settingsError}
+          toggleError={toggleErrors[cli] || ''}
+        />
       </div>
     </Modal>
   )
@@ -89,6 +273,9 @@ function NativeChoice({
   onChange: (value: string) => void
 }) {
   const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (disabled) setOpen(false)
+  }, [disabled])
   return (
     <Menu
       open={open && !disabled}
@@ -125,45 +312,58 @@ function NativeChoice({
   )
 }
 
-function CliSettings({ api, sessionId, cli }: { api: API; sessionId: string; cli: CliId }) {
-  const [account, setAccount] = useState<AccountStatus>()
+function SectionProgress({ loading, label }: { loading: boolean; label: string }) {
+  return (
+    <span className="cwn-section-progress" role="status" aria-label={loading ? label : undefined}>
+      {loading && <StateDot state="ongoing" size={14} />}
+    </span>
+  )
+}
+function CliSettings({
+  api,
+  sessionId,
+  cli,
+  enabled,
+  account,
+  onRefreshAccount,
+  onCatalogResult,
+  onToggle,
+  toggleBusy,
+  toggling,
+  settingsError,
+  toggleError,
+}: {
+  api: API
+  sessionId: string
+  cli: CliId
+  enabled?: boolean
+  account?: AccountEntry
+  onRefreshAccount: () => void
+  onCatalogResult: (cli: CliId, verified: CatalogConnection) => void
+  onToggle: (enabled: boolean) => void
+  toggleBusy: boolean
+  toggling: boolean
+  settingsError: string
+  toggleError: string
+}) {
   const [catalog, setCatalog] = useState<Catalog>()
-  const [accountLoading, setAccountLoading] = useState(true)
   const [modelLoading, setModelLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [accountError, setAccountError] = useState('')
   const [modelError, setModelError] = useState('')
   const [saveError, setSaveError] = useState('')
   const [saved, setSaved] = useState(false)
-  const [accountRevision, refreshAccount] = useState(0)
   const [modelRevision, refreshModels] = useState(0)
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState<Preference['effort']>('default')
   const [action, setAction] = useState<AccountAction>()
   const saveController = useRef<AbortController>()
-  // Each selected CLI owns a fresh component. Aborting on cleanup prevents late
-  // discovery/save results from affecting another CLI or a reopened dialog.
   useEffect(() => () => saveController.current?.abort(), [])
   useEffect(() => {
-    const controller = new AbortController()
-    setAccountLoading(true)
-    setAccountError('')
-    void (async () => {
-      try {
-        const next: AccountStatus = JSON.parse(
-          value(await api.cliworker.accountStatus(sessionId, cli, controller.signal)),
-        )
-        if (next.cli !== cli) throw new Error('收到不匹配的 CLI 账号状态，请重试')
-        if (!controller.signal.aborted) setAccount(next)
-      } catch (error) {
-        if (!controller.signal.aborted) setAccountError(operationMessage(error))
-      } finally {
-        if (!controller.signal.aborted) setAccountLoading(false)
-      }
-    })()
-    return () => controller.abort()
-  }, [api, sessionId, cli, accountRevision])
-  useEffect(() => {
+    if (!enabled) {
+      setModelLoading(false)
+      onCatalogResult(cli, 'unknown')
+      return
+    }
     const controller = new AbortController()
     setModelLoading(true)
     setModelError('')
@@ -176,6 +376,8 @@ function CliSettings({ api, sessionId, cli }: { api: API; sessionId: string; cli
         if (next.cli !== cli) throw new Error('收到不匹配的 CLI 模型目录，请重试')
         if (controller.signal.aborted) return
         setCatalog(next)
+        onCatalogResult(cli, next.models.length > 0 ? 'success' : 'failed')
+        if (!next.models.length) setModelError('此 CLI 未返回可用模型，请刷新重试')
         const preferred = next.preference ? modelName(next.preference) : ''
         const chosen = next.models.find((item) => item.id === preferred) ?? next.models[0]
         setModel(chosen?.id ?? '')
@@ -187,6 +389,7 @@ function CliSettings({ api, sessionId, cli }: { api: API; sessionId: string; cli
       } catch (error) {
         if (!controller.signal.aborted) {
           setCatalog(undefined)
+          onCatalogResult(cli, 'failed')
           setModel('')
           setModelError(operationMessage(error))
         }
@@ -195,11 +398,14 @@ function CliSettings({ api, sessionId, cli }: { api: API; sessionId: string; cli
       }
     })()
     return () => controller.abort()
-  }, [api, sessionId, cli, modelRevision])
+  }, [api, sessionId, cli, enabled, modelRevision, onCatalogResult])
+  const inactive = !enabled || toggling
+  const settingsPending = enabled === undefined && !settingsError
+  const accountLoading = !settingsError && enabled !== false && (!account || account.loading)
   const supportedEfforts = catalog?.models.find((item) => item.id === model)?.efforts ?? []
   const validPreference = !!catalog && !!model && supportedEfforts.includes(effort)
   async function save() {
-    if (saving || modelLoading || !validPreference || saveController.current) return
+    if (inactive || saving || modelLoading || !validPreference || saveController.current) return
     const controller = new AbortController()
     saveController.current = controller
     setSaving(true)
@@ -226,59 +432,84 @@ function CliSettings({ api, sessionId, cli }: { api: API; sessionId: string; cli
     if (!efforts.includes(effort)) setEffort(efforts[0] ?? 'default')
   }
   const finishedAccountAction = () => {
-    refreshAccount((n) => n + 1)
+    onRefreshAccount()
     refreshModels((n) => n + 1)
   }
   return (
     <div className="cwn-settings-pane" aria-label={`${CLI_LABELS[cli]} 配置`}>
+      <div className="cwn-cli-identity" data-enabled={enabled !== false}>
+        <div className="cwn-settings-cli-name">
+          <BrandIcon cli={cli} size={24} />
+          <h2>{CLI_LABELS[cli]}</h2>
+        </div>
+        <div className="cwn-cli-toggle">
+          <SectionProgress
+            loading={settingsPending || toggling}
+            label={toggling ? '正在保存 CLI 开关' : '正在读取 CLI 开关'}
+          />
+          <Switch
+            checked={enabled ?? false}
+            onChange={onToggle}
+            label={`启用 ${CLI_LABELS[cli]}`}
+            disabled={enabled === undefined || toggleBusy || saving || !!action}
+            title={action ? '请先关闭账号终端' : undefined}
+          />
+        </div>
+      </div>
+      <div className="cwn-cli-toggle-status" role="status">
+        {settingsError ||
+          toggleError ||
+          (enabled === false ? '已关闭；历史记录仍可查看，开启后可继续使用。' : '')}
+      </div>
       <section className="cwn-settings-section" aria-label="账号与登录">
         <div className="cwn-settings-section-head">
           <h3>账号与登录</h3>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={accountLoading}
-            onClick={() => refreshAccount((n) => n + 1)}
-          >
-            刷新状态
-          </Button>
-        </div>
-        {accountLoading ? (
-          <div className="cwn-local-loading" role="status">
-            <StateDot state="ongoing" size={14} />
-            {`正在读取 ${CLI_LABELS[cli]} 账号…`}
-          </div>
-        ) : accountError ? (
-          <div className="cwn-settings-feedback" role="status">
-            {accountError}
-            <Button type="button" variant="ghost" size="sm" onClick={() => refreshAccount((n) => n + 1)}>
-              重试账号状态
+          <div className="cwn-settings-section-tools">
+            <SectionProgress loading={accountLoading} label={`正在读取 ${CLI_LABELS[cli]} 账号…`} />
+            <Button
+              type="button"
+              variant="ghost"
+              size="md"
+              disabled={inactive || accountLoading}
+              onClick={onRefreshAccount}
+            >
+              刷新状态
             </Button>
           </div>
-        ) : account ? (
-          <>
-            <p className="cwn-account-summary" data-account-state={account.state}>
-              {account.summary}
-            </p>
-            <div className="cwn-account-actions">
-              {account.actions.map((item) => (
-                <Tooltip key={item.id} label={item.description} side="bottom" portal>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={!!action}
-                    onClick={() => setAction(item.id)}
-                  >
-                    {item.label}
-                  </Button>
-                </Tooltip>
-              ))}
-            </div>
-          </>
-        ) : null}
-        {action && (
+        </div>
+        <p className="cwn-account-summary" data-account-state={account?.data?.state} role="status">
+          {enabled === false
+            ? '此 CLI 已关闭'
+            : settingsError
+              ? '请重新打开设置后重试'
+              : account?.error || account?.data?.summary || `正在读取 ${CLI_LABELS[cli]} 账号…`}
+        </p>
+        <div className="cwn-account-actions">
+          {ACCOUNT_ACTIONS.map((slot) => {
+            const item = account?.data?.actions.find((candidate) => candidate.id === slot.id)
+            return (
+              <Tooltip
+                key={slot.id}
+                label={item?.description || '当前 CLI 未提供此账号操作'}
+                side="bottom"
+                portal
+              >
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="md"
+                  disabled={inactive || accountLoading || !!account?.error || !!action || !item}
+                  onClick={() => {
+                    if (!inactive && item) setAction(item.id)
+                  }}
+                >
+                  {item?.label || slot.label}
+                </Button>
+              </Tooltip>
+            )
+          })}
+        </div>
+        {action && enabled && (
           <AccountTerminal
             api={api}
             sessionId={sessionId}
@@ -292,15 +523,21 @@ function CliSettings({ api, sessionId, cli }: { api: API; sessionId: string; cli
       <section className="cwn-settings-section" aria-label="项目默认设置">
         <div className="cwn-settings-section-head">
           <h3>项目默认设置</h3>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={modelLoading || saving}
-            onClick={() => refreshModels((n) => n + 1)}
-          >
-            刷新模型
-          </Button>
+          <div className="cwn-settings-section-tools">
+            <SectionProgress
+              loading={!settingsError && enabled !== false && (modelLoading || settingsPending)}
+              label={`正在读取 ${CLI_LABELS[cli]} 模型…`}
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="md"
+              disabled={inactive || modelLoading || saving}
+              onClick={() => refreshModels((n) => n + 1)}
+            >
+              刷新模型
+            </Button>
+          </div>
         </div>
         <form
           className="cwn-settings-form"
@@ -309,19 +546,13 @@ function CliSettings({ api, sessionId, cli }: { api: API; sessionId: string; cli
             void save()
           }}
         >
-          {modelLoading && (
-            <div className="cwn-local-loading" role="status">
-              <StateDot state="ongoing" size={14} />
-              {`正在读取 ${CLI_LABELS[cli]} 模型…`}
-            </div>
-          )}
           <label>
             模型
             <NativeChoice
               label="默认模型"
               selected={model}
               choices={(catalog?.models ?? []).map((item) => ({ id: item.id, label: item.id }))}
-              disabled={modelLoading || saving || !catalog}
+              disabled={inactive || modelLoading || saving || !catalog}
               onChange={changeModel}
             />
           </label>
@@ -330,42 +561,30 @@ function CliSettings({ api, sessionId, cli }: { api: API; sessionId: string; cli
             <NativeChoice
               label="默认思考强度"
               selected={effort}
-              choices={supportedEfforts.map((id) => ({
-                id,
-                label: effortLabel(id),
-              }))}
-              disabled={modelLoading || saving || !catalog}
+              choices={supportedEfforts.map((id) => ({ id, label: effortLabel(id) }))}
+              disabled={inactive || modelLoading || saving || !catalog}
               onChange={(id) => {
                 setEffort(id as Preference['effort'])
                 setSaved(false)
               }}
             />
           </label>
-          {modelError && (
-            <div className="cwn-settings-feedback" role="status">
-              {modelError}
-              <Button type="button" variant="ghost" size="sm" onClick={() => refreshModels((n) => n + 1)}>
-                重试模型查询
-              </Button>
-            </div>
-          )}
-          {catalog?.notice && <p className="cwn-settings-hint">{catalog.notice}</p>}
+          <p className="cwn-settings-notice cwn-settings-hint" role="status">
+            {modelError || catalog?.notice || ''}
+          </p>
           <p className="cwn-settings-hint">仅影响此项目、此 CLI 之后新建的子 Agent，已有会话保留原配置。</p>
-          {saveError && (
-            <div className="cwn-settings-feedback" role="status">
-              {saveError}
-            </div>
-          )}
           <div className="cwn-settings-save">
             <Button
               type="submit"
               variant="primary"
               size="md"
-              disabled={modelLoading || saving || !validPreference}
+              disabled={inactive || modelLoading || saving || !validPreference}
             >
               {saving && <StateDot state="ongoing" size={14} />}保存默认值
             </Button>
-            {saved && <span role="status">默认设置已保存</span>}
+            <span className="cwn-settings-feedback-slot" role="status">
+              {saveError || (saved ? '默认设置已保存' : '')}
+            </span>
           </div>
         </form>
       </section>

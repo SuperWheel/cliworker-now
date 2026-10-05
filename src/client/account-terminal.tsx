@@ -196,7 +196,7 @@ export function AccountTerminal({
       <style>{accountTerminalCSS}</style>
       <div className="cwn-account-terminal-head">
         <strong>{CLI_LABELS[cli]} 账号终端</strong>
-        <Button variant="ghost" size="sm" onClick={() => void close()} disabled={phase === 'stopping'}>
+        <Button variant="ghost" size="md" onClick={() => void close()} disabled={phase === 'stopping'}>
           关闭终端
         </Button>
       </div>

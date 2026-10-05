@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import {
   active,
+  CLI_LABELS,
   cliOf,
   foldEvents,
   type Preference,
@@ -11,6 +12,7 @@ import {
   type WorkerSnapshot,
   type HistoryPage,
   type TimelineItem,
+  type CliId,
 } from '../shared/types.ts'
 import { protocolFor, executableFor, workerArguments } from './adapters.ts'
 import { spawnManagedAgent } from './managed-agent.ts'
@@ -58,6 +60,18 @@ export class WorkerRuntime {
     this.revision++
     for (const callback of this.listeners) callback()
   }
+  assertCliEnabled(cli: CliId): void {
+    if (this.disposed) throw new Error('插件正在关闭')
+    if (!this.storage.cliSettings().enabled[cli])
+      throw new Error(`${CLI_LABELS[cli]} 已关闭，请先在 CLI Worker 设置中开启`)
+  }
+  setCliEnabled(cli: CliId, enabled: boolean) {
+    if (this.disposed) throw new Error('插件正在关闭')
+    if (!enabled) this.assertAccountIdle(cli)
+    const settings = this.storage.setCliEnabled(cli, enabled)
+    this.changed()
+    return settings
+  }
   /** Account mutation must also respect a prior unconfirmed process cleanup. */
   assertAccountIdle(cli: string): void {
     if (this.disposed) throw new Error('插件正在关闭')
@@ -67,7 +81,7 @@ export class WorkerRuntime {
         (worker) => active(worker.status) && cliOf(worker.preference) === cli,
       )
     )
-      throw new Error('此 CLI 还有运行或排队中的任务，请等待结束后再管理账号')
+      throw new Error('此 CLI 还有运行或排队中的任务，请等待结束后再修改此 CLI 设置或管理账号')
   }
   get(parent: string, id: string): Worker {
     const worker = this.storage.workers.get(id)
@@ -143,6 +157,7 @@ export class WorkerRuntime {
     const worker = this.get(parent, id)
     if (active(worker.status)) throw new Error('请等待本轮结束后再修改模型与强度')
     if (cliOf(worker.preference) !== cliOf(preference)) throw new Error('已有会话不能切换 CLI')
+    this.assertCliEnabled(cliOf(preference))
     const updated = { ...worker, preference: { ...preference } }
     this.storage.save(updated)
     this.changed()
@@ -169,6 +184,7 @@ export class WorkerRuntime {
     if (previous && previous.project !== canonical)
       throw new Error('Cannot resume a worker in another workspace')
     const effective = previous?.preference ?? preference
+    this.assertCliEnabled(cliOf(effective))
     if (cliOf(effective) === 'kimi' && (previous?.mode ?? mode) === 'plan')
       throw new Error('Kimi 非交互模式不支持只读派遣')
     const now = new Date().toISOString()
