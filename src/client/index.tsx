@@ -17,6 +17,7 @@ import {
   telemetryStyles,
   nativeInteractionStyles,
   hoverFeedbackStyles,
+  settingsStyles,
 } from './styles.ts'
 import { BrandIcon } from './icons.tsx'
 
@@ -37,7 +38,8 @@ export function apply(ctx: Context): void {
         modelPickerStyles +
         telemetryStyles +
         nativeInteractionStyles +
-        hoverFeedbackStyles
+        hoverFeedbackStyles +
+        settingsStyles
       document.head.append(style)
       return () => style.remove()
     })
@@ -86,7 +88,7 @@ export function apply(ctx: Context): void {
             size="sm"
             aria-label="打开 CLI Worker"
             className="cwn-entry"
-            icon={<BrandIcon size={28} />}
+            icon={<BrandIcon size={16} />}
             onClick={open}
           />
         </Tooltip>
@@ -94,7 +96,7 @@ export function apply(ctx: Context): void {
     }
     scope.effect(() =>
       scope.slots.inject('conversation.session.header.utilities', () =>
-        scope.slots.register({ name: 'conversation.session.header.utilities', id: ID, order: 1000 }, Header),
+        scope.slots.register({ name: 'conversation.session.header.utilities', id: ID, order: -20 }, Header),
       ),
     )
   })

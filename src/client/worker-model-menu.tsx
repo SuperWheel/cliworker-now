@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Button,
+  StateDot,
   Input,
   Menu,
   MenuItemButton,
@@ -41,6 +42,7 @@ export function WorkerModelMenu({
   const [error, setError] = useState('')
   const [attempt, retry] = useState(0)
   const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(false)
   const [query, setQuery] = useState('')
   const alive = useRef(true)
   useEffect(() => {
@@ -51,19 +53,21 @@ export function WorkerModelMenu({
   }, [])
   useEffect(() => {
     if (!open) return
-    let cancelled = false
+    const controller = new AbortController()
+    setLoading(true)
     setError('')
     void api.cliworker
-      .catalogForCli(sessionId, cli)
+      .catalogForCli(sessionId, cli, controller.signal)
       .then((result) => {
-        if (!cancelled) setCatalog(JSON.parse(value(result)))
+        if (!controller.signal.aborted) setCatalog(JSON.parse(value(result)))
       })
       .catch((e) => {
-        if (!cancelled) setError(operationMessage(e))
+        if (!controller.signal.aborted) setError(operationMessage(e))
       })
-    return () => {
-      cancelled = true
-    }
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    return () => controller.abort()
   }, [open, api, sessionId, cli, attempt])
   const name = modelName(worker.preference)
   const chosen = catalog?.models.find(
@@ -194,9 +198,14 @@ export function WorkerModelMenu({
             ))}
         </>
       )}
-      {!catalog && !error && (
+      {loading && (
         <div className="cwn-model-provider" role="status">
-          正在读取 CLI 模型…
+          <StateDot state="ongoing" size={14} /> 正在读取 CLI 模型…
+        </div>
+      )}
+      {saving && (
+        <div className="cwn-model-provider" role="status">
+          <StateDot state="ongoing" size={14} /> 正在保存模型设置…
         </div>
       )}
       {error && (

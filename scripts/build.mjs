@@ -93,7 +93,7 @@ await build({
   dts: false,
   sourcemap: true,
   deps: {
-    alwaysBundle: ['zod', 'dsh-cliworker-now/remote'],
+    alwaysBundle: ['zod', '@xterm/xterm', '@xterm/addon-fit', 'dsh-cliworker-now/remote'],
     neverBundle: [
       'react',
       'react-dom',

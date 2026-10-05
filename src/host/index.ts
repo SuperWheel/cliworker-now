@@ -27,6 +27,7 @@ import { DEFAULT_CONFIG, projectDirectory, type RuntimeConfig } from './process.
 import { catalogFor, validatePreference } from './adapters.ts'
 import { WorkerStorage } from './storage.ts'
 import { WorkerRuntime, type Submission } from './runtime.ts'
+import { AccountManager } from './accounts.ts'
 
 export type {
   Preference,
@@ -118,6 +119,8 @@ export class CliWorkerService extends TypertRemoteService {
     maxTimelineItems: z.natural().min(10).default(DEFAULT_CONFIG.maxTimelineItems),
   })
   private runtime: WorkerRuntime
+  private accounts: AccountManager
+  private accountParents = new Map<string, () => Promise<void>>()
   private options: RuntimeConfig
   private pending = new Map<string, number>()
   private preferenceWaits = new Map<string, Promise<Preference>>()
@@ -127,6 +130,7 @@ export class CliWorkerService extends TypertRemoteService {
   constructor(ctx: Context, config: Config) {
     super(ctx, 'cliworker', { namespace: 'cliworker' })
     this.options = { ...DEFAULT_CONFIG, ...config }
+    this.accounts = new AccountManager(ctx.subprocess, this.options)
     this.runtime = new WorkerRuntime(
       new WorkerStorage(
         config.stateDirectory ?? join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'cliworker-now'),
@@ -137,7 +141,11 @@ export class CliWorkerService extends TypertRemoteService {
     ctx.effect(
       () => () => {
         this.disposed.abort()
-        return this.runtime.close()
+        return Promise.all([
+          this.runtime.close(),
+          this.accounts.close(),
+          ...[...this.accountParents.values()].map((dispose) => dispose()),
+        ])
       },
       'cliworker:lifetime',
     )
@@ -254,6 +262,8 @@ export class CliWorkerService extends TypertRemoteService {
     workerId?: string,
   ): string {
     this.assertExecution(agent)
+    if (this.accounts.isBusy(cliOf(preference)))
+      throw new Error('此 CLI 正在管理账号，请先关闭账号终端再启动任务')
     const project = this.project(agent)
     let submission: Submission | undefined
     const id = agent.ctx.get('jobs')!.start({
@@ -452,6 +462,98 @@ export class CliWorkerService extends TypertRemoteService {
   ): Promise<string> {
     try {
       return JSON.stringify(this.runtime.history(parentSessionId, workerId, anchor, direction))
+    } catch (error) {
+      throw failure(error)
+    }
+  }
+  /** @param parentSessionId - Owning session. @param cli - Selected CLI. @param signal - Query lifetime. @returns Safe account status JSON. */
+  @Remote('accountStatus')
+  async accountStatus(parentSessionId: string, cli: string, signal: AbortSignal): Promise<string> {
+    try {
+      const id = validate.enum(CLI_IDS).parse(cli)
+      const project = this.project(await this.parent(parentSessionId))
+      return JSON.stringify(await this.accounts.status(id, project, signal))
+    } catch (error) {
+      throw failure(error)
+    }
+  }
+  /** @param parentSessionId - Owning session. @param cli - Selected CLI. @param action - Explicit human action. @param signal - Startup lifetime. @returns Managed account terminal identity and instruction JSON. */
+  @Remote('accountStart')
+  async accountStart(
+    parentSessionId: string,
+    cli: string,
+    action: string,
+    signal: AbortSignal,
+  ): Promise<string> {
+    try {
+      const id = validate.enum(CLI_IDS).parse(cli)
+      const operation = validate.enum(['login', 'logout', 'manage']).parse(action)
+      const parent = await this.parent(parentSessionId)
+      this.assertExecution(parent)
+      this.runtime.assertAccountIdle(id)
+      if (!this.accountParents.has(parent.id)) {
+        const dispose = parent.ctx.effect(
+          () => () => {
+            this.accountParents.delete(parent.id)
+            return this.accounts.closeParent(parent.id)
+          },
+          'cliworker:account-parent',
+        )
+        this.accountParents.set(parent.id, dispose)
+      }
+      return JSON.stringify(await this.accounts.start(parent.id, id, operation, this.project(parent), signal))
+    } catch (error) {
+      throw failure(error)
+    }
+  }
+  /** @param parentSessionId - Owning session. @param accountId - Account terminal identity. @param signal - Stream lifetime. @returns Ephemeral terminal frame JSON. */
+  @Remote({ mode: 'stream' })
+  async *accountWatch(
+    parentSessionId: string,
+    accountId: string,
+    signal: AbortSignal,
+  ): AsyncIterable<string> {
+    try {
+      await this.parent(parentSessionId)
+      for await (const frame of this.accounts.watch(parentSessionId, accountId, signal))
+        yield JSON.stringify(frame)
+    } catch (error) {
+      throw failure(error)
+    }
+  }
+  /** @param parentSessionId - Owning session. @param accountId - Account terminal identity. @param data - Human keyboard input. @returns Input accepted. */
+  @Remote('accountWrite')
+  async accountWrite(parentSessionId: string, accountId: string, data: string): Promise<boolean> {
+    try {
+      this.assertExecution(await this.parent(parentSessionId))
+      await this.accounts.write(parentSessionId, accountId, data)
+      return true
+    } catch (error) {
+      throw failure(error)
+    }
+  }
+  /** @param parentSessionId - Owning session. @param accountId - Account terminal identity. @param cols - Visible columns. @param rows - Visible rows. @returns Resize accepted. */
+  @Remote('accountResize')
+  async accountResize(
+    parentSessionId: string,
+    accountId: string,
+    cols: number,
+    rows: number,
+  ): Promise<boolean> {
+    try {
+      await this.parent(parentSessionId)
+      await this.accounts.resize(parentSessionId, accountId, cols, rows)
+      return true
+    } catch (error) {
+      throw failure(error)
+    }
+  }
+  /** @param parentSessionId - Owning session. @param accountId - Account terminal identity. @returns Process cleanup completed. */
+  @Remote('accountStop')
+  async accountStop(parentSessionId: string, accountId: string): Promise<boolean> {
+    try {
+      await this.accounts.stop(parentSessionId, accountId)
+      return true
     } catch (error) {
       throw failure(error)
     }

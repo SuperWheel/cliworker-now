@@ -185,3 +185,13 @@ v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的�
 项目 Logo v10 在 v9 基础上适当收窄，重新协调 C、l、i 比例，保留大尾部与小留白，见 [收窄协调版](assets/project-icon/v10/README.md)。
 
 用户已选定第二张收窄版 Logo（v10）。以此结合 B 方案制作[整体效果图](assets/overall-preview/logo-v10/overview.png)，展示父级总览／子级对话和亮暗主题。图中内容为设计示例，尚不代表已安装界面的变更。
+
+## v0.4.0 原生设置弹窗与账号终端
+
+- 入口使用 header.utilities 的 order=-20（原生 Finder=-10），24px 按钮、16px Logo；取消侧栏标题分隔线。Modal、Button、StateDot、主题 token 来自 Harness 0.2.0-rc.2；亮色灰按钮继续使用可见的 180ms 过渡。
+- 设置按 CLI 切分；模型查询、账号状态、保存独立异步，取消与请求世代防止旧请求污染新选择。主 Panel 不再因模型目录加载而设置全局 busy；对话和停止操作不受模型查询锁定。
+- Gateway 专用 accountStatus/start/watch/write/resize/stop；只供人操作，不注册账号管理模型工具。Host 校验父会话和项目，启动遵循规划及只读权限；账号终端与该 CLI 的活动 worker 双向互斥。
+- 状态核验：Codex login status；Claude auth status --json；Kimi provider list（不使用含配置凭据的 JSON）；MiMo auth whoami。只投影固定白名单摘要，错误原文和凭据不返回。Antigravity 不提供独立认证状态命令，显示可在原生终端管理。
+- 已核验启动参数：Codex login/logout；Claude auth login/logout；Kimi login；MiMo auth login/logout。Antigravity 和 Kimi 退出采用空 argv 启动 TUI，由用户手动输入 /login 或 /logout。manage 打开原生 TUI，插件不自动输入指令。
+- 账号终端通过 subprocess.spawnTerminal 参数数组管理；xterm 6.0.0 / fit 0.11.0 渲染 ANSI，禁用自动链接导航，不加载剪贴板写入附加组件。不持久化账号终端输入或输出，CLI 自身按其原生流程保管凭据。
+- 状态查询 10 秒/64KiB 上限，终端内存 256KiB/512帧、输入单包16KiB、最多30分钟，30秒未订阅自动清理；关闭/断流/卸载清理，确认进程组退出才释放 CLI 锁。清理失败保留锁并可重试，不报告成功。

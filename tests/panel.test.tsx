@@ -10,6 +10,16 @@ const clipboard = vi.hoisted(() => vi.fn().mockResolvedValue(true))
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   writeClipboard: clipboard,
   Tooltip: ({ children }: any) => children,
+  StateDot: () => createElement('span', { 'data-loading': true }),
+  Modal: ({ open, title, children, onClose, closeLabel }: any) =>
+    open
+      ? createElement(
+          'section',
+          { role: 'dialog', 'aria-label': title },
+          createElement('button', { 'aria-label': closeLabel, onClick: onClose }, closeLabel),
+          children,
+        )
+      : null,
   useAnchoredPosition: () => null,
   useDismissOnOutsidePointer: () => {},
   IconCheckOutlineRegular: () => createElement('svg'),
@@ -122,7 +132,20 @@ async function setup(openFirst = true) {
       streams.push(s)
       return s
     },
-    cliworker: { followup, history },
+    cliworker: {
+      followup,
+      history,
+      accountStatus: vi.fn(async (_parent, cli) => ({
+        ok: true,
+        value: JSON.stringify({
+          cli,
+          installed: true,
+          state: 'unknown',
+          summary: '模拟账号状态未知',
+          actions: [],
+        }),
+      })),
+    },
   } as unknown as API
   const feed = { scrollTop: 0, scrollHeight: 1400, clientHeight: 300 }
   let r!: ReactTestRenderer
@@ -397,22 +420,17 @@ it('selects defaults per CLI and limits effort choices to the selected model', a
   const configure = vi.fn().mockResolvedValue({ ok: true, value: '{}' })
   Object.assign(f.api.cliworker, { catalogForCli, configure })
   await f.click('默认设置')
-  await act(async () =>
-    f.r.root.findByProps({ 'aria-label': '默认设置 CLI' }).props.onChange({ target: { value: 'codex' } }),
-  )
-  await act(async () =>
-    f.r.root.findByProps({ 'aria-label': '默认模型' }).props.onChange({ target: { value: 'model-b' } }),
-  )
-  expect(f.r.root.findByProps({ 'aria-label': '默认思考强度' }).props.value).toBe('high')
-  await act(async () =>
-    f.r.root.findByProps({ 'aria-label': '默认设置 CLI' }).props.onChange({ target: { value: 'kimi' } }),
-  )
-  expect(f.r.root.findByProps({ 'aria-label': '默认思考强度' }).props.value).toBe('default')
+  await f.click('Codex 设置')
+  await f.click('默认模型')
+  await f.click('model-b')
+  expect(f.text()).toContain('high')
+  await f.click('Kimi 设置')
+  expect(f.text()).toContain('沿用 CLI 配置')
   expect(f.r.root.findAllByType('button').find((b) => b.children.includes('保存默认值'))?.props.type).toBe(
     'submit',
   )
   await act(async () =>
-    f.r.root.findByProps({ className: 'cwn-settings' }).props.onSubmit({ preventDefault() {} }),
+    f.r.root.findByProps({ className: 'cwn-settings-form' }).props.onSubmit({ preventDefault() {} }),
   )
   expect(JSON.parse(configure.mock.calls[0]![1])).toEqual({
     cli: 'kimi',
@@ -432,14 +450,14 @@ it('failed CLI discovery clears the previous catalog and prevents saving it to a
       .mockRejectedValueOnce(new Error('CLI missing')),
   })
   await f.click('默认设置')
-  await act(async () =>
-    f.r.root.findByProps({ 'aria-label': '默认设置 CLI' }).props.onChange({ target: { value: 'mimo' } }),
-  )
+  await f.click('MiMo 设置')
   expect(f.text()).toContain('CLI missing')
   expect(
     f.r.root.findAllByType('button').find((b) => b.children.includes('保存默认值'))?.props.disabled,
   ).toBe(true)
-  expect(f.r.root.findByProps({ 'aria-label': '默认模型' }).props.value).toBe('')
+  expect(
+    f.r.root.findAllByType('button').find((b) => b.props['aria-label'] === '默认模型')?.props.disabled,
+  ).toBe(true)
 })
 
 it('uses the selected CLI name in assistant messages and shows the reported model alias target', async () => {
@@ -540,4 +558,26 @@ it('model catalog failure is recoverable and never appears as a raw transport op
   expect(t.text()).toContain('插件服务尚未更新')
   expect(t.text()).not.toContain('HTTP 404')
   expect(t.text()).not.toContain('transport failure')
+})
+
+it('closing settings during slow CLI discovery leaves conversation and stop controls available', async () => {
+  const t = await setup(),
+    models = deferred()
+  const stop = vi.fn().mockResolvedValue({ ok: true, value: '{}' })
+  Object.assign(t.api.cliworker, { catalogForCli: vi.fn().mockReturnValue(models.promise), stop })
+  await t.click('默认设置')
+  expect(t.text()).toContain('正在读取 Antigravity 模型')
+  await t.click('关闭设置')
+  expect(t.input().props.disabled).toBe(false)
+  await t.edit('可以继续输入')
+  await t.push('a', 2, { status: 'running' })
+  await t.click('停止')
+  expect(stop).toHaveBeenCalledWith('parent', 'a')
+  await act(async () =>
+    models.resolve({
+      ok: true,
+      value: JSON.stringify({ cli: 'antigravity', models: [{ id: 'late model', efforts: ['low'] }] }),
+    }),
+  )
+  expect(t.text()).not.toContain('late model')
 })

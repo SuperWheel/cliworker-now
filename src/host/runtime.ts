@@ -58,6 +58,17 @@ export class WorkerRuntime {
     this.revision++
     for (const callback of this.listeners) callback()
   }
+  /** Account mutation must also respect a prior unconfirmed process cleanup. */
+  assertAccountIdle(cli: string): void {
+    if (this.disposed) throw new Error('插件正在关闭')
+    if (this.blocked) throw new Error(this.blocked)
+    if (
+      [...this.storage.workers.values()].some(
+        (worker) => active(worker.status) && cliOf(worker.preference) === cli,
+      )
+    )
+      throw new Error('此 CLI 还有运行或排队中的任务，请等待结束后再管理账号')
+  }
   get(parent: string, id: string): Worker {
     const worker = this.storage.workers.get(id)
     if (!worker || worker.parentSessionId !== parent)

@@ -4,6 +4,13 @@ DeepSeek Harness 的多 CLI 实时侧栏插件，支持 Antigravity、Codex、Cl
 
 兼容基线：macOS、Harness **0.2.0-rc.2**、Antigravity CLI **1.2.16**、Node ≥22.19。
 
+## v0.4.0 设置与账号管理
+
+- 标题栏入口是 Finder 左侧的 24px Logo 小按钮；侧栏标题下取消分隔线。
+- 设置使用 Harness 原生 Modal，按 CLI 管理账号和项目默认模型。模型、账号状态和保存分别加载，显示原生转圈提示；关闭与切 CLI 不被查询锁住。
+- 登录、切换账号、退出通过嵌入的 CLI 原生账号终端操作。插件只显示安全的认证摘要，不读取或保存密钥；终端输出仅保留于有界内存。Antigravity 与 Kimi 的部分操作需要按提示手动输入原生斜杠命令。
+- 关闭设置或断开终端连接会清理账号进程；同一个 CLI 的任务与账号操作互斥。登录有效性无法独立核验时明确显示未知或已配置，不伪装已登录。
+
 ## v0.3.2 对话与输入框原生体验
 
 - 主会话 CLI 入口采用浅色扁平按钮，设置/发送/复制使用 Harness 原生图标；搜索框高 38px，输入聚焦不出现蓝色描边。
@@ -41,7 +48,7 @@ DeepSeek Harness 的多 CLI 实时侧栏插件，支持 Antigravity、Codex、Cl
 
 侧栏“默认设置”增加 CLI 选择；每个项目为不同 CLI 单独保存偏好。强度选项随 CLI 和模型变化，Kimi 明确显示“沿用 CLI 配置”。总览按 CLI 名称分组；Claude 报告的实际模型与选择别名不同时，在子级“任务选项”和底部模型提示中展示实际模型。
 
-各 CLI 需先在终端安装并登录。Desktop 不读取 `.zshrc`，插件会识别 Codex/Claude 的 `~/.local/bin`、Kimi 的 `~/.kimi-code/bin`、MiMo 的 `~/.mimocode/bin`，也可配置对应可执行文件的绝对路径。MiMo 仅适配 [XiaomiMiMo/MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code)，不是同名社区 CLI。
+各 CLI 需先安装；可在插件设置中登录或继续使用独立终端登录。Desktop 不读取 `.zshrc`，插件会识别 Codex/Claude 的 `~/.local/bin`、Kimi 的 `~/.kimi-code/bin`、MiMo 的 `~/.mimocode/bin`，也可配置对应可执行文件的绝对路径。MiMo 仅适配 [XiaomiMiMo/MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code)，不是同名社区 CLI。
 
 权限按各 CLI 的原生能力处理：Codex 使用 workspace-write/read-only 且不自动批准提权；Claude 使用 acceptEdits/plan，拒绝授权会显示失败；MiMo 使用 build/plan，保留权限检查；Kimi 的非交互模式原生自动执行，不能附加 plan 或 effort 参数，因此只读派遣会明确拒绝。其他 CLI 的行为不等同于 Antigravity 沙箱。
 
@@ -83,7 +90,7 @@ DSH='/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh'
 
 安装后可在插件页点击“刷新”，确认 `dsh-cliworker-now` 显示已启用、组件运行中。
 
-回到 Harness，在主会话标题栏点击 带项目图标的 **CLI** 按钮，或右侧栏新标签页选择 **CLI Worker**。如已打开的窗口未载入插件，重新载入该窗口。
+回到 Harness，在主会话标题栏点击 Finder 左侧的 **项目 Logo** 小按钮，或右侧栏新标签页选择 **CLI Worker**。如已打开的窗口未载入插件，重新载入该窗口。
 
 ## 使用
 

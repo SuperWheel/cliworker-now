@@ -3,7 +3,7 @@ import { ConversationTimeline } from './conversation-timeline.tsx'
 import { modelName } from '../shared/models.ts'
 import { operationMessage } from './operation-error.ts'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Button, Input, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input, Tooltip, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   active,
   CLI_IDS,
@@ -11,8 +11,6 @@ import {
   cliOf,
   effortLabel,
   type CliId,
-  type ModelChoice,
-  type Preference,
   type WorkerStatus,
   type HistoryPage,
 } from '../shared/types.ts'
@@ -20,6 +18,7 @@ import { useWorkers, value, type API } from './workers.ts'
 import { CopyText } from './copy-text.tsx'
 import { BrandIcon, Glyph } from './icons.tsx'
 import { WorkerModelMenu } from './worker-model-menu.tsx'
+import { SettingsDialog } from './settings-dialog.tsx'
 
 const status: Record<WorkerStatus, string> = {
   queued: '排队中',
@@ -99,15 +98,7 @@ function SessionPanel({
       alive.current = false
     }
   }, [])
-  const [catalog, setCatalog] = useState<{
-    cli: CliId
-    models: ModelChoice[]
-    preference?: Preference
-    notice?: string
-  }>()
   const [settingsCli, setSettingsCli] = useState<CliId>('antigravity')
-  const [model, setModel] = useState(''),
-    [effort, setEffort] = useState<Preference['effort']>('medium')
   const [settings, setSettings] = useState(false)
   const feed = useRef<HTMLDivElement>(null),
     stick = useRef(true)
@@ -190,24 +181,6 @@ function SessionPanel({
       setHistoryPage(page)
     })
   }
-  const loadCatalog = (cli: CliId) => {
-    setSettingsCli(cli)
-    setCatalog(undefined)
-    setModel('')
-    return perform(async (isCurrent) => {
-      const data = JSON.parse(value(await api.cliworker.catalogForCli(sessionId, cli)))
-      if (!isCurrent()) return
-      setCatalog(data)
-      const savedModel = data.preference ? modelName(data.preference) : ''
-      const next = data.models.find((m: ModelChoice) => m.id === savedModel)?.id ?? data.models[0]?.id ?? ''
-      setModel(next)
-      setEffort(
-        data.models.find((m: ModelChoice) => m.id === next)?.efforts?.includes(data.preference?.effort)
-          ? data.preference.effort
-          : (data.models.find((m: ModelChoice) => m.id === next)?.efforts?.[0] ?? 'default'),
-      )
-    })
-  }
   return (
     <section className="cwn" aria-label="CLI Worker Now">
       <header className="cwn-head">
@@ -257,10 +230,9 @@ function SessionPanel({
                   type="button"
                   size="sm"
                   variant="ghost"
-                  disabled={busy}
                   onClick={() => {
-                    setSettings(!settings)
-                    if (!settings) void loadCatalog(worker ? cliOf(worker.preference) : settingsCli)
+                    setSettingsCli(worker ? cliOf(worker.preference) : settingsCli)
+                    setSettings(true)
                   }}
                 >
                   默认设置
@@ -279,11 +251,7 @@ function SessionPanel({
                 size="sm"
                 className="cwn-settings-button"
                 aria-label="默认设置"
-                disabled={busy}
-                onClick={() => {
-                  setSettings(!settings)
-                  if (!settings) void loadCatalog(settingsCli)
-                }}
+                onClick={() => setSettings(true)}
               >
                 <Glyph name="settings" />
               </Button>
@@ -291,84 +259,13 @@ function SessionPanel({
           </>
         )}
       </header>
-      {settings && (
-        <form
-          className="cwn-settings"
-          onSubmit={(e) => {
-            e.preventDefault()
-            void perform(async (isCurrent) => {
-              value(
-                await api.cliworker.configure(sessionId, JSON.stringify({ cli: settingsCli, model, effort })),
-              )
-              if (isCurrent()) setSettings(false)
-            })
-          }}
-        >
-          <label>
-            CLI
-            <select
-              aria-label="默认设置 CLI"
-              value={settingsCli}
-              disabled={busy}
-              onChange={(e) => void loadCatalog(e.target.value as CliId)}
-            >
-              {CLI_IDS.map((cli) => (
-                <option key={cli} value={cli}>
-                  {CLI_LABELS[cli]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            模型
-            <select
-              aria-label="默认模型"
-              value={model}
-              disabled={busy || !catalog}
-              onChange={(e) => {
-                setModel(e.target.value)
-                const efforts = catalog?.models.find((m) => m.id === e.target.value)?.efforts ?? ['default']
-                if (!efforts.includes(effort)) setEffort(efforts[0] ?? 'default')
-              }}
-            >
-              {catalog?.models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.id}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            思考强度
-            <select
-              aria-label="默认思考强度"
-              disabled={busy || !catalog}
-              value={effort}
-              onChange={(e) => setEffort(e.target.value as Preference['effort'])}
-            >
-              {(catalog?.models.find((m) => m.id === model)?.efforts ?? []).map((e) => (
-                <option key={e} value={e}>
-                  {effortLabel(e)}
-                </option>
-              ))}
-            </select>
-          </label>
-          {error && (
-            <div className="cwn-notice" role="status">
-              {error}
-              <Button type="button" size="sm" variant="ghost" onClick={() => void loadCatalog(settingsCli)}>
-                重试
-              </Button>
-            </div>
-          )}
-          {busy && !catalog && <p role="status">正在读取 CLI 模型…</p>}
-          <p>{catalog?.notice}</p>
-          <p>仅影响此项目、此 CLI 之后新建的子 Agent，已有会话保留原配置。</p>
-          <Button type="submit" size="sm" variant="primary" disabled={busy || !model || !catalog}>
-            保存默认值
-          </Button>
-        </form>
-      )}
+      <SettingsDialog
+        open={settings}
+        onClose={() => setSettings(false)}
+        api={api}
+        sessionId={sessionId}
+        initialCli={settingsCli}
+      />
       {!selected && (
         <div
           className="cwn-overview"
@@ -500,7 +397,7 @@ function SessionPanel({
       )}
       {connecting && (
         <div className="cwn-notice" role="status">
-          正在连接并恢复记录…
+          <StateDot state="ongoing" size={14} /> 正在连接并恢复记录…
         </div>
       )}
       {error && !settings && (

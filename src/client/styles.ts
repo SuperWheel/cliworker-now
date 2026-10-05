@@ -5,7 +5,7 @@ export const styles = `
 .cwn{position:relative;--cwn-accent:var(--dsw-alias-state-business-primary);--cwn-muted:var(--dsw-alias-label-tertiary);--cwn-border:var(--dsw-alias-border-l3);display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:var(--dsw-font-s-14-font-size);line-height:var(--dsw-font-s-14-line-height);container-type:inline-size}
 .cwn *{box-sizing:border-box}.cwn svg{flex-shrink:0}.cwn select,.cwn textarea{font-family:inherit}.cwn-worker,.cwn-cli-heading{font:inherit}.cwn button{cursor:pointer}.cwn button:disabled{cursor:default;opacity:.45}.cwn button:focus-visible,.cwn summary:focus-visible,.cwn input:focus-visible,.cwn textarea:focus-visible,.cwn select:focus-visible{outline:2px solid var(--cwn-accent);outline-offset:2px}
 .cwn-brand{display:inline-flex;position:relative;flex-shrink:0;vertical-align:middle}.cwn-brand img{display:block;width:100%;height:100%;object-fit:contain}.cwn-brand .cwn-icon-dark{display:none}body[data-ds-dark-theme] .cwn-brand .cwn-icon-light{display:none}body[data-ds-dark-theme] .cwn-brand .cwn-icon-dark{display:block}
-.cwn-head{display:flex;align-items:center;gap:9px;min-height:54px;padding:12px 16px;flex-shrink:0;border-bottom:.5px solid var(--dsw-alias-border-l2)}.cwn-head h2{flex:1;min-width:0;font-size:var(--dsw-font-s-14-font-size);line-height:var(--dsw-font-s-14-line-height);font-weight:600;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cwn-back,.cwn-settings-button{width:28px!important;padding:0!important;flex-shrink:0}.cwn-back{border-radius:var(--dsw-radius-md)!important;background:var(--dsw-alias-interactive-bg-hover)!important}
+.cwn-head{display:flex;align-items:center;gap:9px;min-height:54px;padding:12px 16px;flex-shrink:0}.cwn-head h2{flex:1;min-width:0;font-size:var(--dsw-font-s-14-font-size);line-height:var(--dsw-font-s-14-line-height);font-weight:600;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cwn-back,.cwn-settings-button{width:28px!important;padding:0!important;flex-shrink:0}.cwn-back{border-radius:var(--dsw-radius-md)!important;background:var(--dsw-alias-interactive-bg-hover)!important}
 .cwn-overview{flex:1;overflow:auto;min-height:0;padding:14px 14px 20px;overscroll-behavior:contain}.cwn-search{width:100%}
 
 .cwn-filters{display:flex;gap:6px;margin:10px 0 14px}.cwn-filters button{flex:1;min-width:0;padding:0 7px;background:var(--dsw-alias-interactive-bg-hover)!important}.cwn-filters button[aria-pressed=true]{color:var(--cwn-accent)!important;border-color:var(--cwn-border)!important;background:color-mix(in srgb,var(--cwn-accent) 10%,transparent)!important}.cwn-filter-info{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:var(--dsw-font-xxs-12-font-size);color:var(--cwn-muted);margin:0 0 10px}
@@ -22,7 +22,7 @@ export const styles = `
 
 // Geometry below mirrors Harness 0.2.0-rc.2 chat/composer and sidebar New Session.
 export const nativeChatStyles = `
-.cwn-entry{width:32px;height:32px;min-width:32px;padding:2px!important;flex-shrink:0;background:transparent!important;border:0!important;box-shadow:none!important}
+.cwn-entry{width:24px!important;height:24px!important;min-width:24px;padding:3px!important;border-radius:var(--dsw-radius-sm)!important;flex-shrink:0;background:transparent!important;border:0!important;box-shadow:none!important}
 .cwn-entry:hover{background:var(--dsw-alias-interactive-bg-hover)!important}
 .cwn .cwn-search{height:38px;border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-base)}
 .cwn .cwn-search:focus-within{outline:none;box-shadow:none;border-color:var(--dsw-alias-border-l3)}
@@ -121,4 +121,35 @@ body:not([data-ds-dark-theme]) .cwn-back:hover:not(:disabled),
 body:not([data-ds-dark-theme]) .cwn-filters button:not([aria-pressed=true]):hover:not(:disabled),
 body:not([data-ds-dark-theme]) .cwn button:disabled:not(.cwn-send):hover{background:var(--dsw-alias-interactive-bg-active)!important}
 @media(prefers-reduced-motion:reduce){.cwn button,.cwn summary,.cwn-entry,.cwn-model-popover button{transition:none}}
+`
+
+export const settingsStyles = `
+.cwn-settings-dialog{width:min(820px,90vw);max-width:90vw;max-height:90vh}
+.cwn-settings-content{padding-top:4px!important;min-height:0;overflow:auto}
+.cwn-settings-layout{display:grid;grid-template-columns:170px minmax(0,1fr);gap:24px;min-height:360px;font-family:var(--dsw-font-family);font-size:var(--dsw-font-s-14-font-size);line-height:var(--dsw-font-s-14-line-height);color:var(--dsw-alias-label-primary)}
+.cwn-settings-layout *{box-sizing:border-box}
+.cwn-settings-nav{display:flex;flex-direction:column;gap:6px;align-self:start}
+.cwn-settings-nav button{justify-content:flex-start;gap:10px;width:100%;font-weight:400}
+.cwn-settings-nav button[aria-pressed=true]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-state-business-primary)}
+.cwn-settings-pane{min-width:0;display:flex;flex-direction:column;gap:24px;padding-bottom:8px}
+.cwn-settings-section{min-width:0}.cwn-settings-section+.cwn-settings-section{padding-top:20px;border-top:.5px solid var(--dsw-alias-border-l2)}
+.cwn-settings-section-head,.cwn-account-terminal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.cwn-settings-section-head h3{font-size:inherit;font-weight:600;margin:0}
+.cwn-settings-form{display:flex;flex-direction:column;gap:14px}.cwn-settings-form label{display:flex;flex-direction:column;gap:8px;color:var(--dsw-alias-label-secondary)}
+.cwn-settings-choice{display:block;min-width:0}.cwn-settings-choice>button{width:100%;justify-content:space-between;gap:12px;background:var(--dsw-alias-interactive-bg-hover)}.cwn-settings-choice>button>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cwn-settings-choice-menu{min-width:220px;max-width:min(480px,85vw);max-height:300px;overflow:auto}
+.cwn-settings-hint,.cwn-settings-feedback,.cwn-account-summary,.cwn-account-instruction,.cwn-account-privacy{margin:0;font-size:var(--dsw-font-xxs-12-font-size);line-height:20px;color:var(--dsw-alias-label-tertiary);overflow-wrap:anywhere}
+.cwn-account-summary{margin-bottom:14px;color:var(--dsw-alias-label-secondary)}
+.cwn-settings-feedback,.cwn-settings-save,.cwn-account-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.cwn-settings-save>span{font-size:12px;color:var(--dsw-alias-state-success-primary)}
+.cwn-account-actions button{background:var(--dsw-alias-interactive-bg-hover)}
+.cwn-local-loading,.cwn-loading{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-tertiary);font-size:var(--dsw-font-xxs-12-font-size);line-height:20px}
+.cwn-settings-layout button,.cwn-settings-choice-menu button{border:0!important;box-shadow:none;--dsw-elevation-stroke-color:transparent;transition:background-color 180ms ease,color 180ms ease,opacity 180ms ease}
+.cwn-settings-layout button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+.cwn-settings-nav button[aria-pressed=true]:hover,.cwn-account-actions button:hover:not(:disabled),.cwn-settings-choice>button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-active)}
+.cwn-settings-layout button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.cwn-account-terminal{margin-top:16px;padding:12px;border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-2);border:.5px solid var(--dsw-alias-border-l2);min-width:0}
+.cwn-account-terminal-head{margin-bottom:8px}.cwn-account-terminal-head strong{font-size:12px;font-weight:500}.cwn-account-terminal-view{height:300px;min-height:200px;margin:12px 0;overflow:hidden}.cwn-account-terminal-view .xterm{height:100%}.cwn-account-terminal-view .xterm-viewport{background-color:var(--dsw-alias-bg-layer-2)!important}.cwn-account-terminal-view .xterm-helper-textarea{resize:none!important;min-height:0!important;max-height:0!important}
+.cwn-account-privacy{margin-top:8px;font-size:11px}
+@media(max-width:640px){.cwn-settings-layout{grid-template-columns:1fr;gap:20px}.cwn-settings-nav{flex-direction:row;flex-wrap:wrap}.cwn-settings-nav button{width:auto;flex:1;min-width:105px}.cwn-account-terminal-view{height:240px}}
+@media(prefers-reduced-motion:reduce){.cwn-settings-layout button,.cwn-settings-choice-menu button{transition:none}}
 `

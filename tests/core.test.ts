@@ -200,6 +200,28 @@ describe('private durable storage', () => {
   })
 })
 describe('scheduler, cancellation and session continuity', () => {
+  it('blocks account changes until that CLI has no active task', async () => {
+    const { runtime, backend, project } = setup()
+    const task = runtime.submit('p', project, 'a', 'a', pref, 'accept-edits')
+    expect(() => runtime.assertAccountIdle('antigravity')).toThrow('还有运行或排队')
+    expect(() => runtime.assertAccountIdle('codex')).not.toThrow()
+    await tick()
+    backend.calls[0].stdout.write(result())
+    backend.calls[0].end()
+    await task.done
+    expect(() => runtime.assertAccountIdle('antigravity')).not.toThrow()
+  })
+  it('refuses account mutation after an unconfirmed process cleanup even when the worker is failed', async () => {
+    const { runtime, backend, project } = setup()
+    const spawn = backend.spawn.bind(backend)
+    backend.spawn = (spec) => ({ ...spawn(spec), waitForExit: async () => false })
+    const task = runtime.submit('p', project, 'a', 'a', pref, 'accept-edits')
+    await tick()
+    backend.calls[0].stdout.write(result())
+    backend.calls[0].end()
+    expect((await task.done).status).toBe('failed')
+    expect(() => runtime.assertAccountIdle('antigravity')).toThrow('无法确认 CLI 进程已清理')
+  })
   it('runs at most two and serializes writers to the same canonical directory', async () => {
     const { runtime, backend, project, root } = setup()
     const other = join(root, 'other')
