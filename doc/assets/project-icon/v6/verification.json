@@ -1,0 +1,25 @@
+{
+  "size": [
+    1254,
+    1254
+  ],
+  "mode": "RGBA",
+  "transparent_pixels": 1165545,
+  "transparent_corners": true,
+  "method": "built-in image_gen; copied without pixel editing",
+  "sha256": "d0dd1d09fe9686a6fa6703728b77039ac61b1be2d2aa9dec16a5d89ac51d3ecf",
+  "visual_preview": {
+    "checked": true,
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "slot_sizes_px": [
+      24,
+      32,
+      48
+    ],
+    "screenshot": "preview.png",
+    "observations": "Cli recognizable at 24px; 32px and 48px show spacing and speech tail more clearly; recommend 32px for sidebar heading."
+  }
+}

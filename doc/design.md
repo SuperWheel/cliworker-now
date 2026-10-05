@@ -140,3 +140,9 @@ v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的�
 项目 Logo v4 按用户标注去掉内部三条横条和原圆点，保留 C 形对话框，在右侧紧贴加入小写 li 并加粗，形成 Cli 字形。见 [v4 设计稿](assets/project-icon/v4/README.md)，尚未接入插件。
 
 项目 Logo v5 将 C 主体、l 与 i（含圆点）上下对齐，缩窄 C 并减少内部空白，保留小对话尾部。见 [紧凑等高版](assets/project-icon/v5/README.md)。
+
+用户认可 v5 基本样式后，v6 沿用 Cli 构形，以柔和的曲线、尾部、笔画变化和浅蓝圆点增加人文感，并调整字母间隔。已查看明暗背景中的 24／32／48px 展示，页面标题建议 32px，见 [柔和人文版](assets/project-icon/v6/README.md)。仍为设计稿，尚未接入插件。
+
+## v0.3.4 菜单导航一致性
+
+两个子菜单都将共享返回项放在原生 Menu 的 items 第一项，避免 items 与 children 的渲染先后造成位置不一致。插件内按钮、Portal 菜单按钮及主会话 CLI 入口去除静态边框；hover 使用宿主主题色并以 180ms 缓出曲线过渡，不影响尺寸。禁用按钮不触发 hover；prefers-reduced-motion 下取消过渡，键盘 focus-visible 保留。CLI 分组标题与任务之间的分隔线继续独立绘制。
