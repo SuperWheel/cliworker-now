@@ -458,7 +458,22 @@ if (login) {
           } catch {}
           artifact.record.artifactMatches =
             actual?.marker === nonce && actual?.value === 42 && Object.keys(actual).length === 2
-          artifact.record.toolEventReceived = artifactEvents.some((line) => line.type === 'tool.updated')
+          const writeCall = artifactEvents.find(
+            (line) =>
+              line.type === 'tool.updated' &&
+              line.payload?.kind === 'scheduled' &&
+              line.payload?.toolName === 'Write' &&
+              line.payload?.input?.file_path === artifactPath,
+          )
+          artifact.record.toolEventReceived =
+            !!writeCall?.payload?.toolCallId &&
+            artifactEvents.some(
+              (line) =>
+                line.type === 'tool.updated' &&
+                line.payload?.kind === 'result' &&
+                line.payload?.toolCallId === writeCall.payload.toolCallId &&
+                line.payload?.result?.success === true,
+            )
           artifact.record.resultReceived = !!artifactResult
           artifact.record.success &&=
             artifact.record.artifactMatches &&
@@ -510,9 +525,20 @@ if (login) {
         true,
       )
       const events = parseEvents(denied.stdout)
-      denied.record.permissionAsked = events.some((e) => e.type === 'permission.requested')
+      const request = events.find(
+        (e) =>
+          e.type === 'permission.requested' &&
+          e.payload?.toolName === 'Write' &&
+          e.payload?.input?.file_path === deniedPath,
+      )
+      denied.record.permissionAsked = !!request?.payload?.toolCallId
       denied.record.permissionDenied = events.some(
-        (e) => e.type === 'permission.resolved' && e.payload?.decision === 'deny',
+        (e) =>
+          e.type === 'permission.resolved' &&
+          e.payload?.decision === 'deny' &&
+          request?.payload?.toolCallId &&
+          e.payload?.toolCallId === request.payload.toolCallId &&
+          (!request.payload.requestId || e.payload?.requestId === request.payload.requestId),
       )
       denied.record.fileAbsent = !existsSync(deniedPath)
       denied.record.success &&=
