@@ -1,7 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { useEffect, useRef } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
@@ -16,6 +16,7 @@ import {
   modelPickerStyles,
   telemetryStyles,
   nativeInteractionStyles,
+  hoverFeedbackStyles,
 } from './styles.ts'
 import { BrandIcon } from './icons.tsx'
 
@@ -31,7 +32,12 @@ export function apply(ctx: Context): void {
     scope.effect(() => {
       const style = document.createElement('style')
       style.textContent =
-        styles + nativeChatStyles + modelPickerStyles + telemetryStyles + nativeInteractionStyles
+        styles +
+        nativeChatStyles +
+        modelPickerStyles +
+        telemetryStyles +
+        nativeInteractionStyles +
+        hoverFeedbackStyles
       document.head.append(style)
       return () => style.remove()
     })
@@ -56,7 +62,7 @@ export function apply(ctx: Context): void {
         scope.slots.register({ name: 'sidebar.right.pane.tab', key: ID, inject: () => ({ api }) }, Panel),
       ),
     )
-    function Header({ sessionId }: PropsRuntime<'conversation.session.header.actions'>) {
+    function Header({ sessionId }: PropsRuntime<'conversation.session.header.utilities'>) {
       const { snapshot } = useWorkers(api, sessionId)
       const seen = useRef(new Set<string>())
       useEffect(() => {
@@ -73,23 +79,22 @@ export function apply(ctx: Context): void {
           open()
         }
       }, [snapshot])
-      const count = snapshot.workers.filter((w) => active(w.status)).length
       return (
-        <Button
-          variant="outline"
-          size="sm"
-          title="打开 CLI Worker"
-          className="cwn-entry"
-          icon={<BrandIcon size={16} />}
-          onClick={open}
-        >
-          CLI{count ? ` · ${count}` : ''}
-        </Button>
+        <Tooltip label="打开 CLI Worker" side="bottom" portal>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="打开 CLI Worker"
+            className="cwn-entry"
+            icon={<BrandIcon size={28} />}
+            onClick={open}
+          />
+        </Tooltip>
       )
     }
     scope.effect(() =>
-      scope.slots.inject('conversation.session.header.actions', () =>
-        scope.slots.register({ name: 'conversation.session.header.actions', id: ID, order: 25 }, Header),
+      scope.slots.inject('conversation.session.header.utilities', () =>
+        scope.slots.register({ name: 'conversation.session.header.utilities', id: ID, order: 1000 }, Header),
       ),
     )
   })

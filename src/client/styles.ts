@@ -22,7 +22,7 @@ export const styles = `
 
 // Geometry below mirrors Harness 0.2.0-rc.2 chat/composer and sidebar New Session.
 export const nativeChatStyles = `
-.cwn-entry{background:var(--dsw-alias-bg-base)!important;border:.5px solid var(--dsw-alias-border-l3)!important;box-shadow:none!important}
+.cwn-entry{width:32px;height:32px;min-width:32px;padding:2px!important;flex-shrink:0;background:transparent!important;border:0!important;box-shadow:none!important}
 .cwn-entry:hover{background:var(--dsw-alias-interactive-bg-hover)!important}
 .cwn .cwn-search{height:38px;border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-base)}
 .cwn .cwn-search:focus-within{outline:none;box-shadow:none;border-color:var(--dsw-alias-border-l3)}
@@ -30,6 +30,7 @@ export const nativeChatStyles = `
 .cwn .cwn-search input::placeholder{color:var(--dsw-alias-label-caption)}
 .cwn-cli-group,.cwn-back,.cwn-settings select,.cwn-tool{border:.5px solid var(--dsw-alias-border-l3)}
 .cwn-cli-group{background:var(--dsw-alias-button-elevated-fill)}
+body[data-ds-dark-theme] .cwn-cli-group{background:var(--dsw-alias-interactive-bg-hover)}
 .cwn-feed{padding:16px 24px}
 .cwn-message{margin-bottom:24px}
 .cwn-message.user{max-width:82%}
@@ -106,4 +107,13 @@ export const nativeInteractionStyles = `
 .cwn-context-panel{width:min(264px,100vw - 24px);min-width:0;padding:12px;line-height:20px}.cwn-context-header{display:flex;align-items:center;gap:6px}.cwn-context-header strong{margin-left:auto;font-weight:500;color:var(--dsw-alias-label-primary);white-space:nowrap}.cwn-context-bar{height:4px;margin:10px 0 12px;background:var(--dsw-alias-interactive-bg-hover);border-radius:999px;corner-shape:round;overflow:hidden}.cwn-context-bar>span{display:block;height:100%;min-width:2px;background:var(--dsw-alias-label-tertiary)}.cwn-context-source{margin:0 0 8px;color:var(--dsw-alias-label-tertiary)}
 .cwn .cwn-compose-model{gap:4px;padding:0 4px 0 8px;max-width:min(360px,45cqw);font-size:13px;line-height:20px}.cwn .cwn-model-effort{color:var(--dsw-alias-label-caption);flex-shrink:1000;min-width:0;overflow:hidden;text-overflow:ellipsis}.cwn-model-chevron{color:var(--dsw-alias-label-caption);transition:transform .12s}.cwn-compose-model[aria-expanded=true] .cwn-model-chevron{transform:rotate(180deg)}.cwn-model-popover button:focus-visible{outline:none;background:var(--dsw-alias-interactive-bg-hover)}
 @media(prefers-reduced-motion:reduce){.cwn-progress>summary,.cwn-progress-chevron,.cwn-model-chevron{transition:none}}
+`
+
+// Deliberate user preference: soft hover transitions also on neutral/disabled controls.
+export const hoverFeedbackStyles = `
+.cwn button,.cwn summary,.cwn-entry,.cwn-model-popover button{transition:background-color 180ms ease,color 180ms ease,opacity 180ms ease}
+.cwn button:disabled{pointer-events:auto}
+.cwn button:disabled:not(.cwn-send):hover{background:var(--dsw-alias-interactive-bg-hover)!important;color:var(--dsw-alias-label-secondary)}
+.cwn .cwn-send:disabled:hover{background:var(--dsw-alias-button-info-hover)!important}
+@media(prefers-reduced-motion:reduce){.cwn button,.cwn summary,.cwn-entry,.cwn-model-popover button{transition:none}}
 `

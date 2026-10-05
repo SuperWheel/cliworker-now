@@ -167,3 +167,10 @@ v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的�
 - Host 的 AgyContextReader 仅接收插件 worker 的 UUID conversation_id，只读打开 ~/.gemini/antigravity-cli/conversations/<id>.db，先核对 trajectory_meta.cascade_id，再读取最新 gen_metadata 的 data。8 MiB 上限，文件与 WAL 修改戳缓存最多 128 会话。失败不影响主快照。
 - 依据 CLI 1.2.16 嵌入的 protobuf 描述核验字段路径：chat_model(1) → chat_start_metadata(9) → context_window_metadata(10) → estimated_tokens_used(1)、max_context_tokens(4)。只传递数值与来源标识；不解码或展示该元数据中的提示词内容。非负安全整数占用、正安全整数容量才可显示，未知或损坏数据回退未知。
 - 本地上下文是最近一次请求的 CLI 估算，详情标注来源与精确数值；与日志中的本轮/回复/累计 Token 用量独立，不将累计用量当成上下文。
+
+
+## v0.3.7 暗色卡片与品牌入口
+
+- 用户再次明确要求平滑悬停，按钮及 summary 的颜色/背景/透明度统一采用 180ms ease；保留原生圆角、尺寸和主题颜色，减少动态效果偏好关闭过渡。禁用控件允许指针反馈，保留 disabled 语义。
+- 暗色卡片改用 interactive-bg-hover，与未选中筛选按钮完全相同；亮色卡片保留现有底色。
+- 顶部入口从 header.actions 移至原生 header.utilities 的尾部，只显示 v8 Logo；保留 aria-label 和原生 Tooltip。项目图标复用 doc/assets/project-icon/v8/cliworker-now.png 原文件，object-fit:contain，不拉伸。侧栏标题 32px 图标槽，工具栏入口 28px 图标槽；各 CLI 品牌图不改变。

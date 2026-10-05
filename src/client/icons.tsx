@@ -11,7 +11,7 @@ import logo from './assets/cliworker-now-logo.png'
 const icons = { antigravity, codex, claude, mimo }
 
 /** User-provided transparent PNGs, bundled locally without remote asset requests. */
-export function BrandIcon({ cli, size = 22 }: { cli?: CliId; size?: number }) {
+export function BrandIcon({ cli, size = cli ? 22 : 32 }: { cli?: CliId; size?: number }) {
   return (
     <span className="cwn-brand" aria-hidden="true" style={{ width: size, height: size }}>
       {cli === 'kimi' ? (

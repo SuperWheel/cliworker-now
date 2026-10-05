@@ -270,7 +270,7 @@ function SessionPanel({
           </>
         ) : (
           <>
-            <BrandIcon size={22} />
+            <BrandIcon size={32} />
             <h2>CLI Worker</h2>
             <Tooltip label="默认设置" side="bottom" portal>
               <Button
