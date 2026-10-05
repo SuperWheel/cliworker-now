@@ -219,9 +219,10 @@ v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的�
 
 ## ZCode 实验性接入（2026-10-05）
 
-- 当前仅提供隔离探针，未增加正式执行器、共享 CLI 枚举或 Desktop 安装变更。真实首轮、续聊、文件产物与运行中停止通过后再进入产品集成。
+- 当前仅提供隔离探针，未增加正式执行器、共享 CLI 枚举或 Desktop 安装变更。真实首轮、续聊、文件产物与运行中停止已通过；下一阶段再接入 Host/Client。
 - 无头入口必须显式指定模式，避免默认 yolo。完整交互采用 Host 双向 stdio Bridge，处理 ZCode 自有 NDJSON 与反向 runtime preferences 请求；Client 仍只经 Harness Gateway。
 - Provider、模型、强度及会话 ID 取自真实能力；用户已选 GLM-5.3-Flash，探针使用目录支持的 low。独立 CLI 授权与桌面授权不能混同，不伪造 identity 或套餐 entitlement。
-- 规划模式须验证实际返回状态，不能仅凭请求参数判断。已观察到 legacy session/create 请求 plan 却返回 build；探针额外通过 macOS sandbox 限制工作区写入。
+- 规划模式须验证实际返回状态，不能仅凭请求参数判断。legacy snapshot 的 mode=build 不代表未规划：真实 headless 会话持久化 planEnabled=true；正式适配须读取独立 plan 状态，探针另以 macOS sandbox 限制工作区写入。
 - 个人模型配置、会话库、日志与 socket 均隔离；原生登录写入独立测试 profile。事件与凭据留在忽略目录，停止需确认进程组退出。正式实现继续遵守宿主权限、项目锁和账号操作互斥。
 - 入口、能力差异、官方源码构建与待验收项见 [ZCode 验证记录](zcode-probe.md)。
+- 真实权限拒绝测试表明，permission.resolved(deny) 后仍可能输出最终 result 并退出 0。首版 headless 适配器必须将权限拒绝/工具失败投影为未完成任务，不能单凭 result 和退出状态报告成功。可交互批准需要后续双向 Bridge。

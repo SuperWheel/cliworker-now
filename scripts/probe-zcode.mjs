@@ -28,10 +28,15 @@ const builtin =
     : '/Applications/ZCode.app/Contents/Resources/config/provider/zcode-builtin.json')
 if (
   process.argv.slice(2).length > 1 ||
-  process.argv.slice(2).some((arg) => !['--smoke', '--login', '--login-bigmodel'].includes(arg))
+  process.argv
+    .slice(2)
+    .some((arg) => !['--smoke', '--permissions', '--login', '--login-bigmodel'].includes(arg))
 )
-  throw new Error('Use one mode: default offline discovery, --smoke, --login, or --login-bigmodel')
-const smoke = process.argv.includes('--smoke')
+  throw new Error(
+    'Use one mode: default offline discovery, --smoke, --permissions, --login, or --login-bigmodel',
+  )
+const permissions = process.argv.includes('--permissions')
+const smoke = process.argv.includes('--smoke') || permissions
 const login = process.argv.includes('--login') || process.argv.includes('--login-bigmodel')
 const selectedModel = process.env.CLIWORKER_ZCODE_MODEL
 const selectedProvider = process.env.CLIWORKER_ZCODE_PROVIDER
@@ -148,7 +153,7 @@ async function cleanupGroup(pid) {
   for (let i = 0; i < 20 && members(pid).length; i++) await sleep(100)
   if (members(pid).length) throw new Error('ZCode process group did not exit')
 }
-async function run(name, args, request, live = false, stopAfterResponse = false) {
+async function run(name, args, request, live = false, stopAfterResponse = false, stopOnEvent) {
   const policy = live ? (args.includes('plan') ? 'sandbox-plan.sb' : 'sandbox-network.sb') : 'sandbox.sb'
   const child = spawn('/usr/bin/sandbox-exec', ['-f', join(root, policy), process.execPath, cli, ...args], {
     // ZCode itself reads the existing native credential store. Never extract,
@@ -164,7 +169,9 @@ async function run(name, args, request, live = false, stopAfterResponse = false)
     bytes = 0,
     timeout = false,
     limit = false,
-    rpcResult
+    rpcResult,
+    stoppedOnEvent
+  const eventTypes = new Set()
   const signal = (sig) => sendGroup(child.pid, sig)
   const interrupt = () => {
     timeout = true
@@ -189,7 +196,7 @@ async function run(name, args, request, live = false, stopAfterResponse = false)
     if (err) stderr += chunk
     else {
       stdout += chunk
-      if (request) {
+      if (request || live) {
         pending += chunk
         let newline
         while ((newline = pending.indexOf('\n')) >= 0) {
@@ -197,11 +204,16 @@ async function run(name, args, request, live = false, stopAfterResponse = false)
           pending = pending.slice(newline + 1)
           try {
             const obj = JSON.parse(line)
-            if (obj.id === request.id && !obj.method) {
+            if (typeof obj.type === 'string') eventTypes.add(obj.type)
+            if (stopOnEvent && !stoppedOnEvent && stopOnEvent(obj)) {
+              stoppedOnEvent = { type: obj.type, kind: obj.payload?.kind, sessionId: obj.sessionId }
+              signal('SIGTERM')
+            }
+            if (request && obj.id === request.id && !obj.method) {
               rpcResult = obj
               if (stopAfterResponse) signal('SIGTERM')
               else child.stdin.end()
-            } else if (obj.id !== undefined && obj.method) {
+            } else if (request && obj.id !== undefined && obj.method) {
               const reply =
                 obj.method === 'session/requestRuntimePreferences'
                   ? {
@@ -246,7 +258,8 @@ async function run(name, args, request, live = false, stopAfterResponse = false)
     save(`${name}.stdout`, stdout)
     save(`${name}.stderr`, stderr)
   }
-  const expectedExit = stopAfterResponse ? exitCode === 143 || exitSignal === 'SIGTERM' : exitCode === 0
+  const expectedExit =
+    stopAfterResponse || stopOnEvent ? exitCode === 143 || exitSignal === 'SIGTERM' : exitCode === 0
   const record = {
     name,
     exitCode,
@@ -254,7 +267,13 @@ async function run(name, args, request, live = false, stopAfterResponse = false)
     timeout,
     limit,
     cleanupConfirmed: true,
-    success: expectedExit && !timeout && !limit && (!request || !!rpcResult?.result),
+    success:
+      expectedExit &&
+      !timeout &&
+      !limit &&
+      (!request || !!rpcResult?.result) &&
+      (!stopOnEvent || !!stoppedOnEvent),
+    ...(live ? { eventTypes: [...eventTypes], stoppedOnEvent } : {}),
     ...(rpcResult
       ? { rpc: { id: rpcResult.id, error: rpcResult.error, resultKeys: Object.keys(rpcResult.result ?? {}) } }
       : {}),
@@ -362,9 +381,9 @@ if (login) {
         toolAllowlist: [],
       },
     })
-    if (smoke) {
-      if (records.some((record) => !record.success))
-        throw new Error('Offline prerequisites failed; refusing model task')
+    if (smoke && records.some((record) => !record.success))
+      throw new Error('Offline prerequisites failed; refusing model task')
+    if (smoke && !permissions) {
       const nonce = `ZCODE_PROBE_${Date.now()}`
       const args = ['--cwd', workspace, '--mode', 'plan', '--output-format', 'stream-json']
       const first = await run(
@@ -414,7 +433,91 @@ if (login) {
         next.record.matched = followup?.response?.trim() === nonce
         next.record.success &&= next.record.sameSession && next.record.matched
         console.log(JSON.stringify(next.record))
+        if (next.record.success) {
+          const artifactPath = join(workspace, 'zcode-artifact.json')
+          const artifact = await run(
+            'artifact',
+            [
+              '--cwd',
+              workspace,
+              '--mode',
+              'edit',
+              '--output-format',
+              'stream-json',
+              '--prompt',
+              `Use the Write tool to create zcode-artifact.json in the current workspace containing exactly this JSON: ${JSON.stringify({ marker: nonce, value: 42 })}. Do not use shell commands. Then reply DONE.`,
+            ],
+            undefined,
+            true,
+          )
+          const artifactEvents = parseEvents(artifact.stdout)
+          const artifactResult = artifactEvents.findLast((line) => line.type === 'result')
+          let actual
+          try {
+            actual = JSON.parse(readFileSync(artifactPath, 'utf8'))
+          } catch {}
+          artifact.record.artifactMatches =
+            actual?.marker === nonce && actual?.value === 42 && Object.keys(actual).length === 2
+          artifact.record.toolEventReceived = artifactEvents.some((line) => line.type === 'tool.updated')
+          artifact.record.resultReceived = !!artifactResult
+          artifact.record.success &&=
+            artifact.record.artifactMatches &&
+            artifact.record.toolEventReceived &&
+            artifact.record.resultReceived
+          if (artifact.record.artifactMatches)
+            artifact.record.artifactSha256 = createHash('sha256')
+              .update(readFileSync(artifactPath))
+              .digest('hex')
+          console.log(JSON.stringify(artifact.record))
+          if (artifact.record.success) {
+            const stopped = await run(
+              'active-stop',
+              [
+                ...args,
+                '--prompt',
+                'Write the integers from 1 to 10000 in order, one per line. Start immediately. Do not use tools or change files.',
+              ],
+              undefined,
+              true,
+              false,
+              (event) =>
+                event.type === 'model.streaming' &&
+                event.payload?.kind === 'text_delta' &&
+                !!event.payload?.delta,
+            )
+            stopped.record.resultReceived = parseEvents(stopped.stdout).some((line) => line.type === 'result')
+            stopped.record.success &&= !stopped.record.resultReceived
+            console.log(JSON.stringify(stopped.record))
+          }
+        }
       }
+    }
+    if (permissions) {
+      const deniedPath = join(workspace, 'permission-denied.txt')
+      const denied = await run(
+        'permission-denial',
+        [
+          '--cwd',
+          workspace,
+          '--mode',
+          'build',
+          '--output-format',
+          'stream-json',
+          '--prompt',
+          'Use the Write tool once to create permission-denied.txt with content DENIAL_PROBE. This is a permission test; if denied, do not retry or use a substitute, just report the refusal.',
+        ],
+        undefined,
+        true,
+      )
+      const events = parseEvents(denied.stdout)
+      denied.record.permissionAsked = events.some((e) => e.type === 'permission.requested')
+      denied.record.permissionDenied = events.some(
+        (e) => e.type === 'permission.resolved' && e.payload?.decision === 'deny',
+      )
+      denied.record.fileAbsent = !existsSync(deniedPath)
+      denied.record.success &&=
+        denied.record.permissionAsked && denied.record.permissionDenied && denied.record.fileAbsent
+      console.log(JSON.stringify(denied.record))
     }
   } finally {
     save('report.json', {
@@ -422,15 +525,27 @@ if (login) {
       root,
       cli,
       cliSha256: createHash('sha256').update(readFileSync(cli)).digest('hex'),
-      phase: smoke ? 'native-account-smoke' : 'offline-discovery',
+      phase: permissions ? 'native-permission-denial' : smoke ? 'native-account-smoke' : 'offline-discovery',
       networkPermitted: smoke ? 'only-during-explicit-smoke' : 'local-unix-sockets-only',
       selection: smoke
         ? { providerId: selectedProvider, modelId: selectedModel, reasoningLevel: selectedEffort }
         : undefined,
-      promptTasksSent: records.filter((r) => ['initial', 'followup'].includes(r.name)).length,
+      promptTasksSent: records.filter((r) =>
+        ['initial', 'followup', 'artifact', 'active-stop', 'permission-denial'].includes(r.name),
+      ).length,
       sandboxChecks,
       records,
     })
     console.log(`Evidence: ${join(root, 'report.json')}`)
   }
 if (records.some((r) => !r.success)) process.exitCode = 1
+
+function parseEvents(stdout) {
+  return stdout.split('\n').flatMap((line) => {
+    try {
+      return [JSON.parse(line)]
+    } catch {
+      return []
+    }
+  })
+}

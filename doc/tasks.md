@@ -353,8 +353,10 @@
 
 - [x] 本机 ZCode 3.14.4 / CLI 0.16.9 的真实帮助、NDJSON capabilities、反向 runtime preferences 请求与空会话验证；实现 scripts/probe-zcode.mjs，不修改正式执行器。
 - [x] 最终离线复测三项 sandbox 边界通过：测试目录可写、目录外拒写、plan 工作区拒写；空闲 app-server SIGTERM 退出及进程组清理通过。证据 .test-data/zcode-probe/run-o2uMDT/report.json；未发送 prompt。探针语法、Prettier 与 git diff --check 通过。原始事件、退出状态与哈希不入 Git。
-- [x] 用户明确选择 GLM-5.3-Flash；根据官方目录选择 low 进行短任务验证。本机原生账号首轮仍报 Select a model before continuing，因此未执行续聊，也不宣称真实调用成功。
+- [x] 用户明确选择 GLM-5.3-Flash；根据官方目录选择 low 进行短任务验证。首次复用桌面账号的首轮报 Select a model before continuing，当时未执行续聊；后续独立授权结果见下。
 - [x] 临时构建官方完整 CLI：独立 Node 24.14.0 / pnpm 10.33.2、冻结锁文件、跳过安装脚本；17 个相关 workspace 构建及完整 CLI 离线探针通过。未替换桌面安装。
-- [x] 完整 CLI 原生 BigModel 登录可生成授权链接；本次等待超时并清理退出，未完成授权。探针与接入门槛记录在 doc/zcode-probe.md。
-- [ ] 重新完成独立 CLI 原生授权，验收真实首轮、同会话续聊、实际文件比对与运行中任务取消。
-- [ ] 验证实际 plan 状态、权限询问/拒绝、账号互斥及后代清理，再接入 Host/Client 并执行隔离插件构建和真实 UI 验收。本阶段未运行插件全套测试、build:preview 或正式构建。
+- [x] 完整 CLI 原生 BigModel 登录可生成授权链接；首次等待超时并清理退出；续接重新授权成功，见下。探针与接入门槛记录在 doc/zcode-probe.md。
+- [x] 续接完成独立 BigModel 原生授权；GLM-5.3-Flash / low 的首轮、同会话续聊、Write JSON 产物和真实流式输出中 SIGTERM 取消均通过。证据 .test-data/zcode-probe/run-4XC18i/report.json；取消退出 143、无最终 result，进程组退出确认通过。
+- [x] 只读核验 CLI 数据库：真实选型 GLM-5.3-Flash / low；规划为 mode=build 且 planEnabled=true，文件任务为 edit 且 planEnabled=false。脱敏证据 run-4XC18i/runtime-verification.json。
+- [x] build 模式 Write 产生 permission.requested 与 permission.resolved(deny)，目标文件不存在；证据 run-r9wKpm/report.json。CLI 仍退出 0，正式适配必须单独判断权限拒绝。
+- [ ] 正式 CLI 安装/目录、账号互斥、宿主审批及实际子进程清理场景，再接入 Host/Client 并执行隔离插件构建和真实 UI 验收。本阶段未运行插件全套测试、build:preview 或正式构建。
