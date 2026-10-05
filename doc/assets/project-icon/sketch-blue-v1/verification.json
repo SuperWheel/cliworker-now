@@ -1,0 +1,32 @@
+{
+  "size": [
+    1254,
+    1254
+  ],
+  "mode": "RGBA",
+  "transparent_pixels": 1075228,
+  "transparent_corners": true,
+  "subject_bounds_alpha128": [
+    129,
+    257,
+    1132,
+    1068
+  ],
+  "method": "built-in image_gen; copied unchanged",
+  "sha256": "86ee47db51a208c7f9fdc200201b431777eafe648697cf07183a6ed04c93be5e",
+  "structure": "User sketch: short top stroke, continuous left stroke and long bottom stroke under independent l/i; rounded lower-left speech tail. Second reference supplies blue colors and rounded flat style.",
+  "visual_preview": {
+    "checked": true,
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "slot_sizes_px": [
+      24,
+      32,
+      48
+    ],
+    "screenshot": "preview.png",
+    "notes": "Sketch topology retained. Interior strokes are separate from base; gap below i is narrow at small sizes. Design candidate only."
+  }
+}
