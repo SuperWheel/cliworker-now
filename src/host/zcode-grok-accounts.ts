@@ -1,11 +1,13 @@
-import { chmod, lstat, mkdir } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { chmod, lstat, mkdir, open } from 'node:fs/promises'
+import { homedir, platform, userInfo } from 'node:os'
+import { constants } from 'node:fs'
+import { createHash, createDecipheriv } from 'node:crypto'
 import { join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import { stripVTControlCharacters } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import type { AccountAction } from '../shared/accounts.ts'
-import type { AccountIdentity } from './account-identity.ts'
+import { accountEmail, type AccountIdentity } from './account-identity.ts'
 import type { ProcessBackend, RuntimeConfig } from './process.ts'
 import { zcodeAuthDirectory, zcodeEnvironment } from './zcode-adapter.ts'
 
@@ -42,12 +44,96 @@ function storageRoot(config: RuntimeConfig, home: string): string {
   return config.stateDirectory ?? join(process.env.DSH_HOME ?? join(home, '.dsh'), 'cliworker-now')
 }
 
-/** No credential is opened/decoded here. File presence is only local configuration evidence. */
+const record = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value)
+const nonempty = (value: unknown): value is string => typeof value === 'string' && !!value.trim()
+
+/** ZCode 0.16.9 native AES-GCM format. Plaintext never leaves this projection. */
+export function projectZCodeIdentity(raw: unknown, secret: string): AccountIdentity {
+  if (!record(raw)) throw new Error('Invalid account metadata')
+  const key = createHash('sha256').update(secret).digest()
+  const decode = (value: unknown): string => {
+    if (!nonempty(value)) return ''
+    if (!value.startsWith('enc:v1:')) return value
+    const parts = value.slice(7).split('.')
+    if (parts.length !== 3 || parts.some((part) => !/^[A-Za-z0-9_-]+$/.test(part)))
+      throw new Error('Invalid encrypted account metadata')
+    const [iv, tag, encrypted] = parts.map((part) => Buffer.from(part, 'base64url'))
+    if (iv!.length !== 12 || tag!.length !== 16) throw new Error('Invalid account cipher')
+    const cipher = createDecipheriv('aes-256-gcm', key, iv!)
+    cipher.setAuthTag(tag!)
+    const plain = Buffer.concat([cipher.update(encrypted!), cipher.final()])
+    try {
+      return plain.toString('utf8')
+    } finally {
+      plain.fill(0)
+    }
+  }
+  try {
+    const provider = decode(raw['oauth:active_provider'])
+    if (provider !== 'bigmodel' && provider !== 'zai')
+      return { state: 'unauthenticated', verification: 'local', summary: '尚未登录 ZCode' }
+    if (!decode(raw[`oauth:${provider}:access_token`]) && !decode(raw[`oauth:${provider}:refresh_token`]))
+      return { state: 'unauthenticated', verification: 'local', summary: '本地登录凭据已清除' }
+    let info: unknown
+    try {
+      info = JSON.parse(decode(raw[`oauth:${provider}:user_info`]))
+    } catch {
+      /* optional label */
+    }
+    const profile = record(info) && record(info.rawProfile) ? info.rawProfile : undefined
+    const email =
+      accountEmail(profile?.email) ||
+      (record(info) ? accountEmail(info.email) || accountEmail(info.username) : undefined)
+    // A plain display name is allowed only from the native user-info record.
+    const name = record(info) ? info.displayName : undefined
+    const display =
+      typeof name === 'string' && name.length <= 80 && !/[\p{C}<>]|(?:Bearer|sk-|enc:v1:)/iu.test(name)
+        ? name.trim()
+        : undefined
+    return {
+      state: 'authenticated',
+      authMethod: 'oauth',
+      verification: 'local',
+      accountLabel: email || display || undefined,
+      summary: '已读取 ZCode 本地登录会话',
+    }
+  } finally {
+    key.fill(0)
+  }
+}
+
+export function projectGrokIdentity(raw: unknown, now = Date.now()): AccountIdentity {
+  if (!record(raw)) throw new Error('Invalid account metadata')
+  const accounts = Object.entries(raw).filter(
+    ([id, value]) => id.startsWith('https://auth.x.ai::') && record(value) && value.auth_mode === 'oidc',
+  )
+  for (const [, value] of accounts) {
+    if (!record(value)) continue
+    const expires = typeof value.expires_at === 'string' ? Date.parse(value.expires_at) : NaN
+    if (!nonempty(value.refresh_token) && !(nonempty(value.key) && Number.isFinite(expires) && expires > now))
+      continue
+    return {
+      state: 'authenticated',
+      authMethod: 'oauth',
+      verification: 'local',
+      accountLabel: accountEmail(value.email),
+      summary: '已读取 Grok 本地登录会话',
+    }
+  }
+  return {
+    state: Object.keys(raw).length && !accounts.length ? 'unknown' : 'unauthenticated',
+    verification: 'local',
+    summary: accounts.length ? '本地登录已过期，请重新登录' : '尚未发现可识别的 Grok 登录会话',
+  }
+}
+
+/** Bounded, no-follow local read; never returns credentials or native parse errors. */
 export async function zcodeGrokAccountStatus(
   cli: ZCodeGrokCli,
   config: RuntimeConfig,
   signal: AbortSignal,
-  options: { home?: string } = {},
+  options: { home?: string; credentialSecret?: string } = {},
 ): Promise<AccountIdentity> {
   signal.throwIfAborted()
   const home = options.home ?? homedir()
@@ -58,21 +144,44 @@ export async function zcodeGrokAccountStatus(
           '.zcode/v2/credentials.json',
         )
       : join(home, '.grok/auth.json')
+  let file: Awaited<ReturnType<typeof open>> | undefined
+  const buffer = Buffer.alloc(64 * 1024 + 1)
   try {
-    const info = await lstat(path)
-    signal.throwIfAborted()
-    if (!info.isFile() || info.isSymbolicLink() || info.size <= 0)
-      return { state: 'unknown', verification: 'local', summary: '本地账号文件不可确认，请在账号终端检查' }
-    return {
-      state: 'configured',
-      verification: 'local',
-      summary: '检测到本地账号文件；登录有效性与账号信息请在原生 CLI 确认',
+    file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+    const info = await file.stat()
+    if (!info.isFile() || info.nlink !== 1 || info.size > 64 * 1024 || !info.size)
+      throw new Error('Invalid account file')
+    let offset = 0
+    while (offset < buffer.length) {
+      signal.throwIfAborted()
+      const { bytesRead } = await file.read(buffer, offset, buffer.length - offset, null)
+      if (!bytesRead) break
+      offset += bytesRead
     }
+    if (offset > 64 * 1024) throw new Error('Account file too large')
+    const raw: unknown = JSON.parse(buffer.subarray(0, offset).toString('utf8'))
+    signal.throwIfAborted()
+    let username = 'unknown'
+    try {
+      username = userInfo().username
+    } catch {
+      /* native fallback */
+    }
+    return cli === 'grok'
+      ? projectGrokIdentity(raw)
+      : projectZCodeIdentity(
+          raw,
+          (options.credentialSecret ?? process.env.ZCODE_CREDENTIAL_SECRET?.trim()) ||
+            `zcode-credential-fallback:${platform()}:${homedir()}:${username}`,
+        )
   } catch (error) {
     signal.throwIfAborted()
     return (error as NodeJS.ErrnoException).code === 'ENOENT'
-      ? { state: 'unknown', verification: 'local', summary: '尚未发现本地账号文件，可打开账号终端登录' }
-      : { state: 'unknown', verification: 'local', summary: '暂时无法读取本地账号状态，可打开账号终端检查' }
+      ? { state: 'unauthenticated', verification: 'local', summary: '尚未登录，可打开账号终端登录' }
+      : { state: 'unknown', verification: 'local', summary: '暂时无法读取本地登录状态，可打开账号终端检查' }
+  } finally {
+    buffer.fill(0)
+    await file?.close()
   }
 }
 

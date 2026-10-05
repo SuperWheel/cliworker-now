@@ -45,9 +45,12 @@ describe('Harness/OpenCode accounts (explicit synthetic fixtures)', () => {
       state: 'configured',
       authMethod: 'api',
       verification: 'local',
-      summary: expect.stringContaining('原生模型设置'),
+      summary: expect.stringContaining('未提供终端登录'),
     })
-    expect(await readOpenCodeAccount(config, signal())).toEqual(state)
+    expect(await readOpenCodeAccount(config, signal())).toMatchObject({
+      state: 'configured',
+      authMethod: 'api',
+    })
     expect(JSON.stringify(state)).not.toContain('synthetic-')
     expect(
       await readHarnessAccount({ ...config, resolveCredential: async () => undefined }, signal()),
@@ -141,18 +144,19 @@ describe('Harness/OpenCode accounts (explicit synthetic fixtures)', () => {
     expect(nativeConfig).not.toHaveProperty('enabled_providers')
     login.cleanup()
   })
-  it('keeps the configured managed source in terminals/tasks/catalogs and rejects native logout', async () => {
+  it('keeps the configured managed source in terminals/tasks/catalogs while allowing a separate native login selector', async () => {
     const config = {
       ...fixture(),
       zaiCredentialRef: 'synthetic-ref',
       resolveCredential: async () => 'synthetic-key',
     }
-    await expect(prepareOpenCodeAccount('/bin/opencode', 'logout', config, signal())).rejects.toThrow(
-      '原生模型设置',
-    )
-    await expect(prepareOpenCodeAccount('/bin/opencode', 'login', config, signal())).rejects.toThrow(
-      '原生模型设置',
-    )
+    for (const action of ['login', 'logout'] as const) {
+      const native = await prepareOpenCodeAccount('/bin/opencode', action, config, signal())
+      expect(native.argv.slice(-2)).toEqual(['auth', action])
+      expect(native.env.ZHIPU_API_KEY).toBeUndefined()
+      expect(native.env.OPENCODE_AUTH_CONTENT).toBe('')
+      native.cleanup()
+    }
     const terminal = await prepareOpenCodeAccount('/bin/opencode', 'manage', config, signal())
     const worker = await extendedLaunch(
       'opencode',

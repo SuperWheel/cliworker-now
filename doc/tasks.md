@@ -409,3 +409,15 @@
 - [x] 全套21文件331项测试通过，Host/Client 类型检查、隔离构建、正式构建和pack通过；Desktop更新前活动worker=0。
 - [x] 解锁后定位并修复 Desktop Client 加载故障：插件重复声明宿主 `settings.section`，触发原生 SlotCore 所有权冲突。改为由框架管理生命周期的共享 Store 桥，关闭插件弹窗后进入原生「模型」设置。新增覆盖两种加载顺序、卸载、能力缺失的回归；本轮3文件68项针对性测试、Host/Client类型检查、隔离/正式构建及重新pack通过。
 - [x] 修复后在真实 Desktop 确认11个CLI导航和六个新增管理入口；Harness API入口打开完整原生模型设置，OMP、OpenCode、ZCode原生账号终端均成功显示。OMP/OpenCode展示已配置智谱模型，关闭后相关进程与临时目录已清理；未触发登录、退出或模型任务。截图 `.test-data/evidence/v0.5.1-desktop-native-models.png`、`v0.5.1-desktop-omp-terminal.png`、`v0.5.1-desktop-opencode-terminal.png`、`v0.5.1-desktop-zcode-terminal.png`。正式包 `artifacts/dsh-cliworker-now-0.5.1.tgz` 已重新生成。
+
+## v0.5.2 — 原生登录菜单、账号识别与六款图标（2026-10-06）
+
+- [x] OMP/Pi/OpenCode 登录设置改为原生终端，无 API 凭据前置要求，无模型任务或按键注入；私有账号目录保留，临时终端数据清理。
+- [x] ZCode/Grok 原状态只检查文件存在；现按本机格式解析原生本地身份，真实只读检查两者均 authenticated、accountLabel 非空，未输出凭据。
+- [x] 用户给出的 ZIP 为旧款；找到并接入项目内 v2-extended 六款PNG，按素材清单统一光学大小和亮暗表现。
+- [x] Harness 0.2.0-rc.2 无原生 TUI/登录命令，保留明确禁用说明；未伪造页面、升级 CLI 或跳转原生设置。
+- [x] 无网络私有PTY验收中，Pi显示原生认证方式菜单，OMP显示提供商设置页，OpenCode显示 Select provider 登录列表。未提交认证、未请求订阅模型；各进程组退出为空。证据 `.test-data/v052-native-login/`。OpenCode探针使用单层等效文件限制与禁网沙箱，避免macOS禁止嵌套sandbox-exec，不把探针描述成生产沙箱链验收。
+- [x] 全套22文件336项测试、Host/Client类型检查通过；隔离构建、正式构建与pack通过，安装包158项、含Pi原生UI入口、无私有运行数据。
+- [x] 隔离Harness页面实际打开Pi原生认证方式菜单，关闭终端后设置仍可操作；Grok显示绿色已登录和账号，六款图标暗色可读。证据 `.test-data/evidence/v052-preview-pi-login.png`、`v052-preview-grok-settings.png`。
+- [x] 更新前Desktop活动worker=0，隔离worker均终态；预览标签与服务已关闭，未提交认证或保存模型偏好。
+- [ ] Desktop最终验收：Mac当前锁定，等待用户解锁后重启加载0.5.2。

@@ -4,11 +4,13 @@ import { homedir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { credentialEnvironment } from './extended-adapters.ts'
+import type { AccountAction } from '../shared/accounts.ts'
 import type { PiOmpCli } from './pi-omp-adapter.ts'
 import { projectDirectory, type RuntimeConfig } from './process.ts'
 
 export interface PiOmpAccountTerminalInput {
   cli: PiOmpCli
+  action?: AccountAction
   executable: string
   project: string
   stateDirectory: string
@@ -64,8 +66,8 @@ async function withCancellation<T>(pending: Promise<T>, signal?: AbortSignal): P
 }
 
 /**
- * A user-operated TUI for the same CN route used by workers. This never sends a
- * prompt or runs /login. The Host credential reference remains the account source.
+ * User-operated native login UI, or a management TUI for the worker CN route.
+ * Neither path sends a prompt. Login does not change the worker credential route.
  */
 export async function preparePiOmpAccountTerminal(
   input: PiOmpAccountTerminalInput,
@@ -76,13 +78,14 @@ export async function preparePiOmpAccountTerminal(
   projectDirectory(input.project)
   let credentials: Record<string, string>
   try {
-    credentials = await withCancellation(credentialEnvironment(cli, config), signal)
+    credentials =
+      input.action === 'login' ? {} : await withCancellation(credentialEnvironment(cli, config), signal)
   } catch {
     signal?.throwIfAborted()
     throw new Error('无法读取智谱凭据，请在 Harness 模型设置中检查当前凭据引用')
   }
   signal?.throwIfAborted()
-  if (!credentials.ZAI_CODING_CN_API_KEY)
+  if (input.action !== 'login' && !credentials.ZAI_CODING_CN_API_KEY)
     throw new Error('请先在 Harness 模型设置中配置当前智谱凭据；原生 OAuth 登录不能替代此 API 路由')
 
   const root = await privateDirectory(resolve(input.stateDirectory))
@@ -109,7 +112,9 @@ export async function preparePiOmpAccountTerminal(
   }
   try {
     signal?.throwIfAborted()
-    const agent = await privateDirectory(join(runtime, 'agent'))
+    const accounts = await privateDirectory(join(root, 'accounts'))
+    const account = await privateDirectory(join(accounts, cli))
+    const agent = await privateDirectory(join(account, 'agent'))
     const temporary = await privateDirectory(join(runtime, 'tmp'))
     const provider = cli === 'pi' ? 'zai-coding-cn' : 'cliworker-zai-cn'
     const nativeArgs = [
@@ -202,7 +207,7 @@ export async function preparePiOmpAccountTerminal(
         memory: { backend: 'off' },
         tools: { approvalMode: 'always-ask' },
       })
-      env.PI_CONFIG_DIR = relative(homedir(), runtime)
+      env.PI_CONFIG_DIR = relative(homedir(), account)
       nativeArgs.push(
         '--no-rules',
         '--no-title',
@@ -215,9 +220,16 @@ export async function preparePiOmpAccountTerminal(
       )
     }
     signal?.throwIfAborted()
-    const nativeArgv = /\.[cm]?js$/.test(input.executable)
+    let nativeArgv = /\.[cm]?js$/.test(input.executable)
       ? [process.execPath, input.executable, ...nativeArgs]
       : [input.executable, ...nativeArgs]
+    if (input.action === 'login') {
+      // No prompt injection: OMP's native onboarding, or Pi's native UI API.
+      nativeArgv =
+        cli === 'omp'
+          ? [input.executable, 'setup']
+          : [process.execPath, fileURLToPath(new URL('./pi-login.mjs', import.meta.url)), input.executable]
+    }
     return {
       argv: [
         process.execPath,
@@ -227,7 +239,10 @@ export async function preparePiOmpAccountTerminal(
       // Avoid loading project files while operating account controls.
       cwd: runtime,
       env,
-      instruction: '当前使用 Harness 智谱 API 凭据；请在模型设置中修改账号。此终端为独立临时会话。',
+      instruction:
+        input.action === 'login'
+          ? '在原生登录界面选择提供商并完成授权；关闭终端会保留已登录的账号。'
+          : '输入 /login 或 /logout 管理终端账号；现有任务保留已选择的模型与凭据。',
       cleanup,
     }
   } catch (error) {

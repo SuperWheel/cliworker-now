@@ -4,11 +4,14 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { createCipheriv, createHash, randomBytes } from 'node:crypto'
 import { PassThrough } from 'node:stream'
 import type { SubprocessHandle, SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
 import { DEFAULT_CONFIG, type ProcessBackend, type RuntimeConfig } from '../src/host/process.ts'
 import { zcodeAuthDirectory, zcodeEnvironment } from '../src/host/zcode-adapter.ts'
 import {
+  projectZCodeIdentity,
+  projectGrokIdentity,
   supportsBigModelLogin,
   zcodeGrokAccountLaunch,
   zcodeGrokAccountStatus,
@@ -169,7 +172,7 @@ describe('ZCode/Grok user-operated account helpers', () => {
     expect(f.children[0]?.waitForExit).toHaveBeenCalledOnce()
   })
 
-  it('local file presence remains configured, not authenticated; no content or labels leave Host', async () => {
+  it('malformed credentials remain unknown and never leak content', async () => {
     const f = fixture()
     for (const cli of ['zcode', 'grok'] as const) {
       const directory =
@@ -178,12 +181,12 @@ describe('ZCode/Grok user-operated account helpers', () => {
       const path = join(directory, cli === 'zcode' ? 'credentials.json' : 'auth.json')
       writeFileSync(path, 'SECRET-CREDENTIAL-CONTENTS', { mode: 0o600 })
       const status = await zcodeGrokAccountStatus(cli, f.config, f.signal, f)
-      expect(status).toMatchObject({ state: 'configured', verification: 'local' })
+      expect(status).toMatchObject({ state: 'unknown', verification: 'local' })
       expect(status.accountLabel).toBeUndefined()
       expect(status.authMethod).toBeUndefined()
       expect(JSON.stringify(status)).not.toContain('SECRET')
       rmSync(path)
-      expect((await zcodeGrokAccountStatus(cli, f.config, f.signal, f)).state).toBe('unknown')
+      expect((await zcodeGrokAccountStatus(cli, f.config, f.signal, f)).state).toBe('unauthenticated')
     }
   })
 
@@ -245,4 +248,61 @@ describe('ZCode/Grok user-operated account helpers', () => {
       expect(statSync(join(root, 'synthetic-output/credential.json')).mode & 0o777).toBe(0o600)
     },
   )
+})
+
+// Native-shaped but entirely synthetic records. Never read or mutate a user's account.
+it('decrypts ZCode 0.16.9 records and exposes only the user-info identity', () => {
+  const secret = 'synthetic-cipher-secret'
+  const key = createHash('sha256').update(secret).digest()
+  const encrypt = (text: string) => {
+    const iv = randomBytes(12),
+      cipher = createCipheriv('aes-256-gcm', key, iv)
+    const data = Buffer.concat([cipher.update(text), cipher.final()])
+    return `enc:v1:${iv.toString('base64url')}.${cipher.getAuthTag().toString('base64url')}.${data.toString('base64url')}`
+  }
+  const raw = {
+    'oauth:active_provider': encrypt('bigmodel'),
+    'oauth:bigmodel:access_token': encrypt('SYNTHETIC-TOKEN'),
+    'oauth:bigmodel:user_info': encrypt(
+      JSON.stringify({
+        displayName: 'Fixture',
+        rawProfile: { email: 'fixture@example.invalid', token: 'SECRET' },
+      }),
+    ),
+  }
+  const status = projectZCodeIdentity(raw, secret)
+  expect(status).toMatchObject({
+    state: 'authenticated',
+    authMethod: 'oauth',
+    verification: 'local',
+    accountLabel: 'fixture@example.invalid',
+  })
+  expect(JSON.stringify(status)).not.toMatch(/SECRET|TOKEN|enc:v1/)
+  expect(() => projectZCodeIdentity(raw, 'wrong-key')).toThrow()
+  expect(projectZCodeIdentity({ 'oauth:active_provider': 'bigmodel' }, secret).state).toBe('unauthenticated')
+})
+it('recognizes Grok issuer-keyed refreshable sessions, expiry and missing identities', () => {
+  const session = {
+    auth_mode: 'oidc',
+    key: 'SECRET',
+    refresh_token: 'SECRET_REFRESH',
+    email: 'fixture@example.invalid',
+    expires_at: '2020-01-01T00:00:00Z',
+  }
+  const raw = { 'https://auth.x.ai::synthetic-client': session }
+  const status = projectGrokIdentity(raw)
+  expect(status).toMatchObject({
+    state: 'authenticated',
+    accountLabel: 'fixture@example.invalid',
+    verification: 'local',
+  })
+  expect(JSON.stringify(status)).not.toContain('SECRET')
+  expect(
+    projectGrokIdentity({ 'https://auth.x.ai::synthetic-client': { ...session, refresh_token: '' } }).state,
+  ).toBe('unauthenticated')
+  expect(projectGrokIdentity({ unrelated: session }).state).toBe('unknown')
+  expect(
+    projectGrokIdentity({ 'https://auth.x.ai::synthetic-client': { ...session, email: 'Bearer SECRET' } })
+      .accountLabel,
+  ).toBeUndefined()
 })

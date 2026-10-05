@@ -540,11 +540,18 @@ function CliSettings({
     const label =
       item?.target === 'models'
         ? id === 'login'
-          ? 'API 登录设置'
+          ? '登录设置'
           : '打开原生设置'
-        : (item?.label ?? (id === 'logout' ? '退出登录' : id === 'manage' ? '账号终端' : '登录 / 切换账号'))
+        : (item?.label ??
+          (id === 'logout'
+            ? '退出登录'
+            : id === 'manage'
+              ? '账号终端'
+              : ['omp', 'pi', 'harness', 'opencode'].includes(cli)
+                ? '登录设置'
+                : '登录 / 切换账号'))
     return (
-      <Tooltip label={item?.description || label} side="top" portal>
+      <Tooltip label={item?.description || account?.data?.summary || label} side="top" portal>
         <Button
           type="button"
           variant={id === 'logout' ? 'ghost' : 'outline'}
@@ -659,11 +666,6 @@ function CliSettings({
             {accountAction('manage')}
           </div>
         </div>
-        {account?.data?.actions.some((item) => item.target === 'models') && (
-          <p className="cwn-account-detail">
-            在原生设置中选择「模型」，管理「zai-coding-cn」的 API 凭据。修改对共享此凭据的 CLI 生效。
-          </p>
-        )}
         {action && enabled && (
           <Modal
             open

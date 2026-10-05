@@ -622,7 +622,7 @@ it.each([false, true])(
     })
     await t.click('默认设置')
     expect(t.r.root.findAllByProps({ role: 'dialog' })).toHaveLength(1)
-    await t.click('API 登录设置')
+    await t.click('登录设置')
     expect(openNativeSettings).toHaveBeenCalledTimes(1)
     expect(t.r.root.findAllByProps({ role: 'dialog' })).toHaveLength(0)
     if (fail) expect(t.text()).toContain('设置 → 模型')

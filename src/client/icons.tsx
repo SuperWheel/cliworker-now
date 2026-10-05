@@ -6,12 +6,39 @@ import claude from './assets/claude-code.png'
 import kimiLight from './assets/kimi-light.png'
 import kimiDark from './assets/kimi-dark.png'
 import mimo from './assets/mimo-code.png'
+import zcode from './assets/zcode.png'
+import omp from './assets/omp.png'
+import pi from './assets/pi.png'
+import harness from './assets/harness.png'
+import opencode from './assets/opencode.png'
+import grok from './assets/grok.png'
 import logo from './assets/cliworker-now-logo.png'
 
-const icons: Partial<Record<CliId, string>> = { antigravity, codex, claude, mimo }
+const icons: Partial<Record<CliId, string>> = {
+  antigravity,
+  codex,
+  claude,
+  mimo,
+  zcode,
+  grok,
+  omp,
+  pi,
+  harness,
+  opencode,
+}
+
+const optical: Partial<Record<CliId, { scale: number; x: number; y: number; mono: boolean }>> = {
+  zcode: { scale: 1.1518, x: -0.5051754385964912, y: 0.22962519936204143, mono: true },
+  omp: { scale: 1.2796, x: 0.0, y: 0.0, mono: false },
+  pi: { scale: 1.3012, x: -2.023397129186603, y: -1.5045773524720893, mono: false },
+  harness: { scale: 0.9212, x: -0.8448006379585328, y: -2.0569059011164277, mono: true },
+  opencode: { scale: 1.2087, x: -0.048193779904306226, y: 0.0, mono: true },
+  grok: { scale: 0.8523, x: -1.1214473684210524, y: 0.7136483253588516, mono: true },
+}
 
 /** User-provided transparent PNGs, bundled locally without remote asset requests. */
 export function BrandIcon({ cli, size = cli ? 22 : 32 }: { cli?: CliId; size?: number }) {
+  const asset = cli ? optical[cli] : undefined
   return (
     <span className="cwn-brand" aria-hidden="true" style={{ width: size, height: size }}>
       {cli === 'kimi' ? (
@@ -31,7 +58,14 @@ export function BrandIcon({ cli, size = cli ? 22 : 32 }: { cli?: CliId; size?: n
           }
         </span>
       ) : (
-        <img src={cli ? icons[cli] : logo} alt="" />
+        <img
+          src={cli ? icons[cli] : logo}
+          className={asset?.mono ? 'cwn-icon-mono' : undefined}
+          style={
+            asset ? { transform: `translate(${asset.x}%, ${asset.y}%) scale(${asset.scale})` } : undefined
+          }
+          alt=""
+        />
       )}
     </span>
   )

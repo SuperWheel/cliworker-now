@@ -16,6 +16,7 @@ for (const name of [
   'terminal-bridge',
 
   'pi-omp-bridge',
+  'pi-login',
   'harness-catalog',
   'grok-catalog',
 ]) {

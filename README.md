@@ -33,11 +33,13 @@ ZCode 显式禁用原生子代理、Skill、工作流调度、跨会话工具及
 | --- | --- |
 | ZCode | 支持原生登录、退出和 TUI；账号保存在独立 `accounts/zcode` 目录，与 ZCode worker 共用。 |
 | Grok Build | 支持原生登录、退出和账号终端；沿用本机 Grok 账号，退出会影响其他使用同一账号的终端。 |
-| OMP、Pi | 可打开原生管理终端；当前插件任务使用智谱 CN API 路由，账号切换通过“API 登录设置”打开 Harness 原生“模型”设置管理凭据。原生 OAuth 不能替代该任务路由。 |
-| Harness | 0.2.0-rc.2 没有可用的原生 TUI；“API 登录设置”和“打开原生设置”打开 Harness 原生“模型”设置。 |
-| OpenCode | 有 `zaiCredentialRef` 时由 Harness 管理智谱 CN API 凭据；无引用时支持原生登录、退出和账号终端，使用插件私有原生账号目录。 |
+| OMP、Pi | “登录设置”直接在终端打开原生提供商登录界面；OMP 使用 `setup`，Pi 1.0.2 使用其原生登录 UI。无需先配置 API 或拥有订阅。账号保存在插件私有目录，关闭窗口后保留。 |
+| Harness | 已安装的 0.2.0-rc.2 不提供终端登录命令或 TUI；按钮禁用并说明版本限制，不再跳转到 Harness 设置。 |
+| OpenCode | “登录设置”使用原生 `auth login` 提供商选择器，登录状态保存在私有共享原生账号目录。 |
 
-OMP、Pi、Harness 以及有 `zaiCredentialRef` 的 OpenCode 使用同一个显式凭据引用。在插件中修改该引用对应的原生模型凭据，会同时影响使用它的 CLI；这些入口不提供会误导用户的独立退出操作。通过适配 Harness 0.2.0-rc.2 的原生共享 Store 桥打开“模型”设置；不重复注册宿主拥有的插槽。OpenCode 的有引用管理终端默认使用 `zhipuai-coding-plan/glm-5.3-flash`，与智谱 CN 路由一致；引用不可用时明确失败，不回落至其他原生账号。
+ZCode 和 Grok 的绿色“已登录”与账号名称来自本地原生登录记录，不代表远程订阅验证。ZCode 0.16.9 的 AES-GCM 记录只在 Host 内解析；Grok 读取原生 OIDC 会话。凭据、令牌和未筛选的账号数据不会传到侧栏。
+
+登录设置不会自动改变已有任务的模型或凭据来源。Pi/OMP/Harness 和配置了 `zaiCredentialRef` 的 OpenCode 任务仍按原先显式选择的智谱 API 路由执行；终端里的 OAuth 登录不自动替代该路由。OpenCode 的“账号终端”仍沿用任务的显式来源，而“登录设置”管理原生提供商凭据。
 
 OpenCode 无引用模式的原生凭据位于 `<stateDirectory>/accounts/opencode/data/opencode/auth.json`，登录终端、worker 和模型目录共用这份账号；各自运行数据库、配置和缓存独立。原生 OAuth 刷新允许写入该共享账号目录，规划模式仍禁止写项目。关闭账号终端后删除该终端的临时运行目录，保留共享凭据和 worker 历史。
 

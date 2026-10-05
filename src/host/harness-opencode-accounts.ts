@@ -37,8 +37,15 @@ async function managedIdentity(config: RuntimeConfig, signal: AbortSignal): Prom
     : { state: 'unauthenticated', summary: 'Harness 凭据引用尚未配置，请打开原生模型设置' }
 }
 
-/** The installed Harness has no account TUI; Client must open settings.section/models. */
-export const readHarnessAccount = managedIdentity
+export const readPiOmpAccount = managedIdentity
+
+/** This Harness version has no terminal account UI; keep the limitation explicit. */
+export async function readHarnessAccount(
+  config: RuntimeConfig,
+  signal: AbortSignal,
+): Promise<AccountIdentity> {
+  return { ...(await managedIdentity(config, signal)), summary: 'Harness 0.2.0-rc.2 未提供终端登录界面' }
+}
 
 /** Project only capability metadata, never keys, arbitrary provider metadata or token claims. */
 export async function readOpenCodeAccount(
@@ -137,11 +144,12 @@ export async function prepareOpenCodeAccount(
 }> {
   signal.throwIfAborted()
   if (!['login', 'logout', 'manage'].includes(action)) throw new Error('不支持的 OpenCode 账号操作')
-  if (config.zaiCredentialRef && action !== 'manage')
-    throw new Error('OpenCode 凭据由 Harness 原生模型设置管理，请在模型设置中操作')
   // Resolve before allocating disk state, and release a cancelled startup even if
   // an unavailable credential provider never settles its original request.
-  const credentials = await withCancellation(openCodeCredentialEnvironment(config), signal)
+  const credentials = await withCancellation(
+    action === 'manage' ? openCodeCredentialEnvironment(config) : Promise.resolve({}),
+    signal,
+  )
   signal.throwIfAborted()
   const data = openCodeAuthDirectory(config.stateDirectory)
   const accountRoot = privateDirectory(dirname(data))
@@ -177,7 +185,7 @@ export async function prepareOpenCodeAccount(
       state,
       {
         permission: { '*': 'deny' },
-        ...(config.zaiCredentialRef
+        ...(config.zaiCredentialRef && action === 'manage'
           ? {
               model: 'zhipuai-coding-plan/glm-5.3-flash',
               small_model: 'zhipuai-coding-plan/glm-5.3-flash',
@@ -186,7 +194,7 @@ export async function prepareOpenCodeAccount(
           : {}),
       },
       data,
-      !!config.zaiCredentialRef,
+      !!config.zaiCredentialRef && action === 'manage',
     )
     signal.throwIfAborted()
     const argv = [executable, ...(action === 'manage' ? [] : ['auth', action])]
@@ -202,11 +210,12 @@ export async function prepareOpenCodeAccount(
       env: { ...env, ...credentials, ELECTRON_RUN_AS_NODE: '1' },
       cwd: state,
       cleanup,
-      instruction: config.zaiCredentialRef
-        ? '当前 API 凭据由 Harness 原生模型设置管理；此终端沿用任务的同一凭据，账号切换请使用原生模型设置。'
-        : action === 'manage'
-          ? '在 OpenCode 原生终端使用 /connect 管理登录；凭据与插件任务共用，工作数据保持独立。'
-          : '按 OpenCode 原生账号流程操作；凭据与插件任务共用，关闭终端不会撤销已完成的账号操作。',
+      instruction:
+        config.zaiCredentialRef && action === 'manage'
+          ? '当前 API 凭据由 Harness 原生模型设置管理；此终端沿用任务的同一凭据，账号切换请使用原生模型设置。'
+          : action === 'manage'
+            ? '在 OpenCode 原生终端使用 /connect 管理登录；凭据与插件任务共用，工作数据保持独立。'
+            : '按 OpenCode 原生账号流程操作；凭据与插件任务共用，关闭终端不会撤销已完成的账号操作。',
     }
   } catch (error) {
     cleanup()

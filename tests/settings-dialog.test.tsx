@@ -760,56 +760,35 @@ it('keeps the same summary region after disabling a CLI while removing the previ
   expect(t.button('登录 / 切换账号').props.disabled).toBe(true)
 })
 
-const managedAccountActions: AccountStatus['actions'] = [
-  { id: 'login', label: '配置 API 登录', target: 'models', description: '模拟：管理任务的同一 Host 凭据' },
-  { id: 'manage', label: '账号终端', description: '模拟：沿用任务 API 凭据的原生终端' },
-]
-it.each(['pi', 'omp', 'harness', 'opencode'] as const)(
-  '%s routes managed API login to native settings without mounting a nested modal or terminal',
+it.each(['pi', 'omp', 'opencode'] as const)(
+  '%s opens a terminal login without native settings or redundant notes',
   async (cli) => {
-    const accountStatus = vi.fn(async (_parent, current: CliId) =>
-      status(current, {
-        state: 'configured',
-        authMethod: 'api',
-        verification: 'local',
-        actions: current === cli ? managedAccountActions : [],
-      }),
-    )
+    const actions: AccountStatus['actions'] = [
+      { id: 'login', label: '登录设置', description: '模拟：原生登录' },
+      { id: 'manage', label: '账号终端', description: '模拟：原生终端' },
+    ]
     const openNativeSettings = vi.fn()
-    const t = await setup({ accountStatus }, openNativeSettings)
+    const t = await setup(
+      { accountStatus: vi.fn(async (_parent, current: CliId) => status(current, { actions })) },
+      openNativeSettings,
+    )
     await t.click(`${CLI_LABELS[cli]} 设置`)
+    expect(t.button('登录设置').props.disabled).toBe(false)
+    expect(t.text()).not.toContain('在原生设置中选择')
+    await t.click('登录设置')
+    expect(terminal.started).toHaveBeenCalledExactlyOnceWith(cli, 'login')
     expect(openNativeSettings).not.toHaveBeenCalled()
-    expect(t.button('API 登录设置').props.disabled).toBe(false)
-    expect(t.button('退出登录')).toBeUndefined()
-    expect(t.text()).toContain('在原生设置中选择「模型」')
-    await t.click('API 登录设置')
-    expect(openNativeSettings).toHaveBeenCalledTimes(1)
-    expect(t.r.root.findAllByProps({ role: 'dialog' })).toHaveLength(1)
-    expect(terminal.started).not.toHaveBeenCalled()
   },
 )
-it('routes Harness management to native settings without allocating a terminal', async () => {
-  const actions: AccountStatus['actions'] = [
-    managedAccountActions[0]!,
-    { id: 'manage', label: '原生设置', target: 'models', description: '模拟：Harness 原生配置' },
-  ]
-  const accountStatus = vi.fn(async (_parent, cli: CliId) => status(cli, { actions }))
-  const openNativeSettings = vi.fn()
-  const t = await setup({ accountStatus }, openNativeSettings)
-  await t.click(`${CLI_LABELS.harness} 设置`)
-  await t.click('打开原生设置')
-  expect(openNativeSettings).toHaveBeenCalledTimes(1)
-  expect(t.r.root.findAllByProps({ role: 'dialog' })).toHaveLength(1)
-  expect(terminal.started).not.toHaveBeenCalled()
-})
-it('disables native settings actions when unavailable without silently using a terminal', async () => {
+it('keeps unsupported Harness account controls disabled and explains the native limitation', async () => {
   const t = await setup({
-    accountStatus: vi.fn(async (_parent, cli: CliId) => status(cli, { actions: managedAccountActions })),
+    accountStatus: vi.fn(async (_parent, cli: CliId) =>
+      status(cli, { actions: [], summary: '此版本未提供终端登录界面' }),
+    ),
   })
-  await t.click('Pi 设置')
-  expect(t.button('API 登录设置').props.disabled).toBe(true)
-  expect(t.button('账号终端').props.disabled).toBe(false)
+  await t.click('Harness 设置')
+  expect(t.button('登录设置').props.disabled).toBe(true)
+  expect(t.button('账号终端').props.disabled).toBe(true)
+  expect(t.text()).toContain('此版本未提供终端登录界面')
   expect(terminal.started).not.toHaveBeenCalled()
-  await t.click('账号终端')
-  expect(terminal.started).toHaveBeenCalledExactlyOnceWith('pi', 'manage')
 })

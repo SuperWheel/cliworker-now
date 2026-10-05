@@ -15,6 +15,15 @@ import { DEFAULT_CONFIG, type ProcessBackend, type RuntimeConfig } from '../src/
 import type { CliId } from '../src/shared/types.ts'
 import type { AccountIdentitySource } from '../src/host/account-identity.ts'
 
+vi.mock('../src/host/zcode-grok-accounts.ts', async (load) => ({
+  ...(await load<typeof import('../src/host/zcode-grok-accounts.ts')>()),
+  zcodeGrokAccountStatus: async () => ({
+    state: 'unauthenticated',
+    verification: 'local',
+    summary: 'Synthetic fixture',
+  }),
+}))
+
 // All subprocesses in this suite are synthetic. No real login/logout is run.
 const roots: string[] = []
 const managers: AccountManager[] = []
@@ -608,56 +617,47 @@ describe('extended CLI account capabilities (synthetic credentials and PTYs)', (
     for (const cli of ['zcode', 'grok', 'omp', 'pi', 'harness', 'opencode'] as const) {
       const account = await f.manager.status(cli, f.cwd, f.signal)
       expect(account.installed).toBe(true)
-      expect(account.actions.map((item) => item.id)).toContain('login')
-      expect(account.actions.map((item) => item.id)).toContain('manage')
+      if (cli === 'harness') expect(account.actions).toEqual([])
+      else {
+        expect(account.actions.map((item) => item.id)).toContain('login')
+        expect(account.actions.map((item) => item.id)).toContain('manage')
+      }
       expect(account.state).not.toBe('authenticated')
     }
     expect(f.backend.spawn).not.toHaveBeenCalled()
     expect(f.backend.spawnTerminal).not.toHaveBeenCalled()
   })
 
-  it.each(['pi', 'omp', 'harness', 'opencode'] as const)(
-    '%s sends shared API login to native models and never exposes fake logout or credential values',
+  it.each(['pi', 'omp', 'opencode'] as const)(
+    '%s routes login to a terminal even with a managed API reference',
     async (cli) => {
-      const resolveCredential = vi.fn(async () => 'SYNTHETIC_ACCOUNT_KEY_NOT_FOR_DISPLAY')
-      const f = fixture({ zaiCredentialRef: 'synthetic-host-ref', resolveCredential })
+      const f = fixture({
+        zaiCredentialRef: 'synthetic-ref',
+        resolveCredential: async () => 'SYNTHETIC_SECRET',
+      })
       const account = await f.manager.status(cli, f.cwd, f.signal)
-      expect(resolveCredential).toHaveBeenCalledExactlyOnceWith('synthetic-host-ref')
-      expect(account).toMatchObject({ state: 'configured', authMethod: 'api', verification: 'local' })
-      expect(account.actions.find((item) => item.id === 'login')).toMatchObject({ target: 'models' })
-      expect(account.actions.some((item) => item.id === 'logout')).toBe(false)
-      expect(JSON.stringify(account)).not.toContain('SYNTHETIC_ACCOUNT_KEY')
-      expect(() => f.manager.start('p', cli, 'login', f.cwd, f.signal)).toThrow('原生模型设置')
-      expect(() => f.manager.start('p', cli, 'logout', f.cwd, f.signal)).toThrow('原生模型设置')
-      expect(f.manager.isBusy(cli)).toBe(false)
-      expect(f.backend.spawnTerminal).not.toHaveBeenCalled()
+      expect(account.actions.find((x) => x.id === 'login')).toMatchObject({ label: '登录设置' })
+      expect(account.actions.every((x) => x.target !== 'models')).toBe(true)
+      expect(JSON.stringify(account)).not.toContain('SYNTHETIC_SECRET')
+      const opened = await f.manager.start('p', cli, 'login', f.cwd, f.signal)
+      expect(opened.id).toBeTruthy()
+      expect(f.backend.spawnTerminal).toHaveBeenCalledOnce()
     },
   )
-
-  it('keeps Harness login and management available through native models without a PTY backend', async () => {
-    const f = fixture({ zaiCredentialRef: 'synthetic-host-ref', resolveCredential: async () => undefined })
-    f.backend.spawnTerminal = undefined
+  it('reports the installed Harness terminal limitation without redirecting to native settings', async () => {
+    const f = fixture()
     const account = await f.manager.status('harness', f.cwd, f.signal)
-    expect(account.state).toBe('unauthenticated')
-    expect(account.actions.map(({ id, target }) => ({ id, target }))).toEqual([
-      { id: 'login', target: 'models' },
-      { id: 'manage', target: 'models' },
-    ])
-    expect(() => f.manager.start('p', 'harness', 'manage', f.cwd, f.signal)).toThrow('原生模型设置')
-    expect(f.backend.spawn).not.toHaveBeenCalled()
+    expect(account.actions).toEqual([])
+    expect(account.summary).toContain('未提供终端登录')
+    expect(() => f.manager.start('p', 'harness', 'login', f.cwd, f.signal)).toThrow('未提供终端')
+    expect(f.backend.spawnTerminal).not.toHaveBeenCalled()
   })
-
-  it.each(['pi', 'omp', 'harness'] as const)(
-    '%s without a Host credential reference still offers the actual configuration entry',
-    async (cli) => {
-      const f = fixture()
-      const account = await f.manager.status(cli, f.cwd, f.signal)
-      expect(account.state).toBe('unauthenticated')
-      expect(account.actions.find((item) => item.id === 'login')?.target).toBe('models')
-      expect(account.actions.some((item) => item.id === 'logout')).toBe(false)
-      expect(f.backend.spawnTerminal).not.toHaveBeenCalled()
-    },
-  )
+  it.each(['pi', 'omp'] as const)('%s login works without Host API credentials', async (cli) => {
+    const f = fixture()
+    const opened = await f.manager.start('p', cli, 'login', f.cwd, f.signal)
+    expect(opened.id).toBeTruthy()
+    expect(f.backend.spawnTerminal).toHaveBeenCalledOnce()
+  })
 
   it.each(['login', 'manage'] as const)(
     'Grok %s uses its native argv and shared account path',

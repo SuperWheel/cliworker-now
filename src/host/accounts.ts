@@ -24,6 +24,7 @@ import {
 } from './zcode-grok-accounts.ts'
 import {
   readHarnessAccount,
+  readPiOmpAccount,
   readOpenCodeAccount,
   prepareOpenCodeAccount,
 } from './harness-opencode-accounts.ts'
@@ -56,31 +57,23 @@ const instructionFor = (cli: CliId, action: AccountAction): string => {
     : '按 CLI 原生流程退出登录；关闭终端不会恢复已退出的账号。'
 }
 const actionsFor = (cli: CliId, config: RuntimeConfig): AccountStatus['actions'] => {
-  if (cli === 'harness' || cli === 'pi' || cli === 'omp' || (cli === 'opencode' && config.zaiCredentialRef)) {
+  if (cli === 'harness') return [] // 0.2.0-rc.2 ships no terminal account UI.
+  if (cli === 'pi' || cli === 'omp')
     return [
-      {
-        id: 'login',
-        label: '配置 API 登录',
-        target: 'models',
-        description: '打开 Harness 原生模型设置，修改任务使用的智谱 API 凭据；共享此引用的 CLI 会一起生效。',
-      },
-      cli === 'harness'
-        ? {
-            id: 'manage',
-            label: '原生设置',
-            target: 'models',
-            description: '此版本 Harness 没有交互终端；使用原生模型设置管理账号。',
-          }
-        : {
-            id: 'manage',
-            label: '账号终端',
-            description: '打开使用同一 API 凭据的原生终端；切换账号请使用配置 API 登录。',
-          },
+      { id: 'login', label: '登录设置', description: '打开原生终端登录界面，选择提供商后由你完成授权。' },
+      { id: 'manage', label: '账号终端', description: '打开原生终端管理账号。' },
     ]
-  }
+
   return ACTIONS.map((id) => ({
     id,
-    label: id === 'login' ? '登录 / 切换账号' : id === 'logout' ? '退出登录' : '账号终端',
+    label:
+      id === 'login'
+        ? cli === 'opencode'
+          ? '登录设置'
+          : '登录 / 切换账号'
+        : id === 'logout'
+          ? '退出登录'
+          : '账号终端',
     description: instructionFor(cli, id),
   }))
 }
@@ -236,7 +229,9 @@ export class AccountManager {
             ? zcodeGrokAccountStatus(cli, this.config, control)
             : cli === 'opencode'
               ? readOpenCodeAccount(this.config, control)
-              : readHarnessAccount(this.config, control),
+              : cli === 'harness'
+                ? readHarnessAccount(this.config, control)
+                : readPiOmpAccount(this.config, control),
           control,
         )
         return {
@@ -340,7 +335,7 @@ export class AccountManager {
     signal.throwIfAborted()
     const capability = actionsFor(cli, this.config).find((item) => item.id === action)
     if (!capability || capability.target === 'models')
-      throw new Error('此操作请在 Harness 原生模型设置中完成')
+      throw new Error('此版本 CLI 未提供终端登录或账号管理入口')
     if (!this.backend.spawnTerminal) throw new Error('当前宿主不支持交互终端')
     if (this.reserved.has(cli)) throw new Error('此 CLI 已有账号终端，请先关闭后重试')
     const directory = projectDirectory(cwd)
@@ -398,6 +393,7 @@ export class AccountManager {
       } else if (cli === 'pi' || cli === 'omp') {
         const prepared = await preparePiOmpAccountTerminal({
           cli,
+          action,
           executable,
           project: cwd,
           stateDirectory:

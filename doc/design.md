@@ -262,3 +262,11 @@ OpenCode 账号准备在分配临时运行目录前执行可取消的凭据解�
 ZCode 未显式配置 executable 时，优先采用已安装的完整入口 `~/.local/share/cliworker-now/runtimes/zcode/cli/zcode.cjs`，否则回落到桌面内置 `/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs`。相同版本号不能证明能力一致，账号终端启动前读取实际 `--help` 检查 `login [zai|bigmodel]`；缺少该能力时返回固定中文安装提示。完整 CLI 的登录使用 `login bigmodel`、退出使用 `logout`、管理使用 `tui`，不向终端自动输入斜杠指令。默认授权目录为 `<stateDirectory>/accounts/zcode`，也可由 `zcodeAuthDirectory` 指定；设置与 worker/catalog 共用此来源，避免登录成功但任务读取另一份账号。Grok 沿用本机 `~/.grok` 账号，原生退出影响其他共享该账号的使用方。
 
 六个 CLI 的状态查询只投影允许展示的摘要；本地文件存在、引用可解析或 `configured` / `verification=local` 不等于远程登录、订阅权益或额度有效。该说明通过状态来源提示呈现，不返回凭据内容、API key 前缀或原始异常。账号任务仍遵循 CLI 启用状态、宿主执行权限、取消、同 CLI worker/账号互斥和进程范围清理；本小节描述实现契约，实际验收记录单独写入 `doc/tasks.md`。
+
+## v0.5.2 原生终端登录与账号身份
+
+- OMP、Pi、OpenCode 的登录按钮统一为「登录设置」，直接打开 AccountTerminal，不依赖 Host API 凭据解析，也不导航到宿主模型设置。OMP 使用实际安装版本支持的 `setup`；Pi 固定 1.0.2，通过其导出的 runtime/InteractiveMode 打开原生认证菜单，无提示词或按键注入；OpenCode 使用 `auth login`。Pi UI 接口不匹配时明确失败，不退回模型任务。
+- Pi/OMP 的 `accounts/<cli>/agent` 保留原生登录记录；临时 cwd/tmp 仍位于 account-runtime 并在退出后清理。任务选型和既有 API 路由保持显式，不把新登录的 OAuth 静默套用于旧会话。
+- Harness 0.2.0-rc.2 没有内置终端登录页，禁用登录与终端操作并显示版本能力限制，不伪造登录界面或跳转设置。
+- ZCode 读取其指定账号目录中经原生 AES-256-GCM 加密的活动提供商、登录凭据存在性及 user-info；Grok 识别 auth.x.ai OIDC 记录、过期与可刷新状态。文件读取限64KiB，拒绝软链接/硬链接/非普通文件；返回仅包含状态、允许的邮箱/显示名称与本地来源，异常不包含密钥或原始输出。
+- 六个扩展 CLI 使用用户制作的 `doc/assets/cli-icons/v2-extended` 原始PNG和光学居中参数；ZCode/Harness/OpenCode/Grok 随原生暗色主题反色，OMP/Pi 保留原色。登录区域移除重复的宿主 API 设置备注，保留浅边框原生按钮。

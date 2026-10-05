@@ -8,6 +8,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  realpath,
   rm,
   stat,
   symlink,
@@ -51,10 +52,12 @@ it.each(['pi', 'omp'] as const)(
     expect(resolveCredential).toHaveBeenCalledExactlyOnceWith('fixture:zai-cn')
     expect(launch.env.ZAI_CODING_CN_API_KEY).toBe(fixtureKey)
     expect(JSON.stringify(launch.argv)).not.toContain(fixtureKey)
-    expect(launch.instruction).toContain('Harness 智谱 API 凭据')
+    expect(launch.instruction).toContain('/login')
     expect(launch.instruction).not.toContain(fixtureKey)
     expect(launch.cwd).not.toBe(input.project)
-    expect(launch.env.PI_CODING_AGENT_DIR).toBe(join(launch.cwd, 'agent'))
+    expect(launch.env.PI_CODING_AGENT_DIR).toBe(
+      await realpath(join(input.stateDirectory, 'accounts', cli, 'agent')),
+    )
     expect(launch.env.TMPDIR).toBe(join(launch.cwd, 'tmp'))
     expect(launch.env.ELECTRON_RUN_AS_NODE).toBe('1')
     expect(launch.env.OMP_PROFILE).toBe('')
@@ -113,7 +116,9 @@ it('registers the same OMP custom CN route and disables automatic fallback befor
     expect.stringContaining('private-launch.mjs'),
     input.executable,
   ])
-  expect(launch.env.PI_CONFIG_DIR).toBe(relative(homedir(), launch.cwd))
+  expect(launch.env.PI_CONFIG_DIR).toBe(
+    relative(homedir(), await realpath(join(input.stateDirectory, 'accounts', 'omp'))),
+  )
   const agent = launch.env.PI_CODING_AGENT_DIR!
   const models = JSON.parse(await readFile(join(agent, 'models.yml'), 'utf8'))
   expect(Object.keys(models.providers)).toEqual(['cliworker-zai-cn'])
@@ -276,3 +281,25 @@ it('disables verified OMP MCP discovery sources without disabling its selected A
   expect(launch.argv).not.toContain('--no-mcp')
   expect(launch.env.PI_NO_MCP).toBeUndefined()
 })
+
+it.each(['pi', 'omp'] as const)(
+  '%s opens native login without resolving a subscription and preserves accounts after close',
+  async (cli) => {
+    const { input, resolveCredential } = await fixture(cli)
+    const launch = await preparePiOmpAccountTerminal({
+      ...input,
+      action: 'login',
+      config: { ...input.config, zaiCredentialRef: undefined },
+    })
+    expect(resolveCredential).not.toHaveBeenCalled()
+    expect(launch.env.ZAI_CODING_CN_API_KEY).toBeUndefined()
+    expect(launch.argv).not.toContain('--model')
+    if (cli === 'omp') expect(launch.argv.slice(-2)).toEqual([input.executable, 'setup'])
+    else expect(launch.argv.at(-2)).toContain('pi-login.mjs')
+    const account = join(launch.env.PI_CODING_AGENT_DIR!, 'auth-fixture.json')
+    await writeFile(account, '{"fixture":true}', { mode: 0o600 })
+    await launch.cleanup()
+    expect(await readFile(account, 'utf8')).toContain('fixture')
+    await expect(lstat(launch.cwd)).rejects.toMatchObject({ code: 'ENOENT' })
+  },
+)
