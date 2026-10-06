@@ -8,6 +8,8 @@ import {
   active,
   CLI_IDS,
   CLI_LABELS,
+  isRetiredCli,
+  RETIRED_HARNESS_NOTICE,
   cliOf,
   effortLabel,
   workerName,
@@ -120,6 +122,7 @@ function SessionPanel({
   const feed = useRef<HTMLDivElement>(null),
     stick = useRef(true)
   const worker = snapshot.selected
+  const retired = !!worker && isRetiredCli(cliOf(worker.preference))
   const prompt = drafts[selected] ?? ''
   const composerInput = useRef<HTMLTextAreaElement>(null)
   useLayoutEffect(() => {
@@ -157,7 +160,7 @@ function SessionPanel({
   }
   const running = worker && active(worker.status)
   const unavailable = connecting || !!streamError
-  const canResume = worker?.conversationId && !running && !unavailable
+  const canResume = worker?.conversationId && !retired && !running && !unavailable
   const jumpToLatest = () => {
     setHistoryPage(undefined)
     stick.current = true
@@ -261,9 +264,10 @@ function SessionPanel({
                   size="sm"
                   variant="ghost"
                   onClick={() => {
-                    setSettingsCli(worker ? cliOf(worker.preference) : settingsCli)
+                    setSettingsCli(worker && !retired ? cliOf(worker.preference) : settingsCli)
                     setSettings(true)
                   }}
+                  disabled={retired}
                 >
                   默认设置
                 </Button>
@@ -373,7 +377,7 @@ function SessionPanel({
             </div>
           )}
           <nav aria-label="子 Agent">
-            {CLI_IDS.map((cli) => {
+            {([...CLI_IDS, 'harness'] as const).map((cli) => {
               const rows = visibleWorkers.filter((w) => cliOf(w.preference) === cli)
               if (!rows.length) return null
               return (
@@ -437,7 +441,7 @@ function SessionPanel({
               <BrandIcon size={42} />
               <h3>让协作过程看得见</h3>
               <p>在主对话中明确派遣任务：</p>
-              <blockquote>用 ZCode、OMP、Pi、Harness 或 OpenCode 帮我检查这个项目</blockquote>
+              <blockquote>用 ZCode、OMP、Pi、Hermes Agent 或 OpenCode 帮我检查这个项目</blockquote>
               <p>选择模型、思考强度与智能体预设后，协作过程会实时显示在这里。</p>
             </div>
           )}
@@ -554,7 +558,8 @@ function SessionPanel({
             })
           }}
         >
-          {!running && !worker.conversationId && (
+          {retired && <p className="cwn-resume-hint">{RETIRED_HARNESS_NOTICE}</p>}
+          {!retired && !running && !worker.conversationId && (
             <p className="cwn-resume-hint">本次运行未建立 CLI 会话，无法续聊。请在主对话重新派遣任务。</p>
           )}
           <div className="cwn-compose-box">
@@ -574,7 +579,7 @@ function SessionPanel({
                 worker={worker}
                 api={api}
                 sessionId={sessionId}
-                disabled={busy || unavailable || !!running}
+                disabled={retired || busy || unavailable || !!running}
               />
               {running ? (
                 <Button

@@ -22,12 +22,8 @@ import {
   zcodeGrokInstruction,
   ZCodeAccountCapabilityError,
 } from './zcode-grok-accounts.ts'
-import {
-  readHarnessAccount,
-  readPiOmpAccount,
-  readOpenCodeAccount,
-  prepareOpenCodeAccount,
-} from './harness-opencode-accounts.ts'
+import { readPiOmpAccount, readOpenCodeAccount, prepareOpenCodeAccount } from './harness-opencode-accounts.ts'
+import { prepareHermesAccount, readHermesAccount } from './hermes-accounts.ts'
 import { preparePiOmpAccountTerminal } from './pi-omp-accounts.ts'
 
 const STATUS_TIMEOUT = 10_000
@@ -39,7 +35,7 @@ const MAX_INPUT_BYTES = 16 * 1024
 const ACTIONS: AccountAction[] = ['login', 'logout', 'manage']
 
 const validateCli = (cli: CliId) => {
-  if (!CLI_IDS.includes(cli)) throw new Error('不支持的 CLI')
+  if (!(CLI_IDS as readonly string[]).includes(cli)) throw new Error('不支持的 CLI')
 }
 const instructionFor = (cli: CliId, action: AccountAction): string => {
   if (cli === 'zcode' || cli === 'grok') return zcodeGrokInstruction(cli, action)
@@ -57,8 +53,7 @@ const instructionFor = (cli: CliId, action: AccountAction): string => {
     : '按 CLI 原生流程退出登录；关闭终端不会恢复已退出的账号。'
 }
 const actionsFor = (cli: CliId, config: RuntimeConfig): AccountStatus['actions'] => {
-  if (cli === 'harness') return [] // 0.2.0-rc.2 ships no terminal account UI.
-  if (cli === 'pi' || cli === 'omp')
+  if (cli === 'pi' || cli === 'omp' || cli === 'hermes')
     return [
       { id: 'login', label: '登录设置', description: '打开原生终端登录界面，选择提供商后由你完成授权。' },
       { id: 'manage', label: '账号终端', description: '打开原生终端管理账号。' },
@@ -229,8 +224,8 @@ export class AccountManager {
             ? zcodeGrokAccountStatus(cli, this.config, control)
             : cli === 'opencode'
               ? readOpenCodeAccount(this.config, control)
-              : cli === 'harness'
-                ? readHarnessAccount(this.config, control)
+              : cli === 'hermes'
+                ? readHermesAccount(this.config, control)
                 : readPiOmpAccount(this.config, control),
           control,
         )
@@ -402,6 +397,11 @@ export class AccountManager {
           config: this.config,
           signal: startup,
         })
+        launch = prepared
+        instruction = prepared.instruction
+        release = prepared.cleanup
+      } else if (cli === 'hermes') {
+        const prepared = await prepareHermesAccount(action, executable, cwd, this.config, startup)
         launch = prepared
         instruction = prepared.instruction
         release = prepared.cleanup

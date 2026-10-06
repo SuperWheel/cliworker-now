@@ -437,3 +437,26 @@
 - [x] 亮色Desktop与暗色隔离页面均目视检查；角色搜索框修正为使用原生Input的span容器铺满可用宽度。生成Host/Remote合同均包含4个新增RPC，未出现404。
 - [x] 独立包 `artifacts/dsh-cliworker-now-0.5.3.tgz` 170项，无运行数据或凭据；验证摘要同目录JSON。本轮不发送真实模型任务、不测试小说产出质量。专用隔离预览服务已停止。
 - [x] 仅提交本轮角色功能、说明和独立版本号，保留工作区其余并行改动；不推送远程。
+
+
+## 2026-10-06 — Hermes Agent 隔离接入（v0.6.0）
+
+- [x] 用 Hermes Agent / `hermes` 替换外部 Harness CLI；使用用户 `v3-hermes/hermes.png` 原图。保留 DeepSeek Harness 宿主和旧 Harness 只读历史；旧 session ID、偏好不映射到 Hermes。
+- [x] 按用户授权安装官方固定提交 `4787e4d56fc8d9265d4c7d3c0fe5accee86b4078`，实际版本 `v0.21.5+7527.g4787e4d`、Python 3.14.7；跳过浏览器与电脑控制依赖，不安装 Hermes Desktop 或启动 gateway。
+- [x] 原生 `model` 登录向导、`auth` 账号菜单、当前服务商/模型目录、stream-json、session_id 续聊、真实 tokens 投影；按原生已公开能力提供强度，未公开能力不猜测。
+- [x] 任务/目录查询使用窄范围 Seatbelt 写入白名单；原生账号、config、.env、源码与依赖保持只读。修复并行目录查询的原生安装锁竞争、连续文本分片重复，以及空安装配置被误判为已配置登录。
+- [x] 独立工作树 `feat/hermes-integration` 构建与类型检查通过：`pnpm --config.verify-deps-before-run=false build`、`typecheck`、`build:preview`。未将并行“制作智能体”任务的角色实现和文档混入本包。
+- [x] 同工作树完整回归：27 个测试文件、371 项通过，包含 7 项实际 macOS Seatbelt 测试，以及取消/进程清理、流式解析、模型目录、账号读取、历史迁移与 UI 用例。日志位于工作树 `.test-data/final-test.log`。
+- [x] 真实 CLI 目录验证：默认 provider=auto 时明确要求选型；私有模拟配置经真实 CLI 返回 fixture/model。配置值为模拟，进程与沙箱真实，未调用模型。最终窄策略真实读取 provider 成功退出 0。
+- [x] 最终隔离包在 cliworker-test profile 的设置页中显示 Hermes 新图标与未登录状态，不再显示可选 Harness。真实点击“登录设置”显示提供商列表，“账号终端”显示原生凭据管理菜单；均关闭并确认对应进程退出。截图在主工作区 `.test-data/evidence/hermes-final-login.png` 与 `hermes-final-auth.png`。
+- [x] 遵照用户“暂时只完成 Hermes 隔离验证，不更新 Desktop”：没有构建主工作区 lib、更新 Desktop 链接或重启 Desktop；隔离测试 profile 使用后恢复原链接。
+- [ ] 真实模型运行、续聊和任务停止：本轮未选模型、未提交凭据、未发送模型请求，留待用户选型后验收。协议夹具与登录菜单验证不等同于真实任务通过。
+
+
+## 2026-10-06 — Hermes 合入当前角色版本（v0.6.0）
+
+- [x] 用户要求将 Hermes 加入当前版本。基于 `6de1b25` 的智能体预设与命名功能，核对隔离提交 `2469f84`：Hermes 独立实现完整，共享 Host/Client/Storage 逻辑保留角色选择、快照、七个默认角色、重命名与按名称续聊。
+- [x] 主工作区 31 文件、389 项测试通过，含实际 macOS 沙箱/进程清理测试；组合版本 `build:preview` 与生成合同后的 Host/Client 类型检查通过。未执行模型任务、登录或退出账号。
+- [x] 隔离 UI 同时显示 Hermes 设置、新图标与七个智能体预设；旧 Harness 无可选入口。当前 Hermes 尚未明确选择原生服务商/模型，按设计提示先完成登录设置，不伪造目录。
+- [x] 组合安装包为 `artifacts/dsh-cliworker-now-0.6.0.tgz`，与先前仅 Hermes 的隔离包分开；保留现有 Desktop 构建备份 `.cache/desktop-before-hermes-060`。
+- [ ] Desktop 生效验收：更新前活动 worker=0、账号终端=0，但完整退出 Desktop 被自动审批拦截（此前暂不更新 Desktop 的约束被视为仍有效，并提示未保存状态风险）。本轮未运行主目录 build 或替换 Desktop 的 lib；等待用户明确允许退出并重启。

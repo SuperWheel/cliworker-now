@@ -1,5 +1,7 @@
 # Harness CLI：真实执行与取消验证
 
+> 历史验收档案：v0.6.0 已移除外部 Harness CLI 适配器，改接 Hermes Agent。本页仅保留原始证据，不代表当前可用入口。
+
 状态：`@deepseek-ai/dsh 0.2.0-rc.2` 的无头首轮、原会话续聊、Write 文件、只读写入拒绝、实际 Bash 后代取消均有真实证据。用户后续授权复用 Harness 智谱凭据，明确使用 `zai-coding-cn / glm-5.3-flash / low`。本探针没有修改 Desktop 配置，没有复制密钥，没有集成业务 UI。
 
 ## 运行方式

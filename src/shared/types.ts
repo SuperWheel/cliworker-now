@@ -20,10 +20,15 @@ export const CLI_IDS = [
   'grok',
   'omp',
   'pi',
-  'harness',
+  'hermes',
   'opencode',
 ] as const
-export type CliId = (typeof CLI_IDS)[number]
+export type ActiveCliId = (typeof CLI_IDS)[number]
+/** Retired IDs remain readable in existing worker history, never selectable for execution. */
+export type CliId = ActiveCliId | 'harness'
+export const RETIRED_HARNESS_NOTICE =
+  '外部 Harness CLI 入口已移除；历史记录仅供查看。请新建 Hermes Agent 任务。'
+export const isRetiredCli = (cli: CliId): cli is 'harness' => cli === 'harness'
 export const CLI_LABELS: Record<CliId, string> = {
   antigravity: 'Antigravity',
   codex: 'Codex',
@@ -34,7 +39,8 @@ export const CLI_LABELS: Record<CliId, string> = {
   grok: 'Grok Build',
   omp: 'OMP',
   pi: 'Pi',
-  harness: 'Harness',
+  hermes: 'Hermes Agent',
+  harness: 'Harness（已移除）',
   opencode: 'OpenCode',
 }
 export const cliOf = (preference: Preference): CliId => preference.cli ?? 'antigravity'

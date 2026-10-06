@@ -644,3 +644,27 @@ it.each([false, true])(
     if (fail) expect(t.text()).toContain('设置 → 模型')
   },
 )
+
+it('keeps retired Harness history readable without offering resume or configuration', async () => {
+  const legacy: Worker = {
+    ...workers[0]!,
+    preference: { cli: 'harness', model: 'legacy-model', effort: 'low' },
+  }
+  const t = await setup(false, undefined, [legacy])
+  expect(t.text()).toContain('Harness（已移除）')
+  await t.select('a')
+  await t.push('a')
+  expect(t.text()).toContain('answer-a')
+  expect(t.text()).toContain('历史记录仅供查看')
+  expect(t.input().props.disabled).toBe(true)
+  expect(
+    t.r.root.findAllByType('button').find((button) => button.children.includes('默认设置'))!.props.disabled,
+  ).toBe(true)
+  expect(
+    t.r.root.findAllByType('button').find((button) => button.props['aria-label'] === '模型与强度')!.props
+      .disabled,
+  ).toBe(true)
+  await t.edit('must not run')
+  await t.submit()
+  expect(t.followup).not.toHaveBeenCalled()
+})

@@ -39,14 +39,6 @@ async function managedIdentity(config: RuntimeConfig, signal: AbortSignal): Prom
 
 export const readPiOmpAccount = managedIdentity
 
-/** This Harness version has no terminal account UI; keep the limitation explicit. */
-export async function readHarnessAccount(
-  config: RuntimeConfig,
-  signal: AbortSignal,
-): Promise<AccountIdentity> {
-  return { ...(await managedIdentity(config, signal)), summary: 'Harness 0.2.0-rc.2 未提供终端登录界面' }
-}
-
 /** Project only capability metadata, never keys, arbitrary provider metadata or token claims. */
 export async function readOpenCodeAccount(
   config: RuntimeConfig,

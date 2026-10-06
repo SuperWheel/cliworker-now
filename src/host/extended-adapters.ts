@@ -25,10 +25,11 @@ import {
   openCodeAuthDirectory,
   openCodeCredentialEnvironment,
 } from './opencode-adapter.ts'
-import { prepareHarness, discoverHarness } from './harness-adapter.ts'
+import { prepareHermes, discoverHermes, hermesHomeDirectory } from './hermes-adapter.ts'
+import { hermesSandbox } from './hermes-sandbox.ts'
 import { prepareGrok, discoverGrok } from './grok-adapter.ts'
 
-export const EXTENDED_CLIS = ['zcode', 'grok', 'omp', 'pi', 'harness', 'opencode'] as const
+export const EXTENDED_CLIS = ['zcode', 'grok', 'omp', 'pi', 'hermes', 'opencode'] as const
 export const isExtendedCli = (cli: string): cli is (typeof EXTENDED_CLIS)[number] =>
   (EXTENDED_CLIS as readonly string[]).includes(cli)
 const privateArgv = (argv: string[]) => [
@@ -93,7 +94,7 @@ export async function credentialEnvironment(
   config: RuntimeConfig,
 ): Promise<Record<string, string>> {
   if (cli === 'opencode') return openCodeCredentialEnvironment(config)
-  if (!['pi', 'omp', 'harness'].includes(cli) || !config.zaiCredentialRef) return {}
+  if (!['pi', 'omp'].includes(cli) || !config.zaiCredentialRef) return {}
   const key = await config.resolveCredential?.(config.zaiCredentialRef)
   if (!key) return {}
   return { ZAI_CODING_CN_API_KEY: key }
@@ -145,14 +146,12 @@ export async function extendedLaunch(
               authDirectory: openCodeAuthDirectory(config.stateDirectory),
               managedCredentials: !!config.zaiCredentialRef,
             })
-          : cli === 'harness'
-            ? await prepareHarness(input)
+          : cli === 'hermes'
+            ? await prepareHermes({ ...input, hermesHome: config.hermesHome })
             : cli === 'grok'
               ? await prepareGrok(input)
               : undefined
   if (!launch) throw new Error('未知 CLI')
-  // Harness file tools and bash enforce its own read-only/workspace-write policy.
-  // An additional Seatbelt wrapper prevents its native sandbox from starting.
   const creds = await credentialEnvironment(cli, config)
   const temporary = cli === 'zcode' ? mkdtempSync('/private/tmp/cwn-') : undefined
   if (temporary) chmodSync(temporary, 0o700)
@@ -165,8 +164,14 @@ export async function extendedLaunch(
   try {
     return {
       argv:
-        cli === 'harness'
-          ? privateArgv(launch.argv)
+        cli === 'hermes'
+          ? hermesSandbox(
+              privateArgv(launch.argv),
+              state,
+              project,
+              mode,
+              hermesHomeDirectory(config.hermesHome),
+            )
           : confineExtended(
               privateArgv(launch.argv),
               state,
@@ -204,8 +209,8 @@ export async function extendedCatalog(
     if (temporary) chmodSync(temporary, 0o700)
     try {
       return await capture(
-        cli === 'harness'
-          ? privateArgv(argv)
+        cli === 'hermes'
+          ? hermesSandbox(privateArgv(argv), state, state, 'plan', hermesHomeDirectory(config.hermesHome))
           : confineExtended(
               privateArgv(argv),
               state,
@@ -239,8 +244,8 @@ export async function extendedCatalog(
               openCodeAuthDirectory(config.stateDirectory ?? stateDirectory),
               !!config.zaiCredentialRef,
             )
-          : cli === 'harness'
-            ? await discoverHarness(executable, run, state)
+          : cli === 'hermes'
+            ? await discoverHermes(executable, run, state, config.hermesHome)
             : cli === 'grok'
               ? await discoverGrok(executable, run, state)
               : undefined

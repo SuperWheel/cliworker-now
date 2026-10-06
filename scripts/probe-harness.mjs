@@ -1,4 +1,5 @@
-// Harness CLI probe: offline by default, explicitly selected live model with --smoke.
+// Retired external Harness CLI probe, retained only as historical verification evidence.
+throw new Error('External Harness CLI was removed in v0.6.0; use the Hermes integration instead')
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import {

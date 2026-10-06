@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os'
 import { spawnSync } from 'node:child_process'
 import { DEFAULT_CONFIG } from '../src/host/process.ts'
 import {
-  readHarnessAccount,
+  readPiOmpAccount,
   readOpenCodeAccount,
   prepareOpenCodeAccount,
 } from '../src/host/harness-opencode-accounts.ts'
@@ -33,19 +33,19 @@ const catalog =
   'fixture/model\n' + JSON.stringify({ id: 'model', providerID: 'fixture', variants: {} }) + '\n'
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })))
 
-describe('Harness/OpenCode accounts (explicit synthetic fixtures)', () => {
+describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
   it('projects managed references without returning secrets, account labels or remote login claims', async () => {
     const config = {
       ...fixture(),
       zaiCredentialRef: 'synthetic-ref',
       resolveCredential: async () => 'synthetic-secret',
     }
-    const state = await readHarnessAccount(config, signal())
+    const state = await readPiOmpAccount(config, signal())
     expect(state).toEqual({
       state: 'configured',
       authMethod: 'api',
       verification: 'local',
-      summary: expect.stringContaining('未提供终端登录'),
+      summary: expect.stringContaining('未进行远程验证'),
     })
     expect(await readOpenCodeAccount(config, signal())).toMatchObject({
       state: 'configured',
@@ -53,9 +53,9 @@ describe('Harness/OpenCode accounts (explicit synthetic fixtures)', () => {
     })
     expect(JSON.stringify(state)).not.toContain('synthetic-')
     expect(
-      await readHarnessAccount({ ...config, resolveCredential: async () => undefined }, signal()),
+      await readPiOmpAccount({ ...config, resolveCredential: async () => undefined }, signal()),
     ).toMatchObject({ state: 'unauthenticated' })
-    const failed = await readHarnessAccount(
+    const failed = await readPiOmpAccount(
       {
         ...config,
         resolveCredential: async () => {
@@ -212,7 +212,7 @@ describe('Harness/OpenCode accounts (explicit synthetic fixtures)', () => {
     ).rejects.toThrow()
     const next = new AbortController()
     await expect(
-      readHarnessAccount(
+      readPiOmpAccount(
         {
           ...config,
           zaiCredentialRef: 'fixture',

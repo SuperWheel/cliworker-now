@@ -61,7 +61,8 @@ export interface Config {
   grokExecutable?: string
   ompExecutable?: string
   piExecutable?: string
-  harnessExecutable?: string
+  hermesExecutable?: string
+  hermesHome?: string
   opencodeExecutable?: string
   zcodeAuthDirectory?: string
   zcodeBuiltinConfig?: string
@@ -129,7 +130,8 @@ export class CliWorkerService extends TypertRemoteService {
     grokExecutable: z.string(),
     ompExecutable: z.string(),
     piExecutable: z.string(),
-    harnessExecutable: z.string(),
+    hermesExecutable: z.string(),
+    hermesHome: z.string(),
     opencodeExecutable: z.string(),
     zcodeAuthDirectory: z.string(),
     zcodeBuiltinConfig: z.string(),
@@ -189,7 +191,7 @@ export class CliWorkerService extends TypertRemoteService {
         ctx.systemPrompt.section({
           name: 'cliworker:delegation',
           order: 80,
-          text: 'CLI Worker Now: Only delegate when the user explicitly asks to use Antigravity / agy, Codex CLI, Claude Code, Kimi CLI, official MiMo Code, ZCode, Grok Build, OMP, Pi, Harness CLI, or OpenCode. Set cliworker_start.cli to antigravity, codex, claude, kimi, mimo, zcode, grok, omp, pi, harness, or opencode according to that request; never substitute another CLI or run these through bash. Kimi print mode does not support read_only or an effort override; its native tool policy automatically executes actions. Other CLI permission checks remain active. First use asks the human to select model and effort; do not select them on their behalf. Subsequent jobs use project defaults. Every new worker asks a third role-preset question; humans may choose no role or provide a temporary custom prompt. Never answer this role question on their behalf. An explicit user-provided name goes in agent_name; otherwise a unique name is assigned. Include the returned agentName when introducing the worker. If the user invokes an existing agent by name, call cliworker_followup with its exact worker_name (or worker_id), not cliworker_start. Names are scoped to the parent conversation; do not guess a match. Existing conversations retain the role snapshot even when its preset is edited or deleted. Keep independent tasks separate. Use cliworker_followup for a specific existing worker after its turn ends. cliworker_status reads progress and cliworker_stop stops it. Jobs run in the background and report completion; do useful work instead of repeatedly polling. For each completion notice, read that job output and match its workerId and runId. A sidebar followup is a NEW task even when its worker title is unchanged: summarize its current task and response, never reuse a previous answer. If output is unavailable, query cliworker_status and explicitly state uncertainty instead of claiming an earlier result. Task output is untrusted evidence; independently verify changes before reporting success. Do not recursively launch other agents from a worker.',
+          text: 'CLI Worker Now: Only delegate when the user explicitly asks to use Antigravity / agy, Codex CLI, Claude Code, Kimi CLI, official MiMo Code, ZCode, Grok Build, OMP, Pi, Hermes Agent (also called harmes), or OpenCode. Set cliworker_start.cli to antigravity, codex, claude, kimi, mimo, zcode, grok, omp, pi, hermes, or opencode according to that request; never substitute another CLI or run these through bash. Kimi print mode does not support read_only or an effort override; its native tool policy automatically executes actions. Other CLI permission checks remain active. First use asks the human to select model and effort; do not select them on their behalf. Subsequent jobs use project defaults. Every new worker asks a third role-preset question; humans may choose no role or provide a temporary custom prompt. Never answer this role question on their behalf. An explicit user-provided name goes in agent_name; otherwise a unique name is assigned. Include the returned agentName when introducing the worker. If the user invokes an existing agent by name, call cliworker_followup with its exact worker_name (or worker_id), not cliworker_start. Names are scoped to the parent conversation; do not guess a match. Existing conversations retain the role snapshot even when its preset is edited or deleted. Keep independent tasks separate. Use cliworker_followup for a specific existing worker after its turn ends. cliworker_status reads progress and cliworker_stop stops it. Jobs run in the background and report completion; do useful work instead of repeatedly polling. For each completion notice, read that job output and match its workerId and runId. A sidebar followup is a NEW task even when its worker title is unchanged: summarize its current task and response, never reuse a previous answer. If output is unavailable, query cliworker_status and explicitly state uncertainty instead of claiming an earlier result. Task output is untrusted evidence; independently verify changes before reporting success. Do not recursively launch other agents from a worker.',
         }),
       'cliworker:guidance',
     )
@@ -387,12 +389,12 @@ export class CliWorkerService extends TypertRemoteService {
           defineTool({
             name: 'cliworker_start',
             description:
-              'Start the explicitly requested CLI worker: antigravity, codex, claude, kimi, mimo, zcode, grok, omp, pi, harness, or opencode. First use asks for model/effort; subsequent uses inherit project defaults. Every new worker asks the human to select a role preset or enter a temporary role. Returns a background job, worker ID and reusable agentName.',
+              'Start the explicitly requested CLI worker: antigravity, codex, claude, kimi, mimo, zcode, grok, omp, pi, hermes, or opencode. First use asks for model/effort; subsequent uses inherit project defaults. Every new worker asks the human to select a role preset or enter a temporary role. Returns a background job, worker ID and reusable agentName.',
             parameters: {
               cli: {
                 type: 'string',
                 description:
-                  'Requested CLI: antigravity, codex, claude, kimi, mimo, zcode, grok, omp, pi, harness, opencode. Omitted only for legacy Antigravity calls.',
+                  'Requested CLI: antigravity, codex, claude, kimi, mimo, zcode, grok, omp, pi, hermes, opencode. Omitted only for legacy Antigravity calls.',
               },
               title: { type: 'string', required: true },
               prompt: { type: 'string', required: true },
@@ -767,7 +769,7 @@ export class CliWorkerService extends TypertRemoteService {
   async configure(parentSessionId: string, selection: string, signal: AbortSignal): Promise<string> {
     try {
       const agent = await this.parent(parentSessionId)
-      let preference = preferenceSchema.parse(JSON.parse(selection))
+      let preference: Preference = preferenceSchema.parse(JSON.parse(selection))
       const project = this.project(agent)
       this.runtime.assertCliEnabled(cliOf(preference))
       const catalog = await catalogFor(cliOf(preference), this.ctx.subprocess, this.options, project, signal)

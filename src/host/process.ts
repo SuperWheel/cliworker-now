@@ -24,7 +24,8 @@ export interface RuntimeConfig {
   grokExecutable?: string
   ompExecutable?: string
   piExecutable?: string
-  harnessExecutable?: string
+  hermesExecutable?: string
+  hermesHome?: string
   opencodeExecutable?: string
   zcodeAuthDirectory?: string
   zcodeBuiltinConfig?: string
@@ -67,6 +68,7 @@ export function projectDirectory(input: string): string {
     '.pi',
     '.omp',
     '.dsh',
+    '.hermes',
     '.zcode',
     '.local/share/opencode',
     '.gemini',

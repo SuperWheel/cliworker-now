@@ -1,6 +1,6 @@
 import { extendedCatalog, isExtendedCli } from './extended-adapters.ts'
 import { ZCodeProtocol, managedZCodeEntry } from './zcode-adapter.ts'
-import { HarnessProtocol } from './harness-adapter.ts'
+import { HermesProtocol } from './hermes-adapter.ts'
 import { GrokProtocol } from './grok-adapter.ts'
 import { OpenCodeProtocol } from './opencode-adapter.ts'
 import { BridgeProtocol } from './bridge-protocol.ts'
@@ -27,6 +27,7 @@ export interface Catalog {
   notice: string
 }
 export const executableFor = (cli: CliId, config: RuntimeConfig): string => {
+  if (cli === 'harness') throw new Error('Harness CLI 已移除，请新建 Hermes 任务')
   if (cli === 'antigravity') return config.executable
   const configured = config[`${cli}Executable`]
   if (configured && configured !== cli) return configured
@@ -42,10 +43,6 @@ export const executableFor = (cli: CliId, config: RuntimeConfig): string => {
     )
     if (existsSync(managed)) return managed
   }
-  if (cli === 'harness')
-    return existsSync(join(homedir(), '.local/bin/dsh'))
-      ? join(homedir(), '.local/bin/dsh')
-      : '/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh'
   // Desktop processes do not source .zshrc. Recognize official per-user installers.
   const nativeDirectory = cli === 'kimi' ? '.kimi-code/bin' : cli === 'mimo' ? '.mimocode/bin' : '.local/bin'
   const nativePath = join(homedir(), nativeDirectory, cli)
@@ -318,8 +315,9 @@ export function protocolFor(
   identify: (id: string) => void,
   maxLineBytes: number,
 ) {
+  if (cli === 'harness') throw new Error('Harness CLI 已移除，历史记录仅供查看')
   if (cli === 'zcode') return new ZCodeProtocol(emit, identify, maxLineBytes)
-  if (cli === 'harness') return new HarnessProtocol(emit, identify, maxLineBytes)
+  if (cli === 'hermes') return new HermesProtocol(emit, identify, maxLineBytes)
   if (cli === 'grok') return new GrokProtocol(emit, identify, maxLineBytes)
   if (cli === 'opencode') return new OpenCodeProtocol(emit, identify, maxLineBytes)
   if (cli === 'pi' || cli === 'omp') return new BridgeProtocol(emit, identify, maxLineBytes)

@@ -9,7 +9,7 @@ import mimo from './assets/mimo-code.png'
 import zcode from './assets/zcode.png'
 import omp from './assets/omp.png'
 import pi from './assets/pi.png'
-import harness from './assets/harness.png'
+import hermes from './assets/hermes.png'
 import opencode from './assets/opencode.png'
 import grok from './assets/grok.png'
 import logo from './assets/cliworker-now-logo.png'
@@ -23,7 +23,7 @@ const icons: Partial<Record<CliId, string>> = {
   grok,
   omp,
   pi,
-  harness,
+  hermes,
   opencode,
 }
 
@@ -31,7 +31,7 @@ const optical: Partial<Record<CliId, { scale: number; x: number; y: number; mono
   zcode: { scale: 1.1518, x: -0.5051754385964912, y: 0.22962519936204143, mono: true },
   omp: { scale: 1.2796, x: 0.0, y: 0.0, mono: false },
   pi: { scale: 1.3012, x: -2.023397129186603, y: -1.5045773524720893, mono: false },
-  harness: { scale: 0.9212, x: -0.8448006379585328, y: -2.0569059011164277, mono: true },
+  hermes: { scale: 0.9518, x: -1.8595773524720893, y: -0.15180223285486444, mono: true },
   opencode: { scale: 1.2087, x: -0.048193779904306226, y: 0.0, mono: true },
   grok: { scale: 0.8523, x: -1.1214473684210524, y: 0.7136483253588516, mono: true },
 }
@@ -50,10 +50,15 @@ export function BrandIcon({ cli, size = cli ? 22 : 32 }: { cli?: CliId; size?: n
         <span style={{ fontSize: size * 0.48, fontWeight: 600 }}>
           {
             (
-              { zcode: 'Z', grok: 'G', omp: 'O', pi: 'π', harness: 'H', opencode: 'OC' } as Record<
-                string,
-                string
-              >
+              {
+                zcode: 'Z',
+                grok: 'G',
+                omp: 'O',
+                pi: 'π',
+                hermes: 'H',
+                harness: 'H',
+                opencode: 'OC',
+              } as Record<string, string>
             )[cli]
           }
         </span>

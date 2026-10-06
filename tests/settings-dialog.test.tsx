@@ -782,7 +782,7 @@ it('keeps the same summary region after disabling a CLI while removing the previ
   expect(t.button('登录 / 切换账号').props.disabled).toBe(true)
 })
 
-it.each(['pi', 'omp', 'opencode'] as const)(
+it.each(['pi', 'omp', 'opencode', 'hermes'] as const)(
   '%s opens a terminal login without native settings or redundant notes',
   async (cli) => {
     const actions: AccountStatus['actions'] = [
@@ -802,15 +802,12 @@ it.each(['pi', 'omp', 'opencode'] as const)(
     expect(openNativeSettings).not.toHaveBeenCalled()
   },
 )
-it('keeps unsupported Harness account controls disabled and explains the native limitation', async () => {
-  const t = await setup({
-    accountStatus: vi.fn(async (_parent, cli: CliId) =>
-      status(cli, { actions: [], summary: '此版本未提供终端登录界面' }),
-    ),
-  })
-  await t.click('Harness 设置')
-  expect(t.button('登录设置').props.disabled).toBe(true)
-  expect(t.button('账号终端').props.disabled).toBe(true)
-  expect(t.text()).toContain('此版本未提供终端登录界面')
-  expect(terminal.started).not.toHaveBeenCalled()
+it('offers Hermes instead of the removed Harness account settings', async () => {
+  const t = await setup()
+  expect(t.button('Hermes Agent 设置')).toBeDefined()
+  expect(t.button('Harness 设置')).toBeUndefined()
+  expect(t.button('Harness（已移除） 设置')).toBeUndefined()
+  expect(t.accountStatus.mock.calls.some((call) => call[1] === 'harness')).toBe(false)
+  await t.click('Hermes Agent 设置')
+  expect(t.catalogForCli).toHaveBeenCalledWith('simulation-parent', 'hermes', expect.any(AbortSignal))
 })

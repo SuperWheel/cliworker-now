@@ -5,6 +5,8 @@ import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import {
   active,
   CLI_LABELS,
+  isRetiredCli,
+  RETIRED_HARNESS_NOTICE,
   cliOf,
   workerName,
   foldEvents,
@@ -66,10 +68,12 @@ export class WorkerRuntime {
   }
   assertCliEnabled(cli: CliId): void {
     if (this.disposed) throw new Error('插件正在关闭')
+    if (isRetiredCli(cli)) throw new Error(RETIRED_HARNESS_NOTICE)
     if (!this.storage.cliSettings().enabled[cli])
       throw new Error(`${CLI_LABELS[cli]} 已关闭，请先在 CLI Worker 设置中开启`)
   }
   setCliEnabled(cli: CliId, enabled: boolean) {
+    if (isRetiredCli(cli)) throw new Error(RETIRED_HARNESS_NOTICE)
     if (this.disposed) throw new Error('插件正在关闭')
     if (!enabled) this.assertAccountIdle(cli)
     const settings = this.storage.setCliEnabled(cli, enabled)
@@ -203,6 +207,7 @@ export class WorkerRuntime {
   configureWorker(parent: string, id: string, preference: Preference): Worker {
     if (this.disposed) throw new Error('CLI Worker is shutting down')
     const worker = this.get(parent, id)
+    if (isRetiredCli(cliOf(worker.preference))) throw new Error(RETIRED_HARNESS_NOTICE)
     if (active(worker.status)) throw new Error('请等待本轮结束后再修改模型与强度')
     if (cliOf(worker.preference) !== cliOf(preference)) throw new Error('已有会话不能切换 CLI')
     this.assertCliEnabled(cliOf(preference))
@@ -226,14 +231,14 @@ export class WorkerRuntime {
     if (!prompt.trim() || prompt.length > 100_000) throw new Error('Task must contain 1–100000 characters')
     const canonical = projectDirectory(project)
     const previous = previousId ? this.get(parent, previousId) : undefined
+    const effective = previous?.preference ?? preference
+    this.assertCliEnabled(cliOf(effective))
     if (previous && active(previous.status))
       throw new Error('This CLI conversation already has a running or queued turn')
     if (previous && !previous.conversationId)
       throw new Error('No CLI conversation_id was received; start a new worker')
     if (previous && previous.project !== canonical)
       throw new Error('Cannot resume a worker in another workspace')
-    const effective = previous?.preference ?? preference
-    this.assertCliEnabled(cliOf(effective))
     if (cliOf(effective) === 'kimi' && (previous?.mode ?? mode) === 'plan')
       throw new Error('Kimi 非交互模式不支持只读派遣')
     const now = new Date().toISOString()

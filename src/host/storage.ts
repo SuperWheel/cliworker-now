@@ -25,6 +25,8 @@ import {
   CLI_IDS,
   EFFORTS,
   active,
+  isRetiredCli,
+  RETIRED_HARNESS_NOTICE,
   type CliId,
   type Preference,
   type RolePreset,
@@ -37,7 +39,10 @@ const preferenceSchema = z.object({
   model: z.string().min(1),
   effort: z.enum(EFFORTS),
 })
-const cliSettingsSchema = z.object({ enabled: z.partialRecord(z.enum(CLI_IDS), z.boolean()) })
+// Read old Harness settings without exposing that retired entry as an active CLI.
+const storedCliSchema = z.enum([...CLI_IDS, 'harness'])
+const storedPreferenceSchema = preferenceSchema.extend({ cli: storedCliSchema.optional() })
+const cliSettingsSchema = z.object({ enabled: z.partialRecord(storedCliSchema, z.boolean()) })
 const enabledByDefault = () => Object.fromEntries(CLI_IDS.map((cli) => [cli, true])) as CliSettings['enabled']
 const workerSchema = z.object({
   id: z.uuid(),
@@ -46,7 +51,7 @@ const workerSchema = z.object({
   title: z.string(),
   agentName: agentNameSchema.optional(),
   role: roleSnapshotSchema.optional(),
-  preference: preferenceSchema,
+  preference: storedPreferenceSchema,
   mode: z.enum(['plan', 'accept-edits']),
   conversationId: z.string().optional(),
   status: z.enum(['queued', 'running', 'stopping', 'completed', 'failed', 'interrupted']),
@@ -125,7 +130,9 @@ export class WorkerStorage {
       const settingsPath = join(directory, 'cli-settings.json')
       if (existsSync(settingsPath)) {
         const settings = cliSettingsSchema.parse(JSON.parse(readFileSync(settingsPath, 'utf8')))
-        this.enabled = { ...this.enabled, ...settings.enabled }
+        for (const cli of CLI_IDS) {
+          if (settings.enabled[cli] !== undefined) this.enabled[cli] = settings.enabled[cli]
+        }
         chmodSync(settingsPath, 0o600)
       }
       for (const file of readdirSync(directory).filter((name) => name.endsWith('.worker.json'))) {
@@ -134,7 +141,10 @@ export class WorkerStorage {
         this.workers.set(worker.id, worker)
         if (active(worker.status)) {
           worker.status = 'interrupted'
-          worker.error = '上次 Harness 运行中断；可继续原会话'
+          worker.error =
+            worker.preference.cli === 'harness'
+              ? RETIRED_HARNESS_NOTICE
+              : '上次 Harness 运行中断；可继续原会话'
           this.save(worker)
           this.append(worker, { kind: 'status', text: worker.error, state: 'interrupted' })
         }
@@ -178,6 +188,7 @@ export class WorkerStorage {
     this.presets = next
   }
   setCliEnabled(cli: CliId, enabled: boolean): CliSettings {
+    if (isRetiredCli(cli)) throw new Error(RETIRED_HARNESS_NOTICE)
     const id = z.enum(CLI_IDS).parse(cli)
     const next = { ...this.enabled, [id]: z.boolean().parse(enabled) }
     atomicJSON(join(this.directory, 'cli-settings.json'), { enabled: next })
@@ -190,10 +201,12 @@ export class WorkerStorage {
       .digest('hex')
   }
   preference(project: string, cli: CliId = 'antigravity'): Preference | undefined {
+    if (isRetiredCli(cli)) return undefined
     const path = join(this.directory, `${this.projectKey(project, cli)}.preference.json`)
     return existsSync(path) ? preferenceSchema.parse(JSON.parse(readFileSync(path, 'utf8'))) : undefined
   }
   setPreference(project: string, preference: Preference): void {
+    if (preference.cli && isRetiredCli(preference.cli)) throw new Error(RETIRED_HARNESS_NOTICE)
     atomicJSON(
       join(this.directory, `${this.projectKey(project, preference.cli ?? 'antigravity')}.preference.json`),
       preferenceSchema.parse(preference),

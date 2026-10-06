@@ -237,7 +237,7 @@ v0.3.0 采用用户确认的 B 桌面侧栏方案：父级为按 CLI 分组的�
 - AGY目前没有独立login子命令，登录入口进入其原生TUI并显示手动 `/login` 提示；插件不猜测参数、不自动输入、不保存终端记录。
 
 
-## 多 CLI 扩展：ZCode、Grok、OMP、Pi、Harness、OpenCode
+## 多 CLI 扩展：ZCode、Grok、OMP、Pi、Harness、OpenCode（v0.5.0 历史）
 
 新增六个独立适配器复用 WorkerRuntime 的项目写锁、会话互斥、Host 持久化和原生 Gateway。Pi/OMP RPC 通过长期 stdio bridge 转成插件内部事件；其余保留各自 JSONL 解析器，Harness/Grok 模型发现使用只创建空会话的 ACP bridge。禁止用 MiMo 或 ZCode 的相似字段替代其他 CLI 原生协议。
 
@@ -282,3 +282,14 @@ OMP 原生登录向导的顶部标志与说明占用较多终端行；账号弹�
 - 新增 Gateway RPC：`rolePresets`、`saveRolePreset`、`deleteRolePreset`、`renameWorker`。调用先验证父会话；修改取消后不写入，写盘成功后才发布新状态。预设库 CRUD 与角色选择不启动 CLI 或查询模型。
 - 设置导航增加“智能体预设”：两列名称＋概述卡片，窄屏单列；搜索、新增、编辑、确认删除使用宿主 Input/Button、主题色、圆角与悬停参数，角色正文以纯文本编辑。对话菜单可重命名。总览显示“名称｜模型 · 强度”，详情标题显示“名称｜主题”；标题改为 Cli Worker，NOW 居中并缩小标题区留白。
 - 七份默认角色仅装配可复用提示词；未复制来源技能的工具、共享规范或原小说正文。依赖缺失时提示词要求说明缺口，不声称已完成不存在的脚本或独立审查。
+
+
+## v0.6.0 Hermes Agent 与旧 Harness CLI 退役
+
+活跃 CLI ID 用 `hermes` 代替外部 `harness`，接受自然语言 harmes 别名。宿主 DeepSeek Harness 的 SDK、原生主题、Gateway 和权限机制保持原状。用户 `doc/assets/cli-icons/v3-hermes/hermes.png` 原图进入运行时，按 manifest 缩放与光学居中，暗色反相。
+
+共享协议将活跃 ID 与历史 ID 分离；Storage 兼容旧 Harness 开关、偏好和 worker 文件，但不向设置页暴露旧开关，不迁移到 Hermes。历史行标注已移除，仅支持查看；Host 在新建、续聊、改模型及开启操作前拒绝旧 ID。Hermes 首次独立选型。
+
+Hermes 账号与模型使用原生 home，不注入共享智谱引用。账号终端分别打开 model/auth 原生菜单，状态仅返回安全本地摘要。目录只读取原生明确选择的 provider/model；能力缓存不明确则只提供 default。任务通过原生 stream-json，session_id 独立校验，最终结果结合退出码；工具错误可被后续成功恢复，真实 tokens 进入回复和底栏，不伪造 context。所有进程复用宿主管理与清理机制、macOS 外层写入沙箱。原生 launcher 需要安装锁与运行租约；任务和目录读取仅对白名单日志、会话、数据库、锁与租约授予写入，账号/config/.env/源码保持只读；首次初始化或凭据刷新需通过原生账号终端。详细协议与真实/模拟证据区分见 `doc/hermes-probe.md`。
+
+Hermes 与角色功能共享同一 WorkerRuntime；名称、角色快照与原生 CLI 会话分别持久化，退役 Harness 的保护条件先于执行派遣，不影响现有角色编辑及名称查找。

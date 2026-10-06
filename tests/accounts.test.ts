@@ -108,7 +108,8 @@ function fixture(overrides: Partial<RuntimeConfig> = {}) {
     grokExecutable: '/synthetic/grok',
     ompExecutable: '/synthetic/omp',
     piExecutable: '/synthetic/pi.js',
-    harnessExecutable: '/synthetic/harness',
+    hermesExecutable: '/synthetic/hermes',
+    hermesHome: join(cwd, 'hermes-home'),
     opencodeExecutable: '/synthetic/opencode',
     ...overrides,
   }
@@ -614,11 +615,10 @@ describe('user-operated account terminals (synthetic PTY)', () => {
 describe('extended CLI account capabilities (synthetic credentials and PTYs)', () => {
   it('offers account actions for all six extended CLIs without starting any login process', async () => {
     const f = fixture()
-    for (const cli of ['zcode', 'grok', 'omp', 'pi', 'harness', 'opencode'] as const) {
+    for (const cli of ['zcode', 'grok', 'omp', 'pi', 'hermes', 'opencode'] as const) {
       const account = await f.manager.status(cli, f.cwd, f.signal)
       expect(account.installed).toBe(true)
-      if (cli === 'harness') expect(account.actions).toEqual([])
-      else {
+      {
         expect(account.actions.map((item) => item.id)).toContain('login')
         expect(account.actions.map((item) => item.id)).toContain('manage')
       }
@@ -644,12 +644,10 @@ describe('extended CLI account capabilities (synthetic credentials and PTYs)', (
       expect(f.backend.spawnTerminal).toHaveBeenCalledOnce()
     },
   )
-  it('reports the installed Harness terminal limitation without redirecting to native settings', async () => {
+  it('rejects removed Harness account operations before any process starts', async () => {
     const f = fixture()
-    const account = await f.manager.status('harness', f.cwd, f.signal)
-    expect(account.actions).toEqual([])
-    expect(account.summary).toContain('未提供终端登录')
-    expect(() => f.manager.start('p', 'harness', 'login', f.cwd, f.signal)).toThrow('未提供终端')
+    await expect(f.manager.status('harness', f.cwd, f.signal)).rejects.toThrow('不支持')
+    expect(() => f.manager.start('p', 'harness', 'login', f.cwd, f.signal)).toThrow('不支持')
     expect(f.backend.spawnTerminal).not.toHaveBeenCalled()
   })
   it.each(['pi', 'omp'] as const)('%s login works without Host API credentials', async (cli) => {

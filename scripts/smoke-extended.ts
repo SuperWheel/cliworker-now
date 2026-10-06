@@ -10,16 +10,16 @@ import { resolve, join } from 'node:path'
 import type { Preference, Worker } from '../src/shared/types.ts'
 import type { RuntimeConfig } from '../src/host/process.ts'
 
-const supported = ['pi', 'omp', 'opencode', 'harness', 'zcode'] as const
+const supported = ['pi', 'omp', 'opencode', 'zcode'] as const
 type ExtendedCli = (typeof supported)[number]
 const args = process.argv.slice(2)
 if (args.length === 0 || args.includes('--help')) {
   console.log(`Usage: node --import tsx scripts/smoke-extended.ts --cli <${supported.join('|')}> [--catalog-only]
 Runs the real WorkerRuntime adapter: catalog, exact marker, same-session follow-up, file artifact, persisted replay.
 Only the selected CLI runs. All model selections are GLM-5.3-Flash; low except OpenCode native default.
-Entry overrides: CLIWORKER_PI_ENTRY, CLIWORKER_OMP_ENTRY, CLIWORKER_OPENCODE_ENTRY, CLIWORKER_HARNESS_ENTRY, CLIWORKER_ZCODE_ENTRY.
+Entry overrides: CLIWORKER_PI_ENTRY, CLIWORKER_OMP_ENTRY, CLIWORKER_OPENCODE_ENTRY, CLIWORKER_ZCODE_ENTRY.
 ZCode also needs its already-authorized CLIWORKER_ZCODE_AUTH_BASE and, if necessary, CLIWORKER_ZCODE_BUILTIN_CONFIG.
-Pi/OMP/OpenCode/Harness resolve only Harness's ZAI_CODING_CN_API_KEY reference in memory.
+Pi/OMP/OpenCode resolve only Harness's ZAI_CODING_CN_API_KEY reference in memory.
 Evidence goes to a new private .test-data/extended-smoke/run-* directory.`)
   process.exit(0)
 }
@@ -58,7 +58,6 @@ const selectedModels: Record<ExtendedCli, string> = {
   pi: 'zai-coding-cn/glm-5.3-flash',
   omp: 'cliworker-zai-cn/glm-5.3-flash',
   opencode: 'zhipuai-coding-plan/glm-5.3-flash',
-  harness: JSON.stringify(['zai-coding-cn', 'glm-5.3-flash']),
   zcode: 'account:bigmodel-individual-coding-plan/GLM-5.3-Flash',
 }
 const preference: Preference = {

@@ -1,4 +1,5 @@
 import { closeSync, openSync, readSync, statSync } from 'node:fs'
+import { hermesTokenUsage } from './hermes-adapter.ts'
 import type { CliId, TimelineItem } from '../shared/types.ts'
 import type { Telemetry, TokenUsage } from '../shared/telemetry.ts'
 
@@ -45,6 +46,9 @@ export function extractTelemetry(cli: CliId, records: readonly unknown[]): RunTe
     } else if (cli === 'codex' && v.type === 'turn.completed') {
       // CLI's receipt does not reliably distinguish resumed-thread vs turn counters.
       result.usage = usage(v.usage, 'reported') ?? result.usage
+      result.finalReply = result.usage
+    } else if (cli === 'hermes' && v.type === 'result') {
+      result.usage = hermesTokenUsage(v.tokens) ?? result.usage
       result.finalReply = result.usage
     } else if (cli === 'claude' && v.type === 'result') {
       result.usage = usage(v.usage, 'run', true) ?? result.usage
@@ -121,7 +125,7 @@ export class TelemetryReader {
           else if (v.event === 'result')
             entry.records.push({ event: v.event, result: { usage: obj(v.result).usage } })
           else if (v.type === 'result' || v.type === 'turn.completed')
-            entry.records.push({ type: v.type, usage: v.usage, modelUsage: v.modelUsage })
+            entry.records.push({ type: v.type, usage: v.usage, modelUsage: v.modelUsage, tokens: v.tokens })
           else if (v.type === 'step_finish') entry.records.push({ type: v.type, part: v.part })
           if (v.context_usage) entry.records.push({ context_usage: v.context_usage })
         } catch {

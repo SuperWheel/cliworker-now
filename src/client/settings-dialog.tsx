@@ -12,6 +12,7 @@ import {
 import {
   CLI_IDS,
   CLI_LABELS,
+  isRetiredCli,
   effortLabel,
   type CliId,
   type ModelChoice,
@@ -99,7 +100,7 @@ function OpenSettingsDialog({
   initialCli,
   openNativeSettings,
 }: SettingsDialogProps) {
-  const [cli, setCli] = useState(initialCli)
+  const [cli, setCli] = useState<CliId>(isRetiredCli(initialCli) ? 'hermes' : initialCli)
   const [page, setPage] = useState<'cli' | 'roles'>('cli')
   const [enabled, setEnabled] = useState<Enabled>()
   const [order, setOrder] = useState<readonly CliId[]>(CLI_IDS)
@@ -570,7 +571,7 @@ function CliSettings({
             ? '退出登录'
             : id === 'manage'
               ? '账号终端'
-              : ['omp', 'pi', 'harness', 'opencode'].includes(cli)
+              : ['omp', 'pi', 'hermes', 'opencode'].includes(cli)
                 ? '登录设置'
                 : '登录 / 切换账号'))
     return (
@@ -618,6 +619,8 @@ function CliSettings({
               <Glyph name="tool" />
               账号终端
             </>
+          ) : item?.label === '登录设置' ? (
+            '登录设置'
           ) : account?.data?.state === 'authenticated' ? (
             '切换账号'
           ) : (
