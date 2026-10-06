@@ -284,7 +284,7 @@ export function AccountTerminal({
     }
   }
   return (
-    <section className="cwn-account-terminal">
+    <section className="cwn-account-terminal" data-cli={cli}>
       <style>{accountTerminalCSS}</style>
       <div className="cwn-account-terminal-head">
         <strong>{CLI_LABELS[cli]} 账号终端</strong>

@@ -420,4 +420,6 @@
 - [x] 全套22文件336项测试、Host/Client类型检查通过；隔离构建、正式构建与pack通过，安装包158项、含Pi原生UI入口、无私有运行数据。
 - [x] 隔离Harness页面实际打开Pi原生认证方式菜单，关闭终端后设置仍可操作；Grok显示绿色已登录和账号，六款图标暗色可读。证据 `.test-data/evidence/v052-preview-pi-login.png`、`v052-preview-grok-settings.png`。
 - [x] 更新前Desktop活动worker=0，隔离worker均终态；预览标签与服务已关闭，未提交认证或保存模型偏好。
-- [ ] Desktop最终验收：Mac当前锁定，等待用户解锁后重启加载0.5.2。
+- [x] 解锁后重启Desktop加载0.5.2：ZCode/Grok均实际显示绿色已登录和账号，六款新图标在亮色设置页可见；Pi/OpenCode/OMP均打开原生认证菜单后关闭，未选择提供商、提交凭据、退出账号或发送模型任务。Harness显示本版无终端登录界面，按钮禁用。
+- [x] Desktop验收额外发现OMP原生向导在300px终端中截断提供商列表；仅OMP终端改为520px，小屏由原生弹窗滚动。2文件55项针对性测试、Host/Client类型检查、隔离/正式构建及重新pack通过；Desktop再次重启确认完整提供商列表。此前受限沙箱内误跑全套测试的3个权限失败（sandbox-exec/ps）保留日志，不视为代码回归。
+- [x] Desktop证据：`.test-data/evidence/v052-desktop-zcode-settings.png`、`v052-desktop-pi-login.png`、`v052-desktop-opencode-login.png`、`v052-desktop-omp-login-final.png`。账号临时目录已清理；正式包 `artifacts/dsh-cliworker-now-0.5.2.tgz` 已更新。
