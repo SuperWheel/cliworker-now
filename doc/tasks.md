@@ -459,4 +459,6 @@
 - [x] 主工作区 31 文件、389 项测试通过，含实际 macOS 沙箱/进程清理测试；组合版本 `build:preview` 与生成合同后的 Host/Client 类型检查通过。未执行模型任务、登录或退出账号。
 - [x] 隔离 UI 同时显示 Hermes 设置、新图标与七个智能体预设；旧 Harness 无可选入口。当前 Hermes 尚未明确选择原生服务商/模型，按设计提示先完成登录设置，不伪造目录。
 - [x] 组合安装包为 `artifacts/dsh-cliworker-now-0.6.0.tgz`，与先前仅 Hermes 的隔离包分开；保留现有 Desktop 构建备份 `.cache/desktop-before-hermes-060`。
-- [ ] Desktop 生效验收：更新前活动 worker=0、账号终端=0，但完整退出 Desktop 被自动审批拦截（此前暂不更新 Desktop 的约束被视为仍有效，并提示未保存状态风险）。本轮未运行主目录 build 或替换 Desktop 的 lib；等待用户明确允许退出并重启。
+- [x] 用户明确回复“开始吧”允许退出并重启后，完成主目录正式 build 与 Host/Client typecheck，完整退出并重新打开 Desktop，加载组合版本 0.6.0。更新前活动 worker=0、账号终端=0。
+- [x] 本机 Desktop 设置显示 Hermes Agent 新图标与入口，旧外部 Harness 无可选入口；点击“登录设置”实际打开 Hermes 原生服务商选择菜单，关闭后无账号进程残留，account-runtime 为空。未选择服务商、提交凭据或发送模型请求；仍需用户明确选择原生服务商与模型后使用。
+- [x] 本机七个智能体预设与原有会话完整保留；更新前后 worker、CLI 开关、项目偏好与角色库四份持久化文件 SHA256 均一致。证据 `.test-data/evidence/hermes-desktop-060-login.png`、`hermes-desktop-060-roles.png`；构建及类型检查日志 `.test-data/hermes-desktop-final-build.log`、`hermes-desktop-final-typecheck.log`。
