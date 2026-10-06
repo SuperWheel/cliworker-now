@@ -1,270 +1,277 @@
+<div align="center">
+
 # CLI Worker Now
 
-DeepSeek Harness 的多 CLI 实时侧栏插件，支持 Antigravity、Codex、Claude Code、Kimi、小米官方 MiMo Code，以及 ZCode、Grok Build、OMP、Pi、Hermes Agent 和 OpenCode。模型先由你选择，之后按项目与 CLI 分别沿用；每个子 Agent 都有独立记录，支持停止与结束后续聊。
+**在 DeepSeek Harness 里，给不同 CLI 一个共同的协作空间。**
 
-兼容基线：macOS、Harness **0.2.0-rc.2**、Antigravity CLI **1.2.16**、Node ≥22.19。
+选择 CLI、模型和角色，派出有名字的智能体；在侧栏查看过程、接收结果，并继续同一个任务。
 
-## v0.6.5 界面细节
+[![Release](https://img.shields.io/github/v/release/SuperWheel/cliworker-now?color=4176e6)](https://github.com/SuperWheel/cliworker-now/releases/latest)
+[![Harness](https://img.shields.io/badge/DeepSeek_Harness-0.2.0--rc.2-555)](https://github.com/deepseek-ai/deepseek-harness)
+[![Platform](https://img.shields.io/badge/平台-macOS-555)](#4-环境与-cli-支持)
+[![License](https://img.shields.io/badge/License-MIT-555)](LICENSE)
 
-- 标题显示 `CLI Worker`，直接继承 Harness 默认界面字体，Logo 与标题间距收紧为 6px；正式定稿原图的同一透明轮廓随主题切换黑白颜色，NOW 标识高度为 18px；设置图标垂直居中，模型与强度紧邻显示。
-- CLI 卡片使用与页面一致的底色（浅色为白色），搭配原生柔和阴影，深色额外加强底部投影；收起和展开沿用宿主动效时长与缓动，箭头同步旋转；系统开启减弱动态效果时禁用动效，折叠内容不可聚焦或点击。
-- 设置中的普通按钮和单行输入框统一为原生 MD 按钮的 36px 高度；智能体设置与 CLI 连接同级，CLI 列表支持平滑折叠。
-- 返回、取消保留原生浅描边；删除预设使用红底白字，仍需确认后才删除。
+[下载安装包](https://github.com/SuperWheel/cliworker-now/releases/latest) · [安装方法](#5-安装与更新) · [开始使用](#6-使用方法) · [反馈问题](https://github.com/SuperWheel/cliworker-now/issues)
 
-## 智能体预设与命名
+</div>
 
-- 新建子智能体时，在模型和思考强度之后选择角色预设；已有项目模型默认值仍会沿用，但每个新智能体都会单独询问角色。选择“其他”可直接写临时提示词，选择“不使用角色预设”只执行任务本身。未回答或取消不会启动任务。
-- 默认装配 **商业审稿人、逻辑审校员、文风审校员、正文修订师、剧情节点设计师、剧情结构规划师、小说主笔**。来源与保留边界见 [默认小说智能体](doc/role-presets.md)。它们是可编辑的提示词，不会复制原小说项目、安装技能依赖或自动派遣其他 CLI。
-- 点击设置中的“智能体设置”，以名称和概述卡片管理角色，可新增、编辑、删除。预设库属于当前 Harness profile，在各 CLI 间共用；每个 worker 保留创建时的独立角色副本，后续编辑或删除预设不会改变已有对话。临时提示词不自动保存进预设库。
-- 每个 worker 自动得到唯一名称，也可在派遣时指定名称，或在对话菜单中重命名。例如：“让逻辑审校员-1 继续检查下一章。”主 Agent 可通过 `worker_name` 找到同一主会话中的 worker 并续聊；不会模糊匹配或跨主会话复用。重命名只改变调用名称，保留角色、模型与 CLI 会话。
-- 总览第二行显示“智能体名称｜模型 · 强度”，对话页标题显示“智能体名称｜主题”。旧记录显示稳定的临时名称，无需改写旧会话即可查看或重命名。
+**阅读导航**
 
-新增六个 CLI 保留独立原生协议，复用项目偏好、两层任务树、停止与续聊。设置页已接入其账号管理：支持原生终端的 CLI 可在插件内打开账号终端，使用 Harness 凭据引用的 API 路由保留既有显式来源。Grok 的真实模型任务/订阅可用性仍未验收；模型目录或本地凭据存在不代表远端账号可用。
+[1. 项目定位](#1-项目是什么) · [2. 特点与优势](#2-特点与优势) · [3. 界面效果](#3-功能与界面效果) · [4. 支持范围](#4-环境与-cli-支持) · [5. 安装更新](#5-安装与更新) · [6. 使用方法](#6-使用方法) · [7. 常见问题](#7-权限数据与常见问题) · [8. 开发验证](#8-开发与验证) · [9. 文档与反馈](#9-文档反馈与许可)
 
-新增适配器首版范围：
+## 1. 项目是什么
 
-| CLI | 目录与执行 | 权限与边界 |
+CLI Worker Now 是 **DeepSeek Harness 的独立多 CLI 智能体插件**。它把分散在终端中的外部 AI CLI，接入 Harness 的主对话和右侧栏：主对话负责派遣与接收结果，侧栏负责展示各个智能体的任务、对话和状态。
+
+适合已经使用多个 AI CLI，希望集中管理任务、反复调用同一位助手的人。你仍然使用各 CLI 自己的账号、模型与原生会话，插件负责把这些工作组织起来。
+
+- **开发协作**：指定 Codex 审查代码，再按同一个智能体名称继续追问。
+- **小说创作与审校**：为逻辑、文风、商业审稿和正文修订配置不同角色。
+- **长任务跟进**：保留独立对话和执行记录，任务结束后继续，不必重新描述全部背景。
+
+> 插件依赖 DeepSeek Harness 和相应 CLI；不附带模型服务、订阅或 API 额度。CLI 的模型请求由各自服务商处理。
+
+## 2. 特点与优势
+
+| 特点 | 如何实现 | 带来的价值 |
 | --- | --- | --- |
-| ZCode 0.16.9 | 配套本机内置目录中的 GLM-5.3-Flash；原生 headless 与 session ID | plan/edit 显式设置，交互权限请求拒绝；独立原生授权目录 |
-| Grok Build 1.0.0 | ACP 动态目录；headless 适配仅离线验证 | 外层只读/项目写入沙箱；未做真实模型测试 |
-| OMP 16.4.4 | RPC，已验收智谱 Coding CN GLM-5.3-Flash | 显式 write 审批、禁模型回退；首版读取/搜索/编辑工具 |
-| Pi 1.0.2 | RPC，原生 zai-coding-cn/GLM-5.3-Flash | 等待 agent_settled；首版读取/搜索/编辑工具 |
-| Hermes Agent v0.21.5+7527.g4787e4d | 原生当前服务商/模型，stream-json、session_id 续聊 | macOS Seatbelt；terminal/file 工具；仅已核验的原生强度，其余沿用默认 |
-| OpenCode 1.18.21 | 原生 models 与 run JSONL；智谱 GLM-5.3-Flash 已实测 | build/plan、额外权限默认拒绝；免费 MiMo 返回403，未绕过限制 |
+| **一个入口，多种 CLI** | 在主对话点名 CLI，在同一侧栏按 CLI 分组查看任务 | 减少在多个终端之间查找任务和结果的切换 |
+| **保留原生能力** | 不同 CLI 使用各自的参数、登录与会话协议，模型目录按实际能力读取 | 可以继续使用熟悉的 CLI 生态；模型和强度不会被硬套成一套规则 |
+| **智能体有名字、有角色** | 唯一名称、角色预设、自定义提示词，以及按名称续聊 | 同一位审校员或开发助手可以反复调用，职责更清楚 |
+| **过程与结果放在一起** | 独立对话、公开工具事件、任务状态，以及 CLI 实际提供的用量 | 能看到任务走到哪一步，出错后有记录可查 |
+| **明确选择，可控调度** | 首次选型、每个 CLI 独立开关、停止操作；同会话互斥、同目录写任务串行 | 任务按明确的选择执行；失败时不会悄悄换用另一个 CLI |
+| **融入 Harness 工作流** | 复用宿主的侧栏、问题卡片、主题与控件，完成结果回到主对话 | 派遣、查看、继续和收尾都在熟悉的界面中完成 |
 
-新增适配器当前要求 macOS Seatbelt；规划模式允许私有运行状态与按 CLI 限定的原生运行状态写入，执行模式额外允许当前项目。Pi/OMP 首版不开放 Bash 或子代理。缺失终态不视为成功，即使 CLI 退出 0；Hermes 允许模型从工具错误恢复，按最终结果与进程退出状态判断整轮结果。
+这些优势侧重于**任务组织、上下文延续和操作体验**。插件不承诺提升模型本身的准确率，也不把不同 CLI 的权限能力视为完全相同。
 
-ZCode 显式禁用原生子代理、Skill、工作流调度、跨会话工具及 node_repl；原生 CLI 仍会加载用户的全局插件/MCP 配置，已获原生规则允许的 MCP 工具可能执行。无头模式只拒绝需要交互的审批请求，不能等同于关闭全部 MCP。插件不改写用户全局或项目配置。
+## 3. 功能与界面效果
 
-可通过插件配置设置 `zcodeExecutable`、`grokExecutable`、`ompExecutable`、`piExecutable`、`hermesExecutable`、`opencodeExecutable`。ZCode 的 `zcodeAuthDirectory` 可指定独立授权目录，默认在插件私有状态的 `accounts/zcode` 下，由设置页原生登录流程管理；`zcodeBuiltinConfig` 可指向配套内置目录文件。账号目录在任务中只读，需刷新授权时通过账号终端完成。Pi 使用官方包 `@earendil-works/pi-coding-agent`，不依赖临时安装目录；本机已固定在私有 `~/.local/share/cliworker-now/runtimes/pi-1.0.2`。
+以下效果图均直接拍摄于 **DeepSeek Harness Desktop 0.2.0-rc.2 + CLI Worker Now v0.6.5**。为公开展示新建了独立演示会话，使用 Antigravity 的 `gemini-3.8-flash / low` 真实执行一条欢迎语任务；不使用私人历史对话，设置截图避开邮箱、账号标识和密钥。截图中的时间、状态和用量为本次演示的实际显示，不作为性能基准。
 
-若明确要复用 Harness 智谱凭据，设置 `zaiCredentialRef: ZAI_CODING_CN_API_KEY`。Host 每次通过原生 credentials 服务解析该引用，只向选定的 Pi/OMP/OpenCode 子进程注入对应环境变量；不把密钥存入插件偏好、argv 或页面。不会自动复用其他 CLI 的账号；OpenCode 未设置引用时使用下述插件私有原生账号目录。OMP 的 `cliworker-zai-cn` 是插件注册的隔离 Provider，不冒充原生内置 Provider。
+### 3.1 任务总览与独立对话
 
-验证说明：[ZCode](doc/zcode-probe.md)、[Grok](doc/grok-probe.md)、[Pi/OMP](doc/pi-omp-probe.md)、[Hermes](doc/hermes-probe.md)、[OpenCode](doc/opencode-probe.md)。`node --import tsx scripts/smoke-extended.ts --help` 查看真实适配器验收入口；`--catalog-only` 不发送模型任务。
+按 CLI 分组查看智能体，筛选进行中、已完成和异常任务。进入某个智能体后，可以查看独立对话、公开执行记录和用量，在本轮结束后继续交流。
 
-## v0.6.0 Hermes Agent 替换外部 Harness CLI
+![Harness 主对话与 CLI Worker 任务总览：真实欢迎语演示](doc/assets/readme/overview.jpg)
 
-本版已与智能体预设、唯一名称及按名称续聊功能合并，保留 v0.5.3 的全部角色能力。
+点击右侧任务卡片，进入这位智能体的独立对话。主对话和子对话各自保留记录。
 
-- 用户提供的 `v3-hermes` 图标用于设置、任务卡片与对话入口；`harmes` 派遣说法对应 Hermes Agent，命令与内部 ID 为 `hermes`。
-- 外部 Harness 不再出现在可选 CLI、账号操作和派遣工具中。DeepSeek Harness 宿主不受影响；旧 Harness 任务仍可查看，不能继续运行，旧默认值不继承到 Hermes。
-- Hermes 使用 `hermesExecutable` 和可选 `hermesHome`（默认 `HERMES_HOME` 或 `~/.hermes`）。不继承 Harness 智谱 API 凭据；首次先在“登录设置”选择服务商和模型，再刷新目录。
-- 目录仅展示 Hermes 原生当前选择的模型；模型 ID 包含服务商。已确认的新鲜能力缓存提供强度，其余仅“沿用 CLI 配置”，不推测模型列表或上下文容量。
-- 任务使用 `chat --format stream-json`；真实文本、工具、用量与最终状态进入独立记录，续聊使用 `--resume`。工具仅开放原生 `terminal,file`；插件/预加载规则禁用，原生已信任 hooks 仍受外层文件写入沙箱约束。
-- 原生账号菜单、模型查询和沙箱启动已验证；未选择模型或发送真实任务。完整模型运行、续聊与工具任务的真实验收待用户选型授权。
+![Harness 中的独立子智能体对话与用量](doc/assets/readme/conversation.jpg)
 
-## v0.5.1 新增六个 CLI 的账号管理
+### 3.2 角色预设与自定义提示词
 
-| CLI | 设置页入口与实际账号来源 |
+设置页以“名称 + 概述”的卡片管理角色。内置七种小说创作角色，也可新增适用于开发、研究或其他任务的角色。每个智能体保留创建时的角色副本，修改预设不会改变已有对话。
+
+![Harness 原生弹窗中的智能体角色预设管理](doc/assets/readme/role-presets.jpg)
+
+### 3.3 CLI 连接、账号与模型偏好
+
+每个 CLI 可以单独开启或关闭，分别管理账号、项目默认模型与思考强度。支持的 CLI 可直接打开原生账号终端；登录状态与账号来源按各 CLI 的实际能力显示。
+
+![Harness 中的 CLI 连接设置：选取无个人账号标识的 OMP 页面](doc/assets/readme/cli-settings.jpg)
+
+### 3.4 亮暗主题与交互
+
+跟随 Harness 的亮暗主题，保留卡片展开收起、按钮悬停、原生菜单和固定高度设置弹窗；系统启用“减少动态效果”时相应停用动画。
+
+
+## 4. 环境与 CLI 支持
+
+### 4.1 环境要求
+
+| 项目 | 要求 |
 | --- | --- |
-| ZCode | 支持原生登录、退出和 TUI；账号保存在独立 `accounts/zcode` 目录，与 ZCode worker 共用。 |
-| Grok Build | 支持原生登录、退出和账号终端；沿用本机 Grok 账号，退出会影响其他使用同一账号的终端。 |
-| OMP、Pi | “登录设置”直接在终端打开原生提供商登录界面；OMP 使用 `setup`，Pi 1.0.2 使用其原生登录 UI。无需先配置 API 或拥有订阅。账号保存在插件私有目录，关闭窗口后保留。 |
-| Hermes Agent | “登录设置”打开原生 `hermes model` 服务商/登录/模型向导；“账号终端”打开 `hermes auth`。沿用本机 `~/.hermes`，无统一退出按钮。 |
-| OpenCode | “登录设置”使用原生 `auth login` 提供商选择器，登录状态保存在私有共享原生账号目录。 |
+| 操作系统 | 当前验证基线为 **macOS**；部分适配器依赖 macOS Seatbelt |
+| 宿主 | **DeepSeek Harness 0.2.0-rc.2** |
+| Node.js | **≥ 22.19.0** |
+| 外部 CLI | 按需安装，无需把全部 CLI 都装上；准备好对应账号或 API 权限 |
+| 源码开发 | pnpm **11.25.0**，以仓库锁文件为准 |
 
-ZCode 和 Grok 的绿色“已登录”与账号名称来自本地原生登录记录，不代表远程订阅验证。ZCode 0.16.9 的 AES-GCM 记录只在 Host 内解析；Grok 读取原生 OIDC 会话。凭据、令牌和未筛选的账号数据不会传到侧栏。
+### 4.2 支持范围与验证边界
 
-登录设置不会自动改变已有任务的模型或凭据来源。Pi/OMP 和配置了 `zaiCredentialRef` 的 OpenCode 任务仍按原先显式选择的智谱 API 路由执行；终端里的 OAuth 登录不自动替代该路由。OpenCode 的“账号终端”仍沿用任务的显式来源，而“登录设置”管理原生提供商凭据。
+“已接入”表示有对应适配器，并不等于所有模型、套餐或平台都已实测。下表是截至 v0.6.5 的项目验证记录。
 
-OpenCode 无引用模式的原生凭据位于 `<stateDirectory>/accounts/opencode/data/opencode/auth.json`，登录终端、worker 和模型目录共用这份账号；各自运行数据库、配置和缓存独立。原生 OAuth 刷新允许写入该共享账号目录，规划模式仍禁止写项目。关闭账号终端后删除该终端的临时运行目录，保留共享凭据和 worker 历史。
+| CLI | 已核验版本 | 当前验证范围 |
+| --- | --- | --- |
+| Antigravity | 1.2.16 | 首轮、续聊与停止已有真实验收 |
+| Codex | 0.160.0 | 真实首轮与同会话续聊通过 |
+| Claude Code | 2.1.176 | 真实首轮与续聊通过；测试环境的 `sonnet` 映射到 GLM |
+| Kimi Code | 0.42.0 | 协议回归通过；真实请求被订阅权限 403 阻止 |
+| 官方 MiMo Code | 0.1.15 | 真实首轮与续聊通过 |
+| ZCode | 0.16.9 | 原生登录、headless 与会话协议已接入；详见专项记录 |
+| Grok Build | 1.0.0 | 登录记录读取与协议接入；真实模型任务及订阅可用性未验收 |
+| OMP | 16.4.4 | RPC 接入；智谱 Coding CN GLM-5.3-Flash 已实测 |
+| Pi | 1.0.2 | 原生 RPC 接入；智谱 Coding CN GLM-5.3-Flash 已实测 |
+| Hermes Agent | v0.21.5+7527.g4787e4d | 原生账号向导、模型查询和沙箱启动已验证；真实模型运行与续聊未验收 |
+| OpenCode | 1.18.21 | 原生目录与 JSONL 接入；智谱模型已实测，免费 MiMo 请求曾返回 403 |
 
-未显式指定 `zcodeExecutable` 时，优先使用已安装的完整 CLI：`~/.local/share/cliworker-now/runtimes/zcode/cli/zcode.cjs`；不存在时回落到 `/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs`。插件会检查实际 `--help` 能力；若回落版本不支持 `login [zai|bigmodel]`，设置页会明确提示配置完整 CLI，不尝试不存在的登录命令。
+MiMo 指 [XiaomiMiMo/MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code)。Hermes Agent 替代的是旧的外部 Harness CLI 入口，**DeepSeek Harness 宿主仍是插件的运行基础**。
 
-账号状态仅投影允许展示的摘要。`已配置` / `verification=local` 表示本地文件或凭据引用存在，不代表已通过远程登录、套餐或额度验证；不展示密钥、令牌或原始错误。账号终端由用户直接操作，与该 CLI 的活动任务互斥，关闭、取消或切换 CLI 会清理受管理的进程。
+专项记录：[ZCode](doc/zcode-probe.md) · [Grok](doc/grok-probe.md) · [Pi / OMP](doc/pi-omp-probe.md) · [Hermes](doc/hermes-probe.md) · [OpenCode](doc/opencode-probe.md)
 
-## v0.4.0 设置与账号管理
+## 5. 安装与更新
 
-- 标题栏入口是 Finder 左侧的 24px Logo 小按钮；侧栏标题下取消分隔线。
-- 设置使用 Harness 原生 Modal，按 CLI 管理账号和项目默认模型。模型、账号状态和保存分别加载，显示原生转圈提示；关闭与切 CLI 不被查询锁住。
-- 登录、切换账号、退出通过独立弹窗中的 CLI 原生账号终端操作。插件只显示安全的认证摘要与账号标识，不向页面传输或另存密钥；Antigravity 的账号标识从本地登录元数据投影，终端输出仅保留于有界内存。Antigravity 与 Kimi 的部分操作需要按提示手动输入原生斜杠命令。
-- 关闭设置或断开终端连接会清理账号进程；同一个 CLI 的任务与账号操作互斥。仅有配置但没有登录证据时显示未知或已配置；本地保存的登录会话明确注明未进行远程验证。
+### 5.1 从 Release 安装（推荐）
 
-## v0.3.2 对话与输入框原生体验
-
-- 主会话 CLI 入口采用浅色扁平按钮，设置/发送/复制使用 Harness 原生图标；搜索框高 38px，输入聚焦不出现蓝色描边。
-- 用户消息与回复的时间、复制操作移到消息下方；Agent 回复使用原生安全 Markdown 渲染。原始复制文本保持不变。
-- 续聊框沿用原生 composer 的尺寸、圆角、底栏和蓝色圆形发送按钮；取消手动拖高，内容自动增高至上限后内部滚动。
-- 点击模型与强度打开原生菜单，两项入口分别选择模型和思考强度。本轮结束后可修改当前会话模型/强度，下一轮续聊使用新配置并保留会话 ID。
-- 输入框下方显示真实任务状态、Token 用量和上下文占用；CLI 未提供的数值不仿造。
-
-## v0.3.1 原生样式同步
-
-- 搜索框直接使用 Harness `Input`，筛选按钮使用标准尺寸 `Button`（当前高 36px），由宿主组件维护字体、描边和交互状态。
-- 自定义页面文字引用宿主字号变量；对话正文和续聊框跟随 Harness 的“字号大小”设置。卡片、返回按钮和菜单引用主题圆角、描边与阴影，不另设亮暗颜色。
-- 任务标题与元数据统一靠卡片左侧 12px 对齐，CLI 分组标题与任务列表之间增加细分隔线。
-- 续聊框复用主对话的输入背景、圆角与阴影参数，发送仍通过 Worker API，避免绑定到主 Agent 会话。
-
-## v0.3.0 桌面侧栏设计
-
-- 父级总览按 CLI 分组为可折叠圆角卡片；话题后紧跟状态圆点与文字，下方显示模型和强度值。
-- 点击任务进入独立对话页；左上角圆角返回按钮回到列表，保留筛选、列表位置和未提交草稿。
-- 对话页标题下不再显示模型/强度标签；用户消息居右、Agent 回复居左，底部为桌面式续聊框。模型显示在输入框底部，停止按钮在运行时替换发送按钮。
-- 使用提供的项目 Logo 与五类 CLI 透明图标，Kimi 图标随 Harness 亮暗主题切换；颜色继承宿主主题。
-- “任务选项”（标题右侧省略号）保留复制最新结果、默认设置和 CLI 实际模型信息。
-
-## v0.2.0 多 CLI
-
-| CLI | 核验版本 | 模型与强度 | 当前验收状态 |
-| --- | --- | --- | --- |
-| Antigravity | 1.2.16 | 动态目录合并模型，强度仅为已存在的变体 | 原功能保留与回归通过 |
-| Codex | 0.160.0 | 本机模型缓存及各模型 reasoning levels | 真实首轮和续聊通过 |
-| Claude Code | 2.1.176 | sonnet / opus 别名，CLI 支持的 effort | 真实首轮和续聊通过；本机 sonnet 映射到 GLM |
-| Kimi Code | 0.42.0 | 本机配置模型；强度沿用 CLI 配置 | 协议回归通过；真实请求被订阅权限 403 阻止 |
-| 官方 MiMo Code | 0.1.15 | models --verbose 与模型 variants | 真实首轮和续聊通过 |
-
-主对话可明确点名：`用 Codex 帮我检查测试`、`用 Claude Code 修改这个组件`、`用 Kimi 帮我整理代码`、`用 MiMo 帮我检查项目`。主 Agent 通过同一个 `cliworker_start` 工具的 `cli` 参数选择执行器。CLI 缺失或失败时不会自动换成其他 CLI。
-
-侧栏“默认设置”增加 CLI 选择；每个项目为不同 CLI 单独保存偏好。强度选项随 CLI 和模型变化，Kimi 明确显示“沿用 CLI 配置”。总览按 CLI 名称分组；Claude 报告的实际模型与选择别名不同时，在子级“任务选项”和底部模型提示中展示实际模型。
-
-各 CLI 需先安装；可在插件设置中登录或继续使用独立终端登录。Desktop 不读取 `.zshrc`，插件会识别 Codex/Claude 的 `~/.local/bin`、Kimi 的 `~/.kimi-code/bin`、MiMo 的 `~/.mimocode/bin`，也可配置对应可执行文件的绝对路径。MiMo 仅适配 [XiaomiMiMo/MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code)，不是同名社区 CLI。
-
-权限按各 CLI 的原生能力处理：Codex 使用 workspace-write/read-only 且不自动批准提权；Claude 使用 acceptEdits/plan，拒绝授权会显示失败；MiMo 使用 build/plan，保留权限检查；Kimi 的非交互模式原生自动执行，不能附加 plan 或 effort 参数，因此只读派遣会明确拒绝。其他 CLI 的行为不等同于 Antigravity 沙箱。
-
-## v0.1.2 历史与任务查找
-
-- 超出实时显示上限后，点击“查看更早记录”翻阅历史；每页最多 200 条，支持前后翻页和“返回实时”。历史页保持静止，后台任务照常运行。
-- 任务树可按标题、模型、强度和状态筛选；筛选不会自动切换、停止任务或清空草稿。
-- “复制回复”复制那条消息；“复制最新结果”复制该子 Agent 最新一轮完成结果，保留原始文本。复制失败会提示手动选择文本。
-- 任务列表按创建时间保持稳定顺序，重启后不会因磁盘文件顺序改变排列。
-
-## v0.1.1 体验更新
-
-- 切换子 Agent 保留各自未发送的草稿（仅当前面板内存，关闭面板或刷新后不保留）。
-- 连接失败保留已收到的记录，点击“重新连接”恢复订阅，不会重新执行任务。
-- 向上查看历史时不强制滚动，可点击“回到最新消息”。
-- 中断原因持续可见；未建立 CLI 会话时明确提示重新派遣。工具缺少最终状态时显示“本轮已结束/中断”，不伪造工具成功。
-
-## 本地构建
+1. 安装并打开一次 **DeepSeek Harness 0.2.0-rc.2**，初始化 Desktop profile；准备好要使用的 CLI。
+2. 前往 [v0.6.5 发布页](https://github.com/SuperWheel/cliworker-now/releases/tag/v0.6.5)，下载 `dsh-cliworker-now-0.6.5.tgz` 和 `SHA256SUMS.txt`。
+3. 结束活动任务并完整退出 Harness。若文件保存在“下载”目录，执行：
 
 ```sh
-pnpm install --frozen-lockfile
-pnpm build
-pnpm typecheck
-pnpm test
+cd "$HOME/Downloads"
+shasum -a 256 -c SHA256SUMS.txt
+
+DSH='/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh'
+"$DSH" plugin --profile desktop add \
+  "$HOME/Downloads/dsh-cliworker-now-0.6.5.tgz"
 ```
 
-开发中可先运行 `pnpm build:preview`，将 `.cache/preview-package` 安装到隔离 profile 验收；这不会替换 Desktop 链接的 `lib`。确认无运行中的任务后，再运行正式构建更新本机版本。
+4. 重新打开 Harness，在插件页确认 `dsh-cliworker-now` 已启用；必要时点击“刷新”。
+5. 在主会话标题栏点击 Finder 左侧的 **CLI Worker Logo**，或在右侧栏新标签页选择 **CLI Worker**。
 
-构建自动生成原生 Typert RPC 和浏览器 bundle，不需要 Harness 源码仓库。依赖版本与锁文件随仓库保存。
+安装命令由 Harness 转交包管理器处理本地 `.tgz`，无需手动解压；首次安装可能需要联网下载依赖。如果 Harness 不在默认应用目录，请把 `DSH` 改成实际路径。
 
-## 安装到 Desktop
-
-先确保准备使用的 CLI 已安装且认证可用；Antigravity 可用 `agy models` 检查。源码目录必须保持原位：本地安装会链接此目录。
+### 5.2 从源码安装
 
 ```sh
+git clone https://github.com/SuperWheel/cliworker-now.git
+cd cliworker-now
+pnpm install --frozen-lockfile
+pnpm --config.verify-deps-before-run=false build
+
 DSH='/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh'
 "$DSH" plugin --profile desktop add "$PWD"
 ```
 
-安装后可在插件页点击“刷新”，确认 `dsh-cliworker-now` 显示已启用、组件运行中。
+从源码目录安装会建立本地目录链接，因此源码目录需要保留；执行安装前应结束活动任务并完整退出 Harness。该插件通过 Harness 插件机制安装，**不是独立桌面应用，也无需修改 Harness 核心源码**。
 
-回到 Harness，在主会话标题栏点击 Finder 左侧的 **项目 Logo** 小按钮，或右侧栏新标签页选择 **CLI Worker**。如已打开的窗口未载入插件，重新载入该窗口。
+### 5.3 更新与卸载
 
-## 使用
+更新前结束正在运行的 CLI Worker 任务和账号终端。下载新版本安装包，完整退出 Harness 后按上面的安装命令安装，再重新打开 Harness。源码安装则在保留的源码目录中更新依赖和构建。仅刷新插件列表不足以重新加载 Host 接口。
 
-在已选项目的主对话中输入：
-
-> 用 Antigravity 帮我检查这个项目的测试失败原因。
-
-主 Agent 根据工具描述与系统提示规则调用 `cliworker_start`。首次出现 Harness 原生问题卡片，先选择该 CLI 模型，再选择模型支持的思考强度，确认后才会启动任务。取消不会启动任务。模型强度仅来自 CLI 实际目录或已公开能力，不提供推测等级。
-
-- **默认设置**：按项目路径与 CLI 保存，影响之后新建的相同 CLI 子 Agent。
-- **子 Agent 总览**：当前主对话下所有直接子 Agent，按 CLI 分组；点击进入对话，用左上角箭头返回。
-- **工具记录**：点击展开参数、输出摘要或错误。显示 CLI 实际公开的事件，不展示不存在的内部推理。
-- **停止**：等待进程及受管理子进程退出后显示中断。
-- **继续**：本轮结束后输入下一项任务，使用当前已保存的模型、强度并沿用原 `conversation_id`。
-- 关闭侧栏不会停止后台任务。完成结果通过 Harness Jobs 返回父 Agent。
-
-四个主 Agent 工具：`cliworker_start`、`cliworker_status`、`cliworker_followup`、`cliworker_stop`。自然语言识别由主 Agent 完成；插件不拦截任意 shell 调用，也不接管外部启动的 CLI。
-
-## 边界与数据
-
-默认两个并发，同一目录有写任务时串行，同一 CLI 会话始终单轮互斥。仅两层任务树，不支持孙 Agent 或运行中插话。
-
-Harness 规划模式或只读权限下拒绝启动；在允许执行的会话中，`read_only` 工具参数使用支持该能力的 CLI 的原生只读/plan 模式，Kimi 会拒绝此参数。Antigravity 原生沙箱与自动执行参数沿用参考 skill 的行为，它不等同于 Harness 的完整进程沙箱。
-
-私有状态默认在 `$DSH_HOME/cliworker-now`（通常 `~/.dsh/cliworker-now`），目录 0700，文件 0600。包括项目默认值、任务索引、顺序事件和各轮原始 stdout/stderr；日志可能含项目内容，不应提交到 Git。实时界面默认展示最近 1000 条逻辑记录，较早记录可按页翻阅；原始数据保留在本机。宿主重启后，遗留运行标记为中断；不会自动重跑。相同状态目录不允许两个宿主同时拥有。
-
-可通过配置覆盖 `executable`（Antigravity）、`codexExecutable`、`claudeExecutable`、`kimiExecutable`、`mimoExecutable`、`stateDirectory`、`maxConcurrent`、`timeoutMs`、`graceMs`、`maxLineBytes`、`maxRunBytes`、`maxTimelineItems`。默认单轮 30 分钟、16 MiB 输出；超过限制终止并明确报错。
-
-## 卸载
+卸载命令：
 
 ```sh
 DSH='/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh'
 "$DSH" plugin --profile desktop remove dsh-cliworker-now
 ```
 
-卸载会移除插件层，保留历史状态；需要清理时可在确认不再使用后自行删除私有状态目录。
+卸载保留本机历史状态，不会自动删除会话与账号数据。
 
-## 验收与开发
+## 6. 使用方法
 
-- [设计说明](doc/design.md)
-- [任务与实际验证记录](doc/tasks.md)
-- `pnpm smoke:real`：在 `.test-data/real-smoke` 中实际调用 Antigravity，消耗 CLI 额度，验证运行、续聊、停止。默认 `gemini-3.8-flash-low` / `low`；可通过 `CLIWORKER_SMOKE_MODEL` 选择其他已可用模型。
-- `tests/fixtures/harness-command.mjs` 是仅用于隔离 Harness 验收的测试驱动，不包含在发布包中。通过正常创建的父会话调用真实工具，不手工写入父会话日志。
+### 6.1 首次派遣
 
-- `pnpm smoke:stop`：真实 CLI 启动带 PID 标记的 Node 工具子进程，停止后验证该 PID 已退出。消耗 CLI 额度。
+在已选工作目录的 Harness 主对话里，明确说出要使用的 CLI，例如：
 
-- `node --import tsx scripts/smoke-multi.ts`：需事先确认模型和额度，验证新增 CLI 首轮/续聊。证据与运行数据仅保存在 `.test-data/`；不会自动修复账户或更改订阅。
+> 用 Codex 检查这个项目的登录错误处理，把这个智能体命名为“代码审查员”。
 
-## 页面图标设计素材
+首次使用相应项目和 CLI 时，通过 Harness 原生问题卡片选择：
 
-五类 CLI 图标见 [图标说明](doc/assets/cli-icons/v1/README.md)，项目使用 [正式 Logo v3](doc/assets/project-icon/official-v3/README.md)。已按用户提供的素材包原样接入 `src/client/assets/`，构建时内联到浏览器包，不依赖外部图片服务。此前方案保留作设计历史。
+1. **模型**：来自该 CLI 的实际目录。
+2. **思考强度**：仅提供当前模型支持的选项。
+3. **智能体预设**：选择已有角色、不使用预设，或在“其他”里写临时提示词。
 
-## v0.3.3 模型菜单与接口修复
+未回答或取消不会启动任务。已有有效的项目模型偏好时，会沿用模型和强度；每个新智能体仍会单独询问角色。
 
-- Antigravity 的 `-low/-medium/-high` 变体在界面中合并，选择强度后映射回真实 CLI ID。Flash 当前支持 low/medium/high；Pro 仅 low/high；未公开等级的型号显示“沿用 CLI 配置”，不发送 `--effort`。
-- 会话内选择器修改当前空闲 worker；默认设置仍只影响此项目之后的新任务。运行中不能修改配置或切换 CLI。
-- 每轮显示真实耗时（含排队与启动时间），可展开 CLI 已公开的工作记录。没有公开的思考内容不会生成或补写。
-- 发送按钮使用 Harness 0.2.0-rc.2 InputBar 的同一 SVG 路径、34px 圆形样式和主题 token。模型选择使用原生 Menu，并按 ModelSelect 的两项入口和列表样式适配 CLI 目录；不能直接使用其绑定 Harness 主模型的内部状态。
-- **升级本地链接插件后，确认无活动任务，完整退出并重新打开 Desktop。** 插件页“刷新”只刷新目录并不足以重新加载 Host 接口。已定位并验证：旧 Host + 新 Client 会导致 `catalogForCli` HTTP 404，完整重启后模型查询恢复。加载失败时提供中文说明和重试，不把原始 HTTP 堆栈混入对话或模型选项。
+```mermaid
+flowchart LR
+    A[主对话明确指定 CLI] --> B[模型 · 强度 · 角色]
+    B --> C[有名字的独立智能体]
+    C --> D[侧栏查看过程与结果]
+    D --> E[结果返回主对话]
+    D --> F[本轮结束后按名称续聊]
+    F --> C
+```
 
-## v0.3.4 菜单与按钮微调
+### 6.2 查看、停止与继续
 
-模型与思考强度子菜单的“返回”统一位于顶部。插件按钮取消静态描边，鼠标移入/移出采用 180ms 主题色过渡；遵循系统“减少动态效果”，键盘导航保留可见焦点。卡片与输入框仍使用 Harness 原生表面样式。
+- 点击任务卡片进入独立对话；返回总览不会清空未发送的草稿。
+- 运行中可以停止任务；插件等待受管理的进程退出后再报告停止。
+- 本轮结束后，在子对话输入下一步，或在主对话中说：**“让代码审查员继续检查测试覆盖。”**
+- 按名称续聊限定在当前主会话内，复用同一个 CLI 会话；重命名不会清空历史或改变角色。
+- 关闭侧栏不会停止后台任务，完成结果仍会回到主对话。
 
-### v0.3.5 用量与日期
+### 6.3 管理角色与 CLI
 
-回复信息栏显示 CLI 实际报告的 Token 用量，日期与 Harness 一致：当天为时间，跨天为日期与时间，跨年增加年份。输入框底栏按“任务状态 / Token 用量 / 上下文占用”排列，复用原生数据库图标和主题样式，状态使用彩色圆点。
+| 设置入口 | 可以做什么 | 生效范围 |
+| --- | --- | --- |
+| 智能体设置 | 新增、编辑、删除“名称 / 概述 / 角色提示词”预设 | 当前 Harness profile 共用；已有智能体保留原角色副本 |
+| CLI 连接 | 独立开关、刷新状态、登录设置或切换账号、打开原生账号终端 | 对应 CLI；关闭前需先结束其任务与账号终端 |
+| 项目默认设置 | 保存默认模型与思考强度 | 当前项目 + 当前 CLI 的后续新建任务 |
+| 子对话模型菜单 | 在本轮结束后修改当前智能体的模型或强度 | 下一轮续聊，保留同一个 CLI 会话 |
 
-统计从插件私有原始记录只读恢复，已有对话无需重新运行。Antigravity 区分回复计数与会话累计；Codex 使用 CLI 报告值、不跨轮重复相加；Claude 和 MiMo 使用本轮统计。点击用量可查看统计口径与精确数字。没有真实数据时显示 `—`，不以累计 Token 推测上下文百分比。
+内置角色：**商业审稿人、逻辑审校员、文风审校员、正文修订师、剧情节点设计师、剧情结构规划师、小说主笔**。更多说明见 [默认角色预设](doc/role-presets.md)。
 
-### v0.3.6 原生交互与上下文
+## 7. 权限、数据与常见问题
 
-分隔线使用 Harness 原生 `border-l2`；复制按钮使用原生 Tooltip，模型菜单继续使用原生 Menu。按钮的悬停颜色、区域尺寸、圆角与动效按 Desktop 0.2.0-rc.2 对应控件对齐，用量与上下文弹窗复用原生定位、外部点击关闭能力，支持 Esc。底栏状态恢复为不同颜色的圆点。
+### 7.1 执行与数据边界
 
-Antigravity CLI 1.2.16 的流式输出没有上下文容量，但本地会话元数据提供了最近一次请求的估算占用及容量。插件仅对自己管理的 conversation_id 只读查询对应 SQLite 数据库，校验会话归属后读取这两个数值；详情中明确标注估算来源。这不是累计 Token 用量，也不是对下一条消息的预测。未知版本、缺失或损坏数据仍显示 `—`，不猜测模型容量。
+- **按明确选择执行**：CLI 缺失或失败时不会自动换用另一个 CLI；不接管在插件外启动的 CLI。
+- **调度有边界**：默认两个并发；同一 CLI 会话单轮互斥，同一目录的写任务串行。仅支持主对话 → 直接子智能体两层结构，不支持运行中插话或递归派遣。
+- **权限按原生能力处理**：Harness 规划模式或只读权限下拒绝启动。允许执行后，支持的 CLI 可按只读任务模式派遣；Kimi 非交互模式不支持此能力。不同 CLI 的沙箱和工具限制请看专项文档。
+- **记录保存在本机**：默认位于 `$DSH_HOME/cliworker-now`（通常为 `~/.dsh/cliworker-now`），目录权限 `0700`、文件 `0600`。外部 CLI 仍会按自己的服务与配置发送模型请求，不能据此认为任务完全离线。
+- **用量有来源**：只展示 CLI 提供或可核查的统计，缺失显示 `—`；上下文占用与累计 Token 不是同一指标。Antigravity 的估算来源会在详情中说明。
+- **账号有边界**：绿色“已登录”可能来自本地原生记录，不等于订阅或远端服务已验证。插件不在页面展示 API 密钥；部分 CLI 与原生终端共用账号，退出操作可能同时影响该 CLI 的其他终端。
 
+### 7.2 常见问题
 
-### v0.3.7 暗色卡片与 v8 Logo
+<details>
+<summary><strong>已经在终端安装了 CLI，为什么 Desktop 找不到？</strong></summary>
 
-暗色 CLI 分组卡片与未选中的筛选按钮使用同一个主题底色。顶部入口移至会话右侧工具栏，仅显示 v8 Logo，悬停提示仍为“打开 CLI Worker”；侧栏标题、空状态和入口统一使用 v8 透明原图，保持宽高比。灰色按钮恢复 180ms 颜色过渡；禁用按钮仅有视觉反馈，不能触发操作，系统减少动态效果设置仍生效。
+Desktop 不会读取你的 `.zshrc`。插件会识别部分常见安装位置；仍找不到时，在插件配置中设置对应 CLI 的可执行文件绝对路径。可用配置项见 [详细配置与版本说明](doc/version-notes.md)。
 
+</details>
 
-### v0.3.8 白天模式悬停修复
+<details>
+<summary><strong>模型菜单报错或更新后出现 HTTP 404，怎么办？</strong></summary>
 
-白天模式的灰色筛选按钮、返回按钮和禁用灰色控件，悬停时改用更深一级的原生 active 主题色，避免默认灰色与 hover-solid 视觉相同；保留 180ms 过渡和减少动态效果支持。
+先结束运行中的任务，然后完整退出并重新打开 Harness。只刷新插件列表，可能留下旧 Host 与新 Client，导致接口不一致。重新启动后仍失败，再检查该 CLI 的安装、账号和原生模型目录。
 
+</details>
 
-### v0.4.1 每个 CLI 独立开关与稳定设置布局
+<details>
+<summary><strong>每个 CLI 都需要订阅吗？已登录为什么仍然失败？</strong></summary>
 
-设置页顶部显示当前 CLI 图标、名称和 Harness 原生开关。开关按当前 Harness 运行配置持久化，默认全部开启；关闭后保留历史记录，阻止新的派遣、续聊、模型查询和账号终端操作。正在运行或排队的任务、打开的账号终端会阻止关闭，避免意外中断。
+订阅、API 计费和模型权限由各 CLI 的服务商决定。能够打开登录页、读取本地账号或列出模型，不代表对应模型请求一定可用；遇到 403 等错误需核对原生账号权限。
 
-左侧状态点：确认已登录为绿色，未登录、不可用或查询失败为红色，未核验状态为灰色。Antigravity 实际模型目录读取成功可显示绿色，提示中明确区分目录可用与账号验证；本地凭据存在不等于登录有效。关闭的 CLI 图标与文字置灰，本次操作不改变位置，刷新页面或重新打开设置后排到末尾。
+</details>
 
-弹窗使用固定高度并随较小窗口限制最大高度，右侧内容独立滚动。加载期间保留账号按钮、模型与强度选择器、保存按钮的位置，只在区域标题旁显示原生旋转指示。设置操作按钮采用原生 md 高度 36px，模型和强度选择框宽 300px、窄窗口自动收缩，继续保留灰色按钮的 180ms 悬停颜色过渡。
+<details>
+<summary><strong>为什么没有思考强度选项或上下文百分比？</strong></summary>
 
+插件只提供 CLI 明确支持的强度。未提供能力时沿用 CLI 配置；未提供可核查上下文数据时显示 `—`，不会根据模型名称或累计用量猜测。
 
-### v0.4.2 原生设置排版与账号身份
+</details>
 
-设置页采用更醒目的 40px 品牌图标与 24px CLI 标题，配合原生设置页的左侧说明、右侧控件和细分隔线。弹窗维持固定高度与内部滚动；模型/强度控件缩至 240px 内，按钮继续使用原生 36px 高度及灰色悬停过渡。
+## 8. 开发与验证
 
-登录区使用绿色圆点与“已登录”，并显示 CLI 提供的账号邮箱；API 方式统一显示“API 登录”，不显示密钥或其片段。Antigravity 读取本地保存的会话邮箱，注明“本地登录信息，未进行远程验证”；Codex 通过自身 account/read 查询实际使用的账号，兼容文件和钥匙串存储；Claude 使用原生 auth status。CLI 没有提供账号标识时明确提示，Kimi 仅有 provider 配置时仍显示“已配置”。刷新、切换、禁用或查询失败时不会残留旧账号。
+项目使用 **TypeScript ESM + React**：Host 管理进程与持久化，Client 通过 Harness 原生 Gateway 访问 Host，共享协议负责两侧的数据约定。
 
+```sh
+pnpm install --frozen-lockfile
+pnpm --config.verify-deps-before-run=false typecheck
+pnpm --config.verify-deps-before-run=false test
+pnpm --config.verify-deps-before-run=false build:preview
+```
 
-### v0.4.3 正式 Logo 与账号操作
+隔离包输出到 `.cache/preview-package`。先在隔离 profile 验收，确认没有活动任务后，再运行正式构建；避免开发构建影响 Desktop 正在使用的版本。
 
-侧栏标题使用用户指定定稿的同一透明轮廓、Harness 默认界面字体的 `CLI Worker` 字标和 `NOW` 标识；工具栏入口、新标签页与空状态使用正式蓝色版。账号行保留绿色登录状态与账号，红色“退出”紧邻账号；“切换账号”和“账号终端”采用原生浅描边按钮。账号/模型刷新使用原生刷新图标。账号来源说明移入登录状态的悬停提示，移除两条静态模型备注。
+真实 CLI 验收是额外步骤，会使用对应账号与模型额度，不由以上自动测试代替：
 
-点击账号操作立即打开 Harness 原生弹窗，终端不会落在设置页滚动区域底部。初始化失败或超过 20 秒会显示可重试反馈；Host 的终端分配受 30 秒上限约束，取消后晚到的进程仍会清理。清理完成前保持同 CLI 互斥。Antigravity 登录需要按弹窗提示，在原生终端输入 `/login`；插件不会自动输入账号命令或代替用户授权。
+```sh
+pnpm --config.verify-deps-before-run=false smoke:extended --help
+```
+
+v0.6.5 的 Logo 与界面改动通过类型检查、27 项界面与注册测试、隔离构建、正式构建及打包校验，并做过亮暗界面检查。各 CLI 的真实验收范围请看第 4 节和 [实际验证记录](doc/tasks.md)。
+
+## 9. 文档、反馈与许可
+
+- [设计与协议](doc/design.md)：架构、调度、权限与持久化设计。
+- [任务与实际验证](doc/tasks.md)：已实施内容和验收记录。
+- [历史版本与详细配置](doc/version-notes.md)：逐版本变更、适配器配置及限制。
+- [角色预设](doc/role-presets.md)：默认智能体的职责与边界。
+- [效果图来源与隐私处理](doc/assets/readme/README.md)：原生截图来源与隐私说明。
+- [提交 Issue](https://github.com/SuperWheel/cliworker-now/issues)：请附 Harness / 插件 / CLI 版本、复现步骤与已脱敏日志；不要上传账号令牌或私人项目内容。
+
+项目采用 [MIT License](LICENSE)，是独立社区插件。DeepSeek Harness 及各 CLI 的名称、图标和商标归各自权利人所有，不表示官方关联或背书。

@@ -509,3 +509,11 @@
 - [x] 隔离 Harness 深色界面验证白色定稿与蓝色入口；正式 Desktop 重启后验证黑色定稿和蓝色入口。隔离服务已停止，测试 profile 链接恢复。初次受限启动未能监听，后以授权的回环服务完成验证。
 - [x] 更新前2个worker均completed、账号终端0；更新后5份worker/偏好/角色/CLI设置哈希不变。未执行模型任务。备份 `.cache/desktop-before-ui-065`。
 - [x] 包 `artifacts/dsh-cliworker-now-0.6.5.tgz` 共175项，包含定稿原始PNG和配色代码，不包含废弃换色稿、旧蓝白Logo或测试数据。
+
+
+### 2026-10-07：公开首页整理与 Harness 原生截图
+
+- [x] README 按项目定位、特点优势、界面效果、支持范围、安装更新、使用方法、边界与常见问题、开发验证、文档反馈编号整理；历史逐版本说明移至 `doc/version-notes.md`，保留追溯入口。
+- [x] 2026-10-06 晚在真实 DeepSeek Harness Desktop 新建干净演示会话。用户批准 Antigravity / gemini-3.8-flash / low / 无角色预设的单次欢迎语任务；完成原生三项选型，worker 为 completed，结果事件 SUCCESS，无工具事件，回复符合要求。
+- [x] 直接拍摄原生任务总览、子对话、角色预设与 OMP 设置四张截图。收起私人会话列表，避开含邮箱的账号页，逐图检查无账号标识、密钥、本机路径或私人内容；来源说明见 `doc/assets/readme/README.md`。未发布独立 React 演示页。
+- [x] 相对链接与图片文件检查、公开文本敏感信息扫描、`git diff --check` 通过；核对 GitHub Release 附件和宿主安装入口。此轮仅文档与截图，未重跑业务构建或测试，未变更运行版本。
