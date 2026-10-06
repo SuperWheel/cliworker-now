@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import {
   Button,
   Menu,
@@ -7,7 +7,9 @@ import {
   Switch,
   Tooltip,
   IconChevronDownOutlineRegular,
+  IconLinkOutlineRegular,
   IconRefreshOutlineRegular,
+  IconUserOutlineRegular,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   CLI_IDS,
@@ -102,6 +104,8 @@ function OpenSettingsDialog({
 }: SettingsDialogProps) {
   const [cli, setCli] = useState<CliId>(isRetiredCli(initialCli) ? 'hermes' : initialCli)
   const [page, setPage] = useState<'cli' | 'roles'>('cli')
+  const [cliExpanded, setCliExpanded] = useState(true)
+  const cliGroupId = useId()
   const [enabled, setEnabled] = useState<Enabled>()
   const [order, setOrder] = useState<readonly CliId[]>(CLI_IDS)
   const [settingsError, setSettingsError] = useState('')
@@ -224,48 +228,76 @@ function OpenSettingsDialog({
             type="button"
             variant="ghost"
             size="md"
-            aria-label="智能体预设"
+            className="cwn-settings-nav-primary"
+            aria-label="智能体设置"
             aria-pressed={page === 'roles'}
             onClick={() => setPage('roles')}
           >
-            <span className="cwn-role-nav-icon" aria-hidden="true">
-              <BrandIcon size={22} />
+            <span className="cwn-settings-nav-icon" aria-hidden="true">
+              <IconUserOutlineRegular size={20} />
             </span>
-            <span className="cwn-settings-nav-label">智能体预设</span>
+            <span className="cwn-settings-nav-label">智能体设置</span>
           </Button>
-          <span className="cwn-settings-nav-section">CLI 连接</span>
-          {order.map((id) => {
-            const connection = settingsError
-              ? { state: 'disabled', label: '无法读取 CLI 开关状态' }
-              : connectionStatus(enabled?.[id], accounts[id], verifiedCatalogs[id], id === 'antigravity')
-            return (
-              <Button
-                key={id}
-                type="button"
-                variant="ghost"
-                size="md"
-                aria-label={`${CLI_LABELS[id]} 设置`}
-                aria-pressed={page === 'cli' && cli === id}
-                data-enabled={enabled?.[id] !== false}
-                onClick={() => {
-                  setCli(id)
-                  setPage('cli')
-                }}
-              >
-                <BrandIcon cli={id} size={22} />
-                <span className="cwn-settings-nav-label">{CLI_LABELS[id]}</span>
-                <Tooltip label={connection.label} side="right" portal>
-                  <span className="cwn-settings-nav-status" role="img" aria-label={connection.label}>
-                    {connection.state === 'pending' ? (
-                      <StateDot state="ongoing" size={12} />
-                    ) : (
-                      <span className="cwn-connection-dot" data-state={connection.state} />
-                    )}
-                  </span>
-                </Tooltip>
-              </Button>
-            )
-          })}
+          <Button
+            type="button"
+            variant="ghost"
+            size="md"
+            className="cwn-settings-nav-primary"
+            aria-label="CLI 连接"
+            aria-expanded={cliExpanded}
+            aria-controls={cliGroupId}
+            onClick={() => setCliExpanded((expanded) => !expanded)}
+          >
+            <span className="cwn-settings-nav-icon" aria-hidden="true">
+              <IconLinkOutlineRegular size={20} />
+            </span>
+            <span className="cwn-settings-nav-label">CLI 连接</span>
+            <IconChevronDownOutlineRegular size={14} className="cwn-settings-nav-chevron" />
+          </Button>
+          <div
+            id={cliGroupId}
+            className="cwn-settings-cli-group"
+            data-expanded={cliExpanded}
+            aria-hidden={!cliExpanded}
+            {...(!cliExpanded ? { inert: '' } : {})}
+          >
+            <div className="cwn-settings-cli-group-inner">
+              {order.map((id) => {
+                const connection = settingsError
+                  ? { state: 'disabled', label: '无法读取 CLI 开关状态' }
+                  : connectionStatus(enabled?.[id], accounts[id], verifiedCatalogs[id], id === 'antigravity')
+                return (
+                  <Button
+                    key={id}
+                    type="button"
+                    variant="ghost"
+                    size="md"
+                    className="cwn-settings-cli-item"
+                    aria-label={`${CLI_LABELS[id]} 设置`}
+                    aria-pressed={page === 'cli' && cli === id}
+                    tabIndex={cliExpanded ? undefined : -1}
+                    data-enabled={enabled?.[id] !== false}
+                    onClick={() => {
+                      setCli(id)
+                      setPage('cli')
+                    }}
+                  >
+                    <BrandIcon cli={id} size={22} />
+                    <span className="cwn-settings-nav-label">{CLI_LABELS[id]}</span>
+                    <Tooltip label={connection.label} side="right" portal>
+                      <span className="cwn-settings-nav-status" role="img" aria-label={connection.label}>
+                        {connection.state === 'pending' ? (
+                          <StateDot state="ongoing" size={12} />
+                        ) : (
+                          <span className="cwn-connection-dot" data-state={connection.state} />
+                        )}
+                      </span>
+                    </Tooltip>
+                  </Button>
+                )
+              })}
+            </div>
+          </div>
         </nav>
         {page === 'roles' ? (
           <RolePresetsPane api={api} sessionId={sessionId} />

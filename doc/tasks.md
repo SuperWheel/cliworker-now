@@ -462,3 +462,14 @@
 - [x] 用户明确回复“开始吧”允许退出并重启后，完成主目录正式 build 与 Host/Client typecheck，完整退出并重新打开 Desktop，加载组合版本 0.6.0。更新前活动 worker=0、账号终端=0。
 - [x] 本机 Desktop 设置显示 Hermes Agent 新图标与入口，旧外部 Harness 无可选入口；点击“登录设置”实际打开 Hermes 原生服务商选择菜单，关闭后无账号进程残留，account-runtime 为空。未选择服务商、提交凭据或发送模型请求；仍需用户明确选择原生服务商与模型后使用。
 - [x] 本机七个智能体预设与原有会话完整保留；更新前后 worker、CLI 开关、项目偏好与角色库四份持久化文件 SHA256 均一致。证据 `.test-data/evidence/hermes-desktop-060-login.png`、`hermes-desktop-060-roles.png`；构建及类型检查日志 `.test-data/hermes-desktop-final-build.log`、`hermes-desktop-final-typecheck.log`。
+
+
+## v0.6.1 字标、设置层级与控件统一（2026-10-06）
+
+- [x] 原生品牌字体、舒展字距、标题与设置按钮居中；模型后紧跟点分隔及思考强度。
+- [x] 智能体设置与 CLI 连接同级，联系人图标与缩进子项；平滑收展，隐藏项不可聚焦，当前配置/终端不重建。
+- [x] 普通按钮与单行输入统一为原生 MD 36px；返回/取消描边，删除预设红底白字，保留确认与悬停效果。
+- [x] 72 项针对性界面测试、31 文件390项完整测试、Host/Client类型检查通过。首次受限环境全套检查中的进程权限错误和缺失图标 mock 已分别通过授权环境运行及补齐夹具解决；不将首次失败记为通过。日志 `.test-data/ui-refine-tests.log`、`ui-refine-typecheck.log`。
+- [x] 先完成隔离构建，在 Safari 中实际验证暗色标题、模型排列、联系人导航、CLI 收展及角色编辑按钮；隔离服务停止，profile 包链接恢复。仅查看既有角色，未保存或删除。
+- [x] 更新前 Desktop 两个 worker 均 completed，账号终端为0；备份 `.cache/desktop-before-ui-061` 后正式构建、pack，重启 Desktop 加载0.6.1。亮色实际复核字标和 gear 对齐、搜索/新增等高、CLI 收起与角色编辑的红色删除/描边取消；取消编辑返回原会话。
+- [x] Worker、偏好、角色库及 CLI 开关文件更新前后 SHA256 一致，七个默认预设仍可见。正式包 `artifacts/dsh-cliworker-now-0.6.1.tgz` 含175项、无测试运行目录或凭据；本轮未发送模型任务。

@@ -45,7 +45,9 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   IconSettingsOutlineRegular: () => createElement('svg'),
   IconCopyOutlineRegular: () => createElement('svg'),
   IconChevronDownOutlineRegular: () => createElement('svg'),
+  IconLinkOutlineRegular: () => createElement('svg'),
   IconRefreshOutlineRegular: () => createElement('svg'),
+  IconUserOutlineRegular: () => createElement('svg'),
   Menu: ({ anchor, open, items = [], onSelect }: any) =>
     createElement(
       'div',
@@ -380,7 +382,7 @@ it('persists each CLI switch without moving the current navigation row until reo
     t.r.root
       .findByProps({ 'aria-label': 'CLI 设置导航' })
       .findAllByType('button')
-      .filter((button) => button.props['aria-label'] !== '智能体预设')
+      .filter((button) => button.props.className === 'cwn-settings-cli-item')
   expect(navigation().map((button) => button.props['aria-label'])).toEqual(
     CLI_IDS.map((id) => `${CLI_LABELS[id]} 设置`),
   )
@@ -404,7 +406,7 @@ it('opens the role library separately from CLI settings and returns to the same 
   )
   const t = await setup({ rolePresets })
   await t.click('Codex 设置')
-  await t.click('智能体预设')
+  await t.click('智能体设置')
   expect(rolePresets).toHaveBeenCalledOnce()
   expect(t.text()).toContain('模拟因果审查')
   expect(t.button('Codex 设置').props['aria-pressed']).toBe(false)
@@ -412,6 +414,39 @@ it('opens the role library separately from CLI settings and returns to the same 
   await t.click('Codex 设置')
   expect(t.button('Codex 设置').props['aria-pressed']).toBe(true)
   expect(t.r.root.findAllByProps({ 'aria-label': 'Codex 配置' })).toHaveLength(1)
+})
+it('collapses CLI navigation without changing the selected page or restarting its account flow', async () => {
+  const t = await setup({
+    accountStatus: vi.fn(async (_parent, cli: CliId) => status(cli, { actions: accountActions })),
+  })
+  await t.click('Codex 设置')
+  await t.click('登录 / 切换账号')
+  const callsBefore = t.catalogForCli.mock.calls.length
+  const groupId = t.button('CLI 连接').props['aria-controls']
+  const group = () => t.r.root.findByProps({ id: groupId })
+  expect(t.button('CLI 连接').props['aria-expanded']).toBe(true)
+  expect(t.button('Codex 设置').props.tabIndex).toBeUndefined()
+
+  await t.click('CLI 连接')
+  expect(t.button('CLI 连接').props['aria-expanded']).toBe(false)
+  expect(group().props['aria-hidden']).toBe(true)
+  expect(group().props.inert).toBe('')
+  expect(
+    group()
+      .findAllByType('button')
+      .every((button) => button.props.tabIndex === -1),
+  ).toBe(true)
+  expect(t.button('Codex 设置').props['aria-pressed']).toBe(true)
+  expect(t.r.root.findAllByProps({ 'aria-label': 'Codex 配置' })).toHaveLength(1)
+  expect(terminal.stopped).not.toHaveBeenCalled()
+
+  await t.click('CLI 连接')
+  expect(t.button('CLI 连接').props['aria-expanded']).toBe(true)
+  expect(group().props['aria-hidden']).toBe(false)
+  expect(group().props.inert).toBeUndefined()
+  expect(t.button('Codex 设置').props.tabIndex).toBeUndefined()
+  expect(t.catalogForCli).toHaveBeenCalledTimes(callsBefore)
+  expect(terminal.started).toHaveBeenCalledExactlyOnceWith('codex', 'login')
 })
 it('keeps the same account action and form controls while discovery is pending and after it completes', async () => {
   const pendingAccount = deferred(),

@@ -129,7 +129,7 @@ export function RolePresetsPane({ api, sessionId }: { api: API; sessionId: strin
         >
           <Button
             type="button"
-            variant="ghost"
+            variant="outline"
             size="md"
             className="cwn-role-back"
             onClick={closeEditor}
@@ -141,6 +141,7 @@ export function RolePresetsPane({ api, sessionId }: { api: API; sessionId: strin
           <label>
             <span>智能体名称</span>
             <Input
+              className="cwn-control-input"
               aria-label="智能体名称"
               autoFocus
               value={draft.name}
@@ -153,6 +154,7 @@ export function RolePresetsPane({ api, sessionId }: { api: API; sessionId: strin
           <label>
             <span>概述</span>
             <Input
+              className="cwn-control-input"
               aria-label="智能体概述"
               value={draft.summary}
               maxLength={240}
@@ -177,7 +179,7 @@ export function RolePresetsPane({ api, sessionId }: { api: API; sessionId: strin
             {draft.id && (
               <Button
                 type="button"
-                variant="ghost"
+                variant="primary"
                 size="md"
                 className="cwn-role-delete"
                 disabled={busy}
@@ -186,7 +188,7 @@ export function RolePresetsPane({ api, sessionId }: { api: API; sessionId: strin
                 删除预设
               </Button>
             )}
-            <Button type="button" variant="ghost" size="md" disabled={busy} onClick={closeEditor}>
+            <Button type="button" variant="outline" size="md" disabled={busy} onClick={closeEditor}>
               取消
             </Button>
             <Button type="submit" variant="primary" size="md" disabled={busy}>
@@ -198,7 +200,7 @@ export function RolePresetsPane({ api, sessionId }: { api: API; sessionId: strin
               <p>删除「{draft.name}」？已有智能体仍保留原角色。</p>
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="md"
                 disabled={busy}
                 onClick={() => setConfirmDelete(false)}
@@ -207,7 +209,7 @@ export function RolePresetsPane({ api, sessionId }: { api: API; sessionId: strin
               </Button>
               <Button
                 type="button"
-                variant="outline"
+                variant="primary"
                 size="md"
                 className="cwn-role-delete"
                 disabled={busy}
@@ -222,6 +224,7 @@ export function RolePresetsPane({ api, sessionId }: { api: API; sessionId: strin
         <>
           <div className="cwn-roles-toolbar">
             <Input
+              className="cwn-control-input"
               icon={<Glyph name="search" />}
               aria-label="搜索智能体预设"
               type="search"

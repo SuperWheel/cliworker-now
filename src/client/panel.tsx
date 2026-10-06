@@ -287,7 +287,7 @@ function SessionPanel({
               <Button
                 type="button"
                 variant="ghost"
-                size="sm"
+                size="md"
                 className="cwn-settings-button"
                 aria-label="默认设置"
                 onClick={() => setSettings(true)}

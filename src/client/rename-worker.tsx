@@ -58,6 +58,7 @@ export function RenameWorker({
         }}
       >
         <Input
+          className="cwn-control-input"
           aria-label="新的智能体名称"
           autoFocus
           value={name}
@@ -70,7 +71,7 @@ export function RenameWorker({
           {error}
         </div>
         <div className="cwn-role-editor-actions">
-          <Button type="button" size="md" variant="ghost" onClick={onClose}>
+          <Button type="button" size="md" variant="outline" onClick={onClose}>
             取消
           </Button>
           <Button type="submit" size="md" variant="primary" disabled={saving}>
