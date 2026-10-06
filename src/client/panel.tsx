@@ -2,7 +2,7 @@ import { ComposerTelemetry } from './telemetry.tsx'
 import { ConversationTimeline } from './conversation-timeline.tsx'
 import { modelName } from '../shared/models.ts'
 import { operationMessage } from './operation-error.ts'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { Button, Input, Tooltip, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   active,
@@ -66,6 +66,7 @@ function SessionPanel({
 }) {
   const [selected, select] = useState('')
   const [collapsed, setCollapsed] = useState<Partial<Record<CliId, boolean>>>({})
+  const cliGroupId = useId()
   const overview = useRef<HTMLDivElement>(null),
     overviewScroll = useRef(0)
   const back = useRef<HTMLButtonElement>(null),
@@ -386,6 +387,7 @@ function SessionPanel({
                     className="cwn-cli-heading"
                     type="button"
                     aria-expanded={!collapsed[cli]}
+                    aria-controls={`${cliGroupId}-${cli}`}
                     onClick={() => setCollapsed((old) => ({ ...old, [cli]: !old[cli] }))}
                   >
                     <BrandIcon cli={cli} />
@@ -393,42 +395,54 @@ function SessionPanel({
                     <span>{rows.length} 个 Agent</span>
                     <Glyph name="chevron" />
                   </button>
-                  {!collapsed[cli] &&
-                    rows.map((w) => (
-                      <button
-                        key={w.id}
-                        type="button"
-                        className="cwn-worker"
-                        data-worker-id={w.id}
-                        onClick={() => openWorker(w.id)}
-                      >
-                        <span className="cwn-worker-content">
-                          <span className="cwn-worker-line">
-                            <span className="cwn-worker-title">{w.title}</span>
-                            <span className={`cwn-worker-status ${w.status}`}>
-                              <span className={`cwn-dot ${w.status}`} />
-                              {status[w.status]}
+                  <div
+                    id={`${cliGroupId}-${cli}`}
+                    className="cwn-cli-rows"
+                    data-expanded={!collapsed[cli]}
+                    aria-hidden={!!collapsed[cli]}
+                    {...(collapsed[cli] ? { inert: '' } : {})}
+                  >
+                    <div className="cwn-cli-rows-inner">
+                      {rows.map((w) => (
+                        <button
+                          key={w.id}
+                          type="button"
+                          className="cwn-worker"
+                          data-worker-id={w.id}
+                          tabIndex={collapsed[cli] ? -1 : undefined}
+                          onClick={() => {
+                            if (!collapsed[cli]) openWorker(w.id)
+                          }}
+                        >
+                          <span className="cwn-worker-content">
+                            <span className="cwn-worker-line">
+                              <span className="cwn-worker-title">{w.title}</span>
+                              <span className={`cwn-worker-status ${w.status}`}>
+                                <span className={`cwn-dot ${w.status}`} />
+                                {status[w.status]}
+                              </span>
+                            </span>
+                            <span className="cwn-worker-meta">
+                              <span className="cwn-worker-name" title={workerName(w)}>
+                                {workerName(w)}
+                              </span>
+                              <span className="cwn-meta-divider" aria-hidden="true">
+                                ｜
+                              </span>
+                              <span className="cwn-worker-model" title={w.preference.model}>
+                                {modelName(w.preference)}
+                              </span>
+                              <span className="cwn-meta-divider" aria-hidden="true">
+                                ·
+                              </span>
+                              <span>{effortLabel(w.preference.effort)}</span>
                             </span>
                           </span>
-                          <span className="cwn-worker-meta">
-                            <span className="cwn-worker-name" title={workerName(w)}>
-                              {workerName(w)}
-                            </span>
-                            <span className="cwn-meta-divider" aria-hidden="true">
-                              ｜
-                            </span>
-                            <span className="cwn-worker-model" title={w.preference.model}>
-                              {modelName(w.preference)}
-                            </span>
-                            <span className="cwn-meta-divider" aria-hidden="true">
-                              ·
-                            </span>
-                            <span>{effortLabel(w.preference.effort)}</span>
-                          </span>
-                        </span>
-                        <Glyph name="chevron" />
-                      </button>
-                    ))}
+                          <Glyph name="chevron" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </section>
               )
             })}

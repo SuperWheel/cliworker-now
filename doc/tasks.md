@@ -473,3 +473,12 @@
 - [x] 先完成隔离构建，在 Safari 中实际验证暗色标题、模型排列、联系人导航、CLI 收展及角色编辑按钮；隔离服务停止，profile 包链接恢复。仅查看既有角色，未保存或删除。
 - [x] 更新前 Desktop 两个 worker 均 completed，账号终端为0；备份 `.cache/desktop-before-ui-061` 后正式构建、pack，重启 Desktop 加载0.6.1。亮色实际复核字标和 gear 对齐、搜索/新增等高、CLI 收起与角色编辑的红色删除/描边取消；取消编辑返回原会话。
 - [x] Worker、偏好、角色库及 CLI 开关文件更新前后 SHA256 一致，七个默认预设仍可见。正式包 `artifacts/dsh-cliworker-now-0.6.1.tgz` 含175项、无测试运行目录或凭据；本轮未发送模型任务。
+
+
+### 2026-10-06：v0.6.2 标题与卡片优化
+
+- [x] 标题切回 Harness 默认界面字体；NOW 高度 21px → 18px；标题 Logo 改为浅色黑、深色白。
+- [x] 浅色 CLI 卡片增加淡灰底色；收起/展开加入宿主动效与箭头旋转，折叠内容无法聚焦或点击，详情返回后保持折叠状态。
+- [x] `pnpm typecheck`、面板与设置定向测试 67 项、`pnpm build:preview`、`pnpm build`、打包全部通过。pnpm 使用 `--config.verify-deps-before-run=false` 保留当前依赖安装。
+- [x] 隔离 Harness 深色预览核对标题、白色 Logo、卡片收展；本机 Desktop 更新 0.6.2 后核对默认字体、黑色 Logo、NOW、淡灰卡片及收起/展开。未进行逐帧性能测量。
+- [x] 更新前确认 2 个 worker 均已完成、账号终端数为 0；更新后 5 个会话/偏好/角色/CLI 设置文件的哈希一致。没有发起真实模型任务。

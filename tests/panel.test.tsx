@@ -505,7 +505,6 @@ it('uses the selected CLI name in assistant messages and shows the reported mode
 })
 
 it('starts on grouped overview without auto-opening a worker and keeps collapsed groups', async () => {
-  const t = await setup(false)
   const mixed = [
     ...workers,
     {
@@ -516,6 +515,7 @@ it('starts on grouped overview without auto-opening a worker and keeps collapsed
       status: 'running' as const,
     },
   ]
+  const t = await setup(false, undefined, mixed)
   await act(async () =>
     t.streams.at(-1)!.push({ workers: mixed, timeline: [], revision: 2, truncated: false }),
   )
@@ -527,15 +527,39 @@ it('starts on grouped overview without auto-opening a worker and keeps collapsed
   const line = groups()[1]!.findByProps({ className: 'cwn-worker-line' })
   expect(line.children[0].props.className).toBe('cwn-worker-title')
   expect(line.children[1].props.className).toContain('cwn-worker-status')
+  const codexHeading = () => groups()[1]!.findByProps({ className: 'cwn-cli-heading' })
+  const codexRows = () => groups()[1]!.findByProps({ className: 'cwn-cli-rows' })
+  const codexWorker = () => groups()[1]!.findByProps({ 'data-worker-id': 'c' })
+  const rowsId = codexHeading().props['aria-controls']
+  expect(codexRows().props.id).toBe(rowsId)
+  expect(codexWorker().props.tabIndex).toBeUndefined()
   await act(async () => groups()[1]!.findByProps({ className: 'cwn-cli-heading' }).props.onClick())
-  expect(groups()[1]!.findAllByProps({ className: 'cwn-worker' })).toHaveLength(0)
+  // Retain rows for the CSS height transition, but remove all interaction while collapsed.
+  expect(groups()[1]!.findAllByProps({ className: 'cwn-worker' })).toHaveLength(1)
+  expect(codexRows().props['aria-hidden']).toBe(true)
+  expect(codexRows().props.inert).toBe('')
+  expect(codexWorker().props.tabIndex).toBe(-1)
+  const streamsBefore = t.streams.length
+  await act(async () => codexWorker().props.onClick())
+  expect(t.streams).toHaveLength(streamsBefore)
+  expect(t.r.root.findAllByProps({ 'aria-label': '返回子 Agent 列表' })).toHaveLength(0)
   await t.select('a')
   await t.push('a')
   await t.goBack()
   await act(async () =>
     t.streams.at(-1)!.push({ workers: mixed, timeline: [], revision: 3, truncated: false }),
   )
-  expect(groups()[1]!.findByProps({ className: 'cwn-cli-heading' }).props['aria-expanded']).toBe(false)
+  expect(codexHeading().props['aria-expanded']).toBe(false)
+  expect(codexHeading().props['aria-controls']).toBe(rowsId)
+  expect(codexRows().props['aria-hidden']).toBe(true)
+  await act(async () => codexHeading().props.onClick())
+  expect(codexRows().props['aria-hidden']).toBe(false)
+  expect(codexRows().props.inert).toBeUndefined()
+  expect(codexWorker().props.tabIndex).toBeUndefined()
+  await t.select('c')
+  await t.push('c')
+  expect(t.text()).toContain('answer-c')
+  expect(t.r.root.findAllByType('textarea')).toHaveLength(1)
 })
 it('keeps metadata out of child header and stops through the integrated composer without sending text', async () => {
   const t = await setup()
