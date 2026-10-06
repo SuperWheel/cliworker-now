@@ -482,3 +482,12 @@
 - [x] `pnpm typecheck`、面板与设置定向测试 67 项、`pnpm build:preview`、`pnpm build`、打包全部通过。pnpm 使用 `--config.verify-deps-before-run=false` 保留当前依赖安装。
 - [x] 隔离 Harness 深色预览核对标题、白色 Logo、卡片收展；本机 Desktop 更新 0.6.2 后核对默认字体、黑色 Logo、NOW、淡灰卡片及收起/展开。未进行逐帧性能测量。
 - [x] 更新前确认 2 个 worker 均已完成、账号终端数为 0；更新后 5 个会话/偏好/角色/CLI 设置文件的哈希一致。没有发起真实模型任务。
+
+
+### 2026-10-06：v0.6.3 卡片悬浮样式
+
+- [x] `Cli Worker` 改为 `CLI Worker`，Logo 与标题的间距减半至 6px。
+- [x] 浅色卡片恢复白底，增加原生柔和阴影；深色取消灰底，用同色底面、细轮廓和增强底部阴影表达层次。
+- [x] 面板定向测试 23 项通过（同步修正原大小写断言）；`pnpm typecheck`、隔离构建、正式构建及 0.6.3 打包通过。pnpm 保持 `--config.verify-deps-before-run=false`。
+- [x] 隔离 Harness 深色页面与本机 Desktop 浅色页面均已目视验证字标、间距、同色卡片和投影；保持收展实现不变。
+- [x] 更新前 2 个 worker 均已完成、账号终端为 0；重启后 5 个 worker/偏好/角色/CLI 设置文件哈希未变。未发起真实模型任务。

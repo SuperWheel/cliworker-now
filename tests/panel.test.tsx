@@ -257,7 +257,7 @@ it('preserves each worker draft and hides old content while switching', async ()
 it('shows and searches worker names alongside model metadata and the conversation topic', async () => {
   const named = [{ ...workers[0], agentName: '因果审稿人' }, workers[1]]
   const t = await setup(false, undefined, named)
-  expect(t.text()).toContain('Cli Worker')
+  expect(t.r.root.findByType('h2').findByType('span').children).toEqual(['CLI Worker'])
   const meta = t.r.root.findByProps({ 'data-worker-id': 'a' }).findByProps({ className: 'cwn-worker-meta' })
   expect(JSON.stringify(meta.children.map((node: any) => node.children))).toContain('因果审稿人')
   await act(async () => t.r.root.findByType('input').props.onChange({ target: { value: '因果' } }))
