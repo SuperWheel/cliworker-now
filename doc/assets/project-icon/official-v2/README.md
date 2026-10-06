@@ -1,3 +1,5 @@
+> 历史版本：现由 [official-v3](../official-v3/README.md) 用户选定稿替代。
+
 # CLI Worker Now · 正式 Logo v2
 
 2026-10-06 用户指定以下三张透明 PNG 为当前正式 Logo。归档与运行素材均为逐字节副本，没有重绘、裁切、缩放处理或改色；界面使用等比 CSS 显示。

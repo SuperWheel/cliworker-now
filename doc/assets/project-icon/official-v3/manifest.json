@@ -1,0 +1,13 @@
+{
+  "version": "official-v3",
+  "source": "exec-c36aab95-deae-46a1-a896-f650a5bed8f7.png",
+  "sha256": "a4f9516d99359f4c87d0de2f6883abf3d56d7b2892a6c74b7d002c15050de3c2",
+  "runtime_method": "same PNG alpha mask for all color variants",
+  "colors": {
+    "light": "#000000",
+    "dark": "#ffffff",
+    "blue": "#3764f5",
+    "blue_accent": "#008cff"
+  },
+  "source_pixel_edits": false
+}

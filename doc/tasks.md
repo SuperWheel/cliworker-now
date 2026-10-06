@@ -500,3 +500,12 @@
 - [x] 隔离 Harness 深色界面实际显示白色新 Logo 与蓝色工具栏入口；重启本机 Desktop 后实际显示黑色新 Logo 和蓝色工具栏入口，标题排版与悬浮卡片保持正常。隔离服务已停止并恢复原 profile 包链接。
 - [x] 更新前 2 个 worker 均 completed、账号终端为 0；更新后 5 个 worker/偏好/角色/CLI 设置文件哈希一致。未发起模型任务。原构建备份 `.cache/desktop-before-ui-064`。
 - [x] `artifacts/dsh-cliworker-now-0.6.4.tgz` 共177项，三张原图均内联并原样打包，不包含测试数据或缓存目录。
+
+
+### 2026-10-06：v0.6.5 定稿 Logo 接入
+
+- [x] 按用户强调，唯一采用其指定黑色定稿原图；运行文件与归档、原始生成文件逐字节一致。三种配色共享 alpha 蒙版，不使用重新生成的轮廓。
+- [x] 27项面板/注册测试、Host/Client typecheck、build:preview、正式 build、pack 通过，日志 `.test-data/logo065-*.log`。
+- [x] 隔离 Harness 深色界面验证白色定稿与蓝色入口；正式 Desktop 重启后验证黑色定稿和蓝色入口。隔离服务已停止，测试 profile 链接恢复。初次受限启动未能监听，后以授权的回环服务完成验证。
+- [x] 更新前2个worker均completed、账号终端0；更新后5份worker/偏好/角色/CLI设置哈希不变。未执行模型任务。备份 `.cache/desktop-before-ui-065`。
+- [x] 包 `artifacts/dsh-cliworker-now-0.6.5.tgz` 共175项，包含定稿原始PNG和配色代码，不包含废弃换色稿、旧蓝白Logo或测试数据。

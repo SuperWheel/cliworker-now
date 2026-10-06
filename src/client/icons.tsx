@@ -12,9 +12,7 @@ import pi from './assets/pi.png'
 import hermes from './assets/hermes.png'
 import opencode from './assets/opencode.png'
 import grok from './assets/grok.png'
-import logo from './assets/cliworker-now-logo.png'
 import logoBlack from './assets/cliworker-now-logo-black.png'
-import logoWhite from './assets/cliworker-now-logo-white.png'
 
 const icons: Partial<Record<CliId, string>> = {
   antigravity,
@@ -51,11 +49,11 @@ export function BrandIcon({
   const asset = cli ? optical[cli] : undefined
   return (
     <span className="cwn-brand" aria-hidden="true" style={{ width: size, height: size }}>
-      {!cli && tone === 'monochrome' ? (
-        <>
-          <img className="cwn-icon-light" src={logoBlack} alt="" />
-          <img className="cwn-icon-dark" src={logoWhite} alt="" />
-        </>
+      {!cli ? (
+        <span
+          className={`cwn-project-logo ${tone}`}
+          style={{ maskImage: `url("${logoBlack}")`, WebkitMaskImage: `url("${logoBlack}")` }}
+        />
       ) : cli === 'kimi' ? (
         <>
           <img className="cwn-icon-light" src={kimiLight} alt="" />
@@ -79,7 +77,7 @@ export function BrandIcon({
         </span>
       ) : (
         <img
-          src={cli ? icons[cli] : logo}
+          src={icons[cli]}
           className={asset?.mono ? 'cwn-icon-mono' : undefined}
           style={
             asset ? { transform: `translate(${asset.x}%, ${asset.y}%) scale(${asset.scale})` } : undefined
