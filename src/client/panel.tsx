@@ -278,7 +278,7 @@ function SessionPanel({
         ) : (
           <>
             <div className="cwn-wordmark">
-              <BrandIcon size={36} />
+              <BrandIcon size={36} tone="monochrome" />
               <h2 aria-label="CLI Worker Now">
                 <span>CLI Worker</span>
                 <small>NOW</small>

@@ -1,3 +1,5 @@
+> 历史版本：2026-10-06 起由 [official-v2](../official-v2/README.md) 替代。下文保留当时的选择记录。
+
 # CLI Worker Now · 唯一正式 Logo
 
 用户最终明确只采用 exec-38a6f3bc-7633-4832-8bc0-24c8571c7f6f.png。本目录的 cliworker-now.png 是该文件的逐字节副本，亮暗主题均使用同一图形、同一配色。

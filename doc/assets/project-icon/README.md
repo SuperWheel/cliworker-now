@@ -1,7 +1,9 @@
 # 项目 Logo
 
-唯一正式版本为 [official-v1/cliworker-now.png](official-v1/cliworker-now.png)，对应用户指定的 exec-38a6f3bc-7633-4832-8bc0-24c8571c7f6f.png。亮暗背景均使用同一原图，夜间配色已取消采用。
+当前正式版本为 [official-v2](official-v2/README.md)，由用户于 2026-10-06 提供并指定三张透明 PNG：
 
-[效果图](official-v1/preview.png) · [展示页](official-v1/preview.html) · [版本说明](official-v1/README.md)
+- [黑色版](official-v2/cliworker-now-black.png)：浅色标题。
+- [白色版](official-v2/cliworker-now-white.png)：深色标题。
+- [蓝色版](official-v2/cliworker-now-blue.png)：工具栏、新标签页和空状态。
 
-其他文件保留为设计历史。素材选择不代表插件运行时已更新。
+已原样接入插件运行资源，逐字节校验见 [版本记录](official-v2/manifest.json)。official-v1、monochrome-v1 和 archive 中的其他版本保留为设计历史。

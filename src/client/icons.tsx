@@ -13,6 +13,8 @@ import hermes from './assets/hermes.png'
 import opencode from './assets/opencode.png'
 import grok from './assets/grok.png'
 import logo from './assets/cliworker-now-logo.png'
+import logoBlack from './assets/cliworker-now-logo-black.png'
+import logoWhite from './assets/cliworker-now-logo-white.png'
 
 const icons: Partial<Record<CliId, string>> = {
   antigravity,
@@ -37,11 +39,24 @@ const optical: Partial<Record<CliId, { scale: number; x: number; y: number; mono
 }
 
 /** User-provided transparent PNGs, bundled locally without remote asset requests. */
-export function BrandIcon({ cli, size = cli ? 22 : 32 }: { cli?: CliId; size?: number }) {
+export function BrandIcon({
+  cli,
+  size = cli ? 22 : 32,
+  tone = 'color',
+}: {
+  cli?: CliId
+  size?: number
+  tone?: 'color' | 'monochrome'
+}) {
   const asset = cli ? optical[cli] : undefined
   return (
     <span className="cwn-brand" aria-hidden="true" style={{ width: size, height: size }}>
-      {cli === 'kimi' ? (
+      {!cli && tone === 'monochrome' ? (
+        <>
+          <img className="cwn-icon-light" src={logoBlack} alt="" />
+          <img className="cwn-icon-dark" src={logoWhite} alt="" />
+        </>
+      ) : cli === 'kimi' ? (
         <>
           <img className="cwn-icon-light" src={kimiLight} alt="" />
           <img className="cwn-icon-dark" src={kimiDark} alt="" />

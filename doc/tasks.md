@@ -491,3 +491,12 @@
 - [x] 面板定向测试 23 项通过（同步修正原大小写断言）；`pnpm typecheck`、隔离构建、正式构建及 0.6.3 打包通过。pnpm 保持 `--config.verify-deps-before-run=false`。
 - [x] 隔离 Harness 深色页面与本机 Desktop 浅色页面均已目视验证字标、间距、同色卡片和投影；保持收展实现不变。
 - [x] 更新前 2 个 worker 均已完成、账号终端为 0；重启后 5 个 worker/偏好/角色/CLI 设置文件哈希未变。未发起真实模型任务。
+
+
+### 2026-10-06：v0.6.4 正式 Logo 替换
+
+- [x] 三张用户原图接入：浅色标题黑色、深色标题白色、工具栏/空状态/新标签页引导蓝色。归档和运行资源 SHA256 均与 Downloads 原图一致；旧正式版本标记为历史。
+- [x] 面板和客户端注册定向测试 27 项通过，Host/Client 类型检查、隔离构建、正式构建和打包通过。pnpm 使用 `--config.verify-deps-before-run=false`。日志 `.test-data/ui-logo-tests.log`、`ui-logo-typecheck.log`、`ui-logo-preview-build.log`、`ui-logo-build.log`、`ui-logo-pack.log`。
+- [x] 隔离 Harness 深色界面实际显示白色新 Logo 与蓝色工具栏入口；重启本机 Desktop 后实际显示黑色新 Logo 和蓝色工具栏入口，标题排版与悬浮卡片保持正常。隔离服务已停止并恢复原 profile 包链接。
+- [x] 更新前 2 个 worker 均 completed、账号终端为 0；更新后 5 个 worker/偏好/角色/CLI 设置文件哈希一致。未发起模型任务。原构建备份 `.cache/desktop-before-ui-064`。
+- [x] `artifacts/dsh-cliworker-now-0.6.4.tgz` 共177项，三张原图均内联并原样打包，不包含测试数据或缓存目录。

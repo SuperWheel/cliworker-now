@@ -95,12 +95,12 @@ export function apply(ctx: Context): void {
       scope.sidebarRightTabs.register({
         id: ID,
         kind: 'cliworker',
-        title: () => 'Cli Worker',
+        title: () => 'CLI Worker',
         guide: [
           {
             id: 'cliworker',
             order: 25,
-            title: () => 'Cli Worker',
+            title: () => 'CLI Worker',
             description: () => '查看各 CLI 子 Agent 的实时工作',
             icon: () => <BrandIcon />,
           },

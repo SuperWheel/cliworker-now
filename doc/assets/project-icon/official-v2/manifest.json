@@ -1,0 +1,55 @@
+{
+  "version": "official-v2",
+  "selected_on": "2026-10-06",
+  "method": "Exact user-provided PNG files; no redraw, resize, recolor or image filters",
+  "assets": [
+    {
+      "source_name": "纯白四形透明图标-2.png",
+      "file": "cliworker-now-white.png",
+      "runtime": "src/client/assets/cliworker-now-logo-white.png",
+      "usage": "dark header",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "6bff3fc7c2a7362fd3935532fbf2c966ef0ab6ca601cb573fb2c275e99c753f6"
+    },
+    {
+      "source_name": "天蓝胶囊图标.png",
+      "file": "cliworker-now-blue.png",
+      "runtime": "src/client/assets/cliworker-now-logo.png",
+      "usage": "toolbar, empty state, tab guide",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "1d4b736ff239055ad4d4b5ee7d342970969be4971a9ae5f9643f6b43e5eca176"
+    },
+    {
+      "source_name": "纯黑透明图标-1.png",
+      "file": "cliworker-now-black.png",
+      "runtime": "src/client/assets/cliworker-now-logo-black.png",
+      "usage": "light header",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "b810bf5ffdd7ea7accd375370de2608893761c9e73580953b50fc4c9028cafe5"
+    }
+  ]
+}
