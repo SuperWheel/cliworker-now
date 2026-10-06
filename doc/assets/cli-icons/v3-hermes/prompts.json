@@ -1,0 +1,10 @@
+{
+  "mode": "built-in image_gen",
+  "transparent_background": true,
+  "prompt": "Use case: style-transfer and background-extraction. Create ONE flat transparent square PNG UI icon based on the official Hermes Agent portrait in reference image 1 (black on white app tile), with image 2 showing fine silhouette details. Preserve the recognizable anime woman portrait, three-quarter face looking left, long bob haircut with curved ends, heavy fringe, broad headband arch, small side ornament, eyes and neck/shoulder crop. Simplify tiny hair strokes and eyelashes for 24px/32px legibility, moderately bold contours. Use only solid charcoal #24272D shapes with clean TRANSPARENT negative spaces for face, highlights and background. No white fill, no background tile, no circle badge. Flat vector-like silhouette, no gradient, shadow, glow, bevel, texture or shading. Center the whole portrait within square canvas occupying about 78% of longest dimension, even transparent margins; no cut off hair. Preserve character identity and proportions. No text, no wordmark. Real alpha transparency, no checkerboard.",
+  "reference_files": [
+    ".cache/icon-references/hermes/apple-touch-icon.png",
+    ".cache/icon-references/hermes/logo-dark.png"
+  ],
+  "source_output": "/Users/leeyl/.codex/generated_images/01a10b35-6c01-7d03-a7ba-6a680ae73858/exec-98581f04-4f1d-480c-afee-bb129fc44461.png"
+}

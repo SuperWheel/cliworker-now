@@ -1,0 +1,25 @@
+{
+  "name": "Hermes Agent",
+  "file": "hermes.png",
+  "size": [
+    1254,
+    1254
+  ],
+  "mode": "RGBA",
+  "corner_alpha": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "transparent_pixels": 935553,
+  "subject_bbox_alpha128": [
+    148,
+    102,
+    1155,
+    1156
+  ],
+  "optical_scale": 0.9518,
+  "dark_filter": "invert(1)",
+  "sha256": "a99ea4ca6730d056b7d8b06598313d40719a47186f52ee33c35b995a29a27f52"
+}
