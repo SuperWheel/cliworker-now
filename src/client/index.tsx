@@ -19,6 +19,7 @@ import {
   nativeInteractionStyles,
   hoverFeedbackStyles,
   settingsStyles,
+  rolePresetStyles,
 } from './styles.ts'
 import { BrandIcon } from './icons.tsx'
 
@@ -85,7 +86,8 @@ export function apply(ctx: Context): void {
         telemetryStyles +
         nativeInteractionStyles +
         hoverFeedbackStyles +
-        settingsStyles
+        settingsStyles +
+        rolePresetStyles
       document.head.append(style)
       return () => style.remove()
     })
@@ -93,12 +95,12 @@ export function apply(ctx: Context): void {
       scope.sidebarRightTabs.register({
         id: ID,
         kind: 'cliworker',
-        title: () => 'CLI Worker',
+        title: () => 'Cli Worker',
         guide: [
           {
             id: 'cliworker',
             order: 25,
-            title: () => 'CLI Worker',
+            title: () => 'Cli Worker',
             description: () => '查看各 CLI 子 Agent 的实时工作',
             icon: () => <BrandIcon />,
           },

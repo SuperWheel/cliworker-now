@@ -23,6 +23,7 @@ import { AccountTerminal } from './account-terminal.tsx'
 import { BrandIcon, Glyph } from './icons.tsx'
 import { operationMessage } from './operation-error.ts'
 import { value, type API } from './workers.ts'
+import { RolePresetsPane } from './role-presets.tsx'
 
 interface SettingsDialogProps {
   open: boolean
@@ -99,6 +100,7 @@ function OpenSettingsDialog({
   openNativeSettings,
 }: SettingsDialogProps) {
   const [cli, setCli] = useState(initialCli)
+  const [page, setPage] = useState<'cli' | 'roles'>('cli')
   const [enabled, setEnabled] = useState<Enabled>()
   const [order, setOrder] = useState<readonly CliId[]>(CLI_IDS)
   const [settingsError, setSettingsError] = useState('')
@@ -217,6 +219,20 @@ function OpenSettingsDialog({
     >
       <div className="cwn-settings-layout">
         <nav className="cwn-settings-nav" aria-label="CLI 设置导航">
+          <Button
+            type="button"
+            variant="ghost"
+            size="md"
+            aria-label="智能体预设"
+            aria-pressed={page === 'roles'}
+            onClick={() => setPage('roles')}
+          >
+            <span className="cwn-role-nav-icon" aria-hidden="true">
+              <BrandIcon size={22} />
+            </span>
+            <span className="cwn-settings-nav-label">智能体预设</span>
+          </Button>
+          <span className="cwn-settings-nav-section">CLI 连接</span>
           {order.map((id) => {
             const connection = settingsError
               ? { state: 'disabled', label: '无法读取 CLI 开关状态' }
@@ -228,9 +244,12 @@ function OpenSettingsDialog({
                 variant="ghost"
                 size="md"
                 aria-label={`${CLI_LABELS[id]} 设置`}
-                aria-pressed={cli === id}
+                aria-pressed={page === 'cli' && cli === id}
                 data-enabled={enabled?.[id] !== false}
-                onClick={() => setCli(id)}
+                onClick={() => {
+                  setCli(id)
+                  setPage('cli')
+                }}
               >
                 <BrandIcon cli={id} size={22} />
                 <span className="cwn-settings-nav-label">{CLI_LABELS[id]}</span>
@@ -247,22 +266,26 @@ function OpenSettingsDialog({
             )
           })}
         </nav>
-        <CliSettings
-          openNativeSettings={openNativeSettings}
-          key={`${sessionId}:${cli}`}
-          api={api}
-          sessionId={sessionId}
-          cli={cli}
-          enabled={enabled?.[cli]}
-          account={accounts[cli]}
-          onRefreshAccount={() => refreshAccount(cli)}
-          onCatalogResult={catalogResult}
-          onToggle={(next) => void toggleCli(cli, next)}
-          toggleBusy={!!togglingCli}
-          toggling={togglingCli === cli}
-          settingsError={settingsError}
-          toggleError={toggleErrors[cli] || ''}
-        />
+        {page === 'roles' ? (
+          <RolePresetsPane api={api} sessionId={sessionId} />
+        ) : (
+          <CliSettings
+            openNativeSettings={openNativeSettings}
+            key={`${sessionId}:${cli}`}
+            api={api}
+            sessionId={sessionId}
+            cli={cli}
+            enabled={enabled?.[cli]}
+            account={accounts[cli]}
+            onRefreshAccount={() => refreshAccount(cli)}
+            onCatalogResult={catalogResult}
+            onToggle={(next) => void toggleCli(cli, next)}
+            toggleBusy={!!togglingCli}
+            toggling={togglingCli === cli}
+            settingsError={settingsError}
+            toggleError={toggleErrors[cli] || ''}
+          />
+        )}
       </div>
     </Modal>
   )

@@ -63,6 +63,9 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   Button: forwardRef(({ children, variant: _variant, size: _size, ...props }: any, ref) =>
     createElement('button', { type: 'button', ...props, ref }, children),
   ),
+  Input: forwardRef(({ icon, ...props }: any, ref) =>
+    createElement('span', {}, icon, createElement('input', { ...props, ref })),
+  ),
 }))
 const mounted: ReactTestRenderer[] = []
 afterEach(async () => {
@@ -373,7 +376,11 @@ it('uses Kimi supported default effort without a saved preference and can persis
 
 it('persists each CLI switch without moving the current navigation row until reopening', async () => {
   const t = await setup()
-  const navigation = () => t.r.root.findByProps({ 'aria-label': 'CLI 设置导航' }).findAllByType('button')
+  const navigation = () =>
+    t.r.root
+      .findByProps({ 'aria-label': 'CLI 设置导航' })
+      .findAllByType('button')
+      .filter((button) => button.props['aria-label'] !== '智能体预设')
   expect(navigation().map((button) => button.props['aria-label'])).toEqual(
     CLI_IDS.map((id) => `${CLI_LABELS[id]} 设置`),
   )
@@ -390,6 +397,21 @@ it('persists each CLI switch without moving the current navigation row until reo
   await t.open()
   expect(navigation().at(-1)!.props['aria-label']).toBe('Antigravity 设置')
   expect(t.button('启用 Antigravity').props['aria-checked']).toBe(false)
+})
+it('opens the role library separately from CLI settings and returns to the same CLI', async () => {
+  const rolePresets = vi.fn(async () =>
+    remote([{ id: 'logic', name: '逻辑审稿人', summary: '模拟因果审查', prompt: '模拟角色' }]),
+  )
+  const t = await setup({ rolePresets })
+  await t.click('Codex 设置')
+  await t.click('智能体预设')
+  expect(rolePresets).toHaveBeenCalledOnce()
+  expect(t.text()).toContain('模拟因果审查')
+  expect(t.button('Codex 设置').props['aria-pressed']).toBe(false)
+  expect(t.r.root.findAllByProps({ 'aria-label': 'Codex 配置' })).toHaveLength(0)
+  await t.click('Codex 设置')
+  expect(t.button('Codex 设置').props['aria-pressed']).toBe(true)
+  expect(t.r.root.findAllByProps({ 'aria-label': 'Codex 配置' })).toHaveLength(1)
 })
 it('keeps the same account action and form controls while discovery is pending and after it completes', async () => {
   const pendingAccount = deferred(),

@@ -13,12 +13,21 @@ import { join } from 'node:path'
 import { randomUUID, createHash } from 'node:crypto'
 import { z } from 'zod'
 import type { CliSettings } from '../shared/cli-settings.ts'
+import { BUILTIN_ROLE_PRESETS } from '../shared/builtin-presets.ts'
+import {
+  agentNameSchema,
+  NO_ROLE_LABEL,
+  rolePresetInputSchema,
+  rolePresetSchema,
+  roleSnapshotSchema,
+} from './roles.ts'
 import {
   CLI_IDS,
   EFFORTS,
   active,
   type CliId,
   type Preference,
+  type RolePreset,
   type Worker,
   type WorkerEvent,
 } from '../shared/types.ts'
@@ -35,6 +44,8 @@ const workerSchema = z.object({
   parentSessionId: z.string().min(1),
   project: z.string().min(1),
   title: z.string(),
+  agentName: agentNameSchema.optional(),
+  role: roleSnapshotSchema.optional(),
   preference: preferenceSchema,
   mode: z.enum(['plan', 'accept-edits']),
   conversationId: z.string().optional(),
@@ -76,6 +87,7 @@ export class WorkerStorage {
   private token = randomUUID()
   private lock: string
   private enabled = enabledByDefault()
+  private presets: RolePreset[] = []
   constructor(readonly directory: string) {
     mkdirSync(directory, { recursive: true, mode: 0o700 })
     chmodSync(directory, 0o700)
@@ -99,6 +111,17 @@ export class WorkerStorage {
       flag: 'wx',
     })
     try {
+      const rolesPath = join(directory, 'role-presets.json')
+      if (existsSync(rolesPath)) {
+        this.presets = z
+          .array(rolePresetSchema)
+          .max(200)
+          .parse(JSON.parse(readFileSync(rolesPath, 'utf8')))
+        chmodSync(rolesPath, 0o600)
+      } else {
+        this.presets = z.array(rolePresetSchema).parse(structuredClone(BUILTIN_ROLE_PRESETS))
+        atomicJSON(rolesPath, this.presets)
+      }
       const settingsPath = join(directory, 'cli-settings.json')
       if (existsSync(settingsPath)) {
         const settings = cliSettingsSchema.parse(JSON.parse(readFileSync(settingsPath, 'utf8')))
@@ -123,6 +146,36 @@ export class WorkerStorage {
   }
   cliSettings(): CliSettings {
     return { enabled: { ...this.enabled } }
+  }
+  rolePresets(): RolePreset[] {
+    return structuredClone(this.presets)
+  }
+  saveRolePreset(input: unknown): RolePreset {
+    const value = rolePresetInputSchema.parse(input)
+    const previous = value.id ? this.presets.find((preset) => preset.id === value.id) : undefined
+    if (value.id && !previous) throw new Error('此角色预设已删除，请新建预设')
+    if (
+      value.name === NO_ROLE_LABEL ||
+      this.presets.some(
+        (preset) =>
+          preset.id !== value.id && preset.name.toLocaleLowerCase() === value.name.toLocaleLowerCase(),
+      )
+    )
+      throw new Error('此智能体名称已被使用，请换一个名称')
+    if (!previous && this.presets.length >= 200) throw new Error('最多保存 200 个角色预设')
+    const saved: RolePreset = { ...previous, ...value, id: previous?.id ?? randomUUID() }
+    const next = previous
+      ? this.presets.map((preset) => (preset.id === saved.id ? saved : preset))
+      : [...this.presets, saved]
+    atomicJSON(join(this.directory, 'role-presets.json'), next)
+    this.presets = next
+    return structuredClone(saved)
+  }
+  deleteRolePreset(id: string): void {
+    if (!this.presets.some((preset) => preset.id === id)) throw new Error('此角色预设已删除')
+    const next = this.presets.filter((preset) => preset.id !== id)
+    atomicJSON(join(this.directory, 'role-presets.json'), next)
+    this.presets = next
   }
   setCliEnabled(cli: CliId, enabled: boolean): CliSettings {
     const id = z.enum(CLI_IDS).parse(cli)

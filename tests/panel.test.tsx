@@ -130,7 +130,7 @@ const deferred = () => {
   })
   return { promise, resolve, reject }
 }
-async function setup(openFirst = true, openNativeSettings?: () => void) {
+async function setup(openFirst = true, openNativeSettings?: () => void, snapshotWorkers = workers) {
   clipboard.mockReset().mockResolvedValue(true)
   const streams: Stream[] = []
   const history = vi.fn()
@@ -169,8 +169,8 @@ async function setup(openFirst = true, openNativeSettings?: () => void) {
     mounted.push(r)
   })
   const snapshot = (id?: string, revision = 1, overrides: Partial<Worker> = {}): Snapshot => ({
-    workers,
-    selected: id ? { ...workers.find((w) => w.id === id)!, ...overrides } : undefined,
+    workers: snapshotWorkers,
+    selected: id ? { ...snapshotWorkers.find((w) => w.id === id)!, ...overrides } : undefined,
     revision,
     truncated: false,
     timeline: id
@@ -251,6 +251,22 @@ it('preserves each worker draft and hides old content while switching', async ()
   await t.select('b')
   await t.push('b')
   expect(t.input().props.value).toBe('draft B')
+})
+it('shows and searches worker names alongside model metadata and the conversation topic', async () => {
+  const named = [{ ...workers[0], agentName: '因果审稿人' }, workers[1]]
+  const t = await setup(false, undefined, named)
+  expect(t.text()).toContain('Cli Worker')
+  const meta = t.r.root.findByProps({ 'data-worker-id': 'a' }).findByProps({ className: 'cwn-worker-meta' })
+  expect(JSON.stringify(meta.children.map((node: any) => node.children))).toContain('因果审稿人')
+  await act(async () => t.r.root.findByType('input').props.onChange({ target: { value: '因果' } }))
+  expect(t.r.root.findAllByProps({ 'data-worker-id': 'b' })).toHaveLength(0)
+  await t.select('a')
+  await t.push('a')
+  expect(t.r.root.findByProps({ className: 'cwn-head' }).findByType('h2').children).toEqual([
+    '因果审稿人｜Worker a',
+  ])
+  await t.click('修改智能体名称')
+  expect(t.r.root.findByProps({ 'aria-label': '新的智能体名称' }).props.value).toBe('因果审稿人')
 })
 it('late submission success clears only its originating draft', async () => {
   const t = await setup(),

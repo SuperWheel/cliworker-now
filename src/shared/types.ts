@@ -55,11 +55,29 @@ export interface ModelChoice {
   /** Exact CLI model IDs for the supported effort variants. */
   variants?: Partial<Record<Effort, string>>
 }
+/** User-editable role library. Prompts are user instructions, never executable HTML. */
+export interface RolePreset {
+  id: string
+  name: string
+  summary: string
+  prompt: string
+  builtin?: boolean
+  source?: string
+}
+/** Frozen when a worker is created; library edits cannot change an existing conversation. */
+export interface RoleSnapshot {
+  presetId?: string
+  name: string
+  summary: string
+  prompt: string
+}
 export interface Worker {
   id: string
   parentSessionId: string
   project: string
   title: string
+  agentName?: string
+  role?: RoleSnapshot
   preference: Preference
   mode: TaskMode
   conversationId?: string
@@ -72,6 +90,8 @@ export interface Worker {
   observedModel?: string
   lastResult?: string
 }
+/** Stable, non-mutating name for histories created before named workers. */
+export const workerName = (worker: Worker): string => worker.agentName || `智能体-${worker.id.slice(0, 6)}`
 export interface WorkerEvent {
   seq: number
   runId: string

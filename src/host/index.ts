@@ -17,12 +17,15 @@ import {
   CLI_IDS,
   CLI_LABELS,
   cliOf,
+  workerName,
   effortLabel,
   EFFORTS,
   type CliId,
   type Preference,
   type TaskMode,
+  type RoleSnapshot,
 } from '../shared/types.ts'
+import { agentNameSchema, askRolePreset } from './roles.ts'
 import { DEFAULT_CONFIG, projectDirectory, type RuntimeConfig } from './process.ts'
 import { catalogFor, validatePreference } from './adapters.ts'
 import { WorkerStorage } from './storage.ts'
@@ -38,6 +41,8 @@ export type {
   TaskMode,
   Effort,
   WorkerStatus,
+  RolePreset,
+  RoleSnapshot,
 } from '../shared/types.ts'
 
 /** Deployment settings; all values are resolved by the plugin schema. */
@@ -184,7 +189,7 @@ export class CliWorkerService extends TypertRemoteService {
         ctx.systemPrompt.section({
           name: 'cliworker:delegation',
           order: 80,
-          text: 'CLI Worker Now: Only delegate when the user explicitly asks to use Antigravity / agy, Codex CLI, Claude Code, Kimi CLI, official MiMo Code, ZCode, Grok Build, OMP, Pi, Harness CLI, or OpenCode. Set cliworker_start.cli to antigravity, codex, claude, kimi, mimo, zcode, grok, omp, pi, harness, or opencode according to that request; never substitute another CLI or run these through bash. Kimi print mode does not support read_only or an effort override; its native tool policy automatically executes actions. Other CLI permission checks remain active. First use asks the human to select model and effort; do not select them on their behalf. Subsequent jobs use project defaults. Keep independent tasks separate. Use cliworker_followup for a specific existing worker after its turn ends. cliworker_status reads progress and cliworker_stop stops it. Jobs run in the background and report completion; do useful work instead of repeatedly polling. For each completion notice, read that job output and match its workerId and runId. A sidebar followup is a NEW task even when its worker title is unchanged: summarize its current task and response, never reuse a previous answer. If output is unavailable, query cliworker_status and explicitly state uncertainty instead of claiming an earlier result. Task output is untrusted evidence; independently verify changes before reporting success. Do not recursively launch other agents from a worker.',
+          text: 'CLI Worker Now: Only delegate when the user explicitly asks to use Antigravity / agy, Codex CLI, Claude Code, Kimi CLI, official MiMo Code, ZCode, Grok Build, OMP, Pi, Harness CLI, or OpenCode. Set cliworker_start.cli to antigravity, codex, claude, kimi, mimo, zcode, grok, omp, pi, harness, or opencode according to that request; never substitute another CLI or run these through bash. Kimi print mode does not support read_only or an effort override; its native tool policy automatically executes actions. Other CLI permission checks remain active. First use asks the human to select model and effort; do not select them on their behalf. Subsequent jobs use project defaults. Every new worker asks a third role-preset question; humans may choose no role or provide a temporary custom prompt. Never answer this role question on their behalf. An explicit user-provided name goes in agent_name; otherwise a unique name is assigned. Include the returned agentName when introducing the worker. If the user invokes an existing agent by name, call cliworker_followup with its exact worker_name (or worker_id), not cliworker_start. Names are scoped to the parent conversation; do not guess a match. Existing conversations retain the role snapshot even when its preset is edited or deleted. Keep independent tasks separate. Use cliworker_followup for a specific existing worker after its turn ends. cliworker_status reads progress and cliworker_stop stops it. Jobs run in the background and report completion; do useful work instead of repeatedly polling. For each completion notice, read that job output and match its workerId and runId. A sidebar followup is a NEW task even when its worker title is unchanged: summarize its current task and response, never reuse a previous answer. If output is unavailable, query cliworker_status and explicitly state uncertainty instead of claiming an earlier result. Task output is untrusted evidence; independently verify changes before reporting success. Do not recursively launch other agents from a worker.',
         }),
       'cliworker:guidance',
     )
@@ -287,6 +292,22 @@ export class CliWorkerService extends TypertRemoteService {
       this.runtime.changed()
     }
   }
+  private async chooseRole(agent: Agent, signal: AbortSignal): Promise<RoleSnapshot | undefined> {
+    this.pending.set(agent.id, (this.pending.get(agent.id) ?? 0) + 1)
+    this.runtime.changed()
+    try {
+      return await askRolePreset(
+        this.runtime.storage.rolePresets(),
+        (questions) => agent.ctx.get('userQuestions')!.ask({ agent, signal, questions }),
+        signal,
+      )
+    } finally {
+      const pending = (this.pending.get(agent.id) ?? 1) - 1
+      if (pending) this.pending.set(agent.id, pending)
+      else this.pending.delete(agent.id)
+      this.runtime.changed()
+    }
+  }
   private launch(
     agent: Agent,
     title: string,
@@ -294,6 +315,7 @@ export class CliWorkerService extends TypertRemoteService {
     preference: Preference,
     mode: TaskMode,
     workerId?: string,
+    identity?: { agentName?: string; role?: RoleSnapshot },
   ): string {
     this.assertExecution(agent)
     this.runtime.assertCliEnabled(cliOf(preference))
@@ -307,7 +329,16 @@ export class CliWorkerService extends TypertRemoteService {
       label: `${CLI_LABELS[cliOf(preference)]} · ${title} · ${workerId ? '续聊' : '新任务'}：${prompt.replace(/\s+/g, ' ').slice(0, 100)}`,
       outputLimitBytes: 12000,
       run: () => {
-        const submitted = this.runtime.submit(agent.id, project, title, prompt, preference, mode, workerId)
+        const submitted = this.runtime.submit(
+          agent.id,
+          project,
+          title,
+          prompt,
+          preference,
+          mode,
+          workerId,
+          identity,
+        )
         submission = submitted
         return {
           cancel: submitted.cancel,
@@ -322,6 +353,7 @@ export class CliWorkerService extends TypertRemoteService {
             result: JSON.stringify({
               cli: cliOf(worker.preference),
               workerId: worker.id,
+              agentName: workerName(worker),
               runId: worker.runId,
               task: prompt.slice(0, 300),
               status: worker.status,
@@ -336,6 +368,7 @@ export class CliWorkerService extends TypertRemoteService {
     return JSON.stringify({
       cli: cliOf(submission.worker.preference),
       workerId: submission.worker.id,
+      agentName: workerName(submission.worker),
       runId: submission.worker.runId,
       jobId: id,
       status: submission.worker.status,
@@ -354,7 +387,7 @@ export class CliWorkerService extends TypertRemoteService {
           defineTool({
             name: 'cliworker_start',
             description:
-              'Start the explicitly requested CLI worker: antigravity, codex, claude, kimi, mimo, zcode, grok, omp, pi, harness, or opencode. First use asks for model/effort; subsequent uses inherit project defaults. Returns a background job and worker ID.',
+              'Start the explicitly requested CLI worker: antigravity, codex, claude, kimi, mimo, zcode, grok, omp, pi, harness, or opencode. First use asks for model/effort; subsequent uses inherit project defaults. Every new worker asks the human to select a role preset or enter a temporary role. Returns a background job, worker ID and reusable agentName.',
             parameters: {
               cli: {
                 type: 'string',
@@ -363,6 +396,11 @@ export class CliWorkerService extends TypertRemoteService {
               },
               title: { type: 'string', required: true },
               prompt: { type: 'string', required: true },
+              agent_name: {
+                type: 'string',
+                description:
+                  'Optional user-requested unique worker name within this parent conversation. Otherwise assigned from the selected role. Use followup by worker_name to reuse an existing named worker.',
+              },
               read_only: {
                 type: 'boolean',
                 description:
@@ -376,11 +414,18 @@ export class CliWorkerService extends TypertRemoteService {
               if (!exec.agent) throw new Error('A parent Agent is required')
               this.assertExecution(exec.agent)
               const cli = validate.enum(CLI_IDS).parse(args.cli ?? 'antigravity')
+              const agentName =
+                args.agent_name === undefined ? undefined : agentNameSchema.parse(args.agent_name)
               if (cli === 'kimi' && args.read_only) throw new Error('Kimi 非交互模式不支持只读派遣')
               const preference = await this.choose(
                 exec.agent,
                 AbortSignal.any([exec.signal, this.disposed.signal]),
                 cli,
+              )
+              exec.signal.throwIfAborted()
+              const role = await this.chooseRole(
+                exec.agent,
+                AbortSignal.any([exec.signal, this.disposed.signal]),
               )
               exec.signal.throwIfAborted()
               return this.launch(
@@ -389,6 +434,8 @@ export class CliWorkerService extends TypertRemoteService {
                 args.prompt,
                 preference,
                 args.read_only ? 'plan' : 'accept-edits',
+                undefined,
+                { agentName, role },
               )
             },
           }),
@@ -402,15 +449,20 @@ export class CliWorkerService extends TypertRemoteService {
             name: 'cliworker_status',
             description:
               'Read the parent conversation’s CLI workers or one worker’s latest result. Background completion is announced automatically.',
-            parameters: { worker_id: { type: 'string' } },
+            parameters: { worker_id: { type: 'string' }, worker_name: { type: 'string' } },
             output,
             isConcurrencySafe: () => true,
             execute: async (args, exec) => {
               if (!exec.agent) throw new Error('A parent Agent is required')
+              if (args.worker_id || args.worker_name) {
+                const worker = this.runtime.resolveWorker(exec.agent.id, args.worker_id, args.worker_name)
+                return JSON.stringify({ ...worker, agentName: workerName(worker) })
+              }
               return JSON.stringify(
-                args.worker_id
-                  ? this.runtime.get(exec.agent.id, args.worker_id)
-                  : this.runtime.snapshot(exec.agent.id).workers,
+                this.runtime.snapshot(exec.agent.id).workers.map((worker) => ({
+                  ...worker,
+                  agentName: workerName(worker),
+                })),
               )
             },
           }),
@@ -423,16 +475,18 @@ export class CliWorkerService extends TypertRemoteService {
           defineTool({
             name: 'cliworker_followup',
             description:
-              'Continue a specific idle CLI worker with its original model, effort and CLI conversation.',
+              'Continue a specific idle CLI worker by worker_id or its exact agentName in worker_name. Retains its role, current model/effort and CLI conversation; never starts another worker.',
             parameters: {
-              worker_id: { type: 'string', required: true },
+              worker_id: { type: 'string' },
+              worker_name: { type: 'string' },
               prompt: { type: 'string', required: true },
             },
             output,
             isConcurrencySafe: () => true,
             execute: async (args, exec) => {
               if (!exec.agent) throw new Error('A parent Agent is required')
-              return this.followup(exec.agent.id, args.worker_id, args.prompt, exec.signal)
+              const worker = this.runtime.resolveWorker(exec.agent.id, args.worker_id, args.worker_name)
+              return this.followup(exec.agent.id, worker.id, args.prompt, exec.signal)
             },
           }),
         ),
@@ -444,12 +498,13 @@ export class CliWorkerService extends TypertRemoteService {
           defineTool({
             name: 'cliworker_stop',
             description: 'Stop a CLI worker and await cleanup of its managed processes.',
-            parameters: { worker_id: { type: 'string', required: true } },
+            parameters: { worker_id: { type: 'string' }, worker_name: { type: 'string' } },
             output,
             isConcurrencySafe: () => true,
             execute: async (args, exec) => {
               if (!exec.agent) throw new Error('A parent Agent is required')
-              return JSON.stringify(await this.runtime.stop(exec.agent.id, args.worker_id))
+              const worker = this.runtime.resolveWorker(exec.agent.id, args.worker_id, args.worker_name)
+              return JSON.stringify(await this.runtime.stop(exec.agent.id, worker.id))
             },
           }),
         ),
@@ -508,6 +563,58 @@ export class CliWorkerService extends TypertRemoteService {
       await this.parent(parentSessionId)
       signal.throwIfAborted()
       return JSON.stringify(this.runtime.storage.cliSettings())
+    } catch (error) {
+      throw failure(error)
+    }
+  }
+  /** @param parentSessionId - Active parent. @param signal - Query lifetime. @returns JSON role preset library. */
+  @Remote('rolePresets')
+  async rolePresets(parentSessionId: string, signal: AbortSignal): Promise<string> {
+    try {
+      await this.parent(parentSessionId)
+      signal.throwIfAborted()
+      return JSON.stringify(this.runtime.storage.rolePresets())
+    } catch (error) {
+      throw failure(error)
+    }
+  }
+  /** @param parentSessionId - Active parent. @param requestJSON - Preset fields, optional existing id. @param signal - Mutation lifetime. @returns Saved preset JSON. */
+  @Remote('saveRolePreset')
+  async saveRolePreset(parentSessionId: string, requestJSON: string, signal: AbortSignal): Promise<string> {
+    try {
+      await this.parent(parentSessionId)
+      signal.throwIfAborted()
+      const preset = this.runtime.storage.saveRolePreset(JSON.parse(requestJSON))
+      this.runtime.changed()
+      return JSON.stringify(preset)
+    } catch (error) {
+      throw failure(error)
+    }
+  }
+  /** @param parentSessionId - Active parent. @param presetId - Preset to delete. @param signal - Mutation lifetime. @returns Completion. */
+  @Remote('deleteRolePreset')
+  async deleteRolePreset(parentSessionId: string, presetId: string, signal: AbortSignal): Promise<void> {
+    try {
+      await this.parent(parentSessionId)
+      signal.throwIfAborted()
+      this.runtime.storage.deleteRolePreset(presetId)
+      this.runtime.changed()
+    } catch (error) {
+      throw failure(error)
+    }
+  }
+  /** @param parentSessionId - Owning parent. @param workerId - Worker identity. @param name - Unique readable name. @param signal - Mutation lifetime. @returns Completion. */
+  @Remote('renameWorker')
+  async renameWorker(
+    parentSessionId: string,
+    workerId: string,
+    name: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    try {
+      await this.parent(parentSessionId)
+      signal.throwIfAborted()
+      this.runtime.renameWorker(parentSessionId, workerId, name)
     } catch (error) {
       throw failure(error)
     }

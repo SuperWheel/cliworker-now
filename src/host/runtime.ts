@@ -6,6 +6,7 @@ import {
   active,
   CLI_LABELS,
   cliOf,
+  workerName,
   foldEvents,
   type Preference,
   type TaskMode,
@@ -14,7 +15,9 @@ import {
   type HistoryPage,
   type TimelineItem,
   type CliId,
+  type RoleSnapshot,
 } from '../shared/types.ts'
+import { agentNameSchema, availableAgentName, promptForWorker, roleSnapshotSchema } from './roles.ts'
 import { protocolFor, resolveCliExecutable, workerArguments } from './adapters.ts'
 import { spawnManagedAgent } from './managed-agent.ts'
 import { projectDirectory, type ProcessBackend, type RuntimeConfig } from './process.ts'
@@ -89,6 +92,50 @@ export class WorkerRuntime {
     if (!worker || worker.parentSessionId !== parent)
       throw new Error('Worker does not belong to this conversation')
     return worker
+  }
+  /** Exact names are scoped to the owning parent; never select a partial or cross-session match. */
+  resolveWorker(parent: string, id?: string, name?: string): Worker {
+    if (!id && !name) throw new Error('请指定 worker_id 或 worker_name')
+    const normalized = name === undefined ? undefined : agentNameSchema.parse(name)
+    if (id) {
+      const worker = this.get(parent, id)
+      if (normalized && workerName(worker) !== normalized) throw new Error('worker_id 与 worker_name 不匹配')
+      return worker
+    }
+    const matches = [...this.storage.workers.values()].filter(
+      (worker) => worker.parentSessionId === parent && workerName(worker) === normalized,
+    )
+    if (matches.length !== 1)
+      throw new Error(
+        matches.length
+          ? '智能体名称不唯一，请使用 worker_id'
+          : '当前对话中没有此名称的智能体，请检查名称或使用 worker_id',
+      )
+    return matches[0]!
+  }
+  private checkAgentName(parent: string, name: string, excludingId?: string): string {
+    const clean = agentNameSchema.parse(name)
+    if (
+      [...this.storage.workers.values()].some(
+        (worker) =>
+          worker.parentSessionId === parent &&
+          worker.id !== excludingId &&
+          workerName(worker).toLocaleLowerCase() === clean.toLocaleLowerCase(),
+      )
+    )
+      throw new Error('当前对话已有同名智能体，请换一个名称或续用已有智能体')
+    return clean
+  }
+  renameWorker(parent: string, id: string, name: string): void {
+    if (this.disposed) throw new Error('CLI Worker is shutting down')
+    const worker = this.get(parent, id)
+    const agentName = this.checkAgentName(parent, name, id)
+    // Publish the new name only after persistence succeeds. Keep a running task's
+    // shared worker reference in sync so its next process event cannot revert it.
+    this.storage.save({ ...worker, agentName })
+    worker.agentName = agentName
+    this.storage.workers.set(id, worker)
+    this.changed()
   }
   snapshot(parent: string, selected?: string): WorkerSnapshot {
     const workers = [...this.storage.workers.values()]
@@ -172,6 +219,7 @@ export class WorkerRuntime {
     preference: Preference,
     mode: TaskMode,
     previousId?: string,
+    identity?: { agentName?: string; role?: RoleSnapshot },
   ): Submission {
     if (this.disposed) throw new Error('CLI Worker is shutting down')
     if (this.blocked) throw new Error(this.blocked)
@@ -194,6 +242,14 @@ export class WorkerRuntime {
       parentSessionId: parent,
       project: canonical,
       title: title.slice(0, 160),
+      agentName: identity?.agentName
+        ? this.checkAgentName(parent, identity.agentName)
+        : availableAgentName(
+            this.storage.workers.values(),
+            parent,
+            identity?.role?.name ?? `${CLI_LABELS[cliOf(preference)]}助手`,
+          ),
+      role: identity?.role ? roleSnapshotSchema.parse(structuredClone(identity.role)) : undefined,
       preference: { ...preference },
       mode,
       createdAt: now,
@@ -215,7 +271,13 @@ export class WorkerRuntime {
     const done = new Promise<Worker>((resolve) => {
       settle = resolve
     })
-    const task: Task = { worker, prompt, controller: new AbortController(), done, settle }
+    const task: Task = {
+      worker,
+      prompt: promptForWorker(worker, prompt),
+      controller: new AbortController(),
+      done,
+      settle,
+    }
     this.tasks.set(worker.id, task)
     this.queue.push(task)
     this.changed()

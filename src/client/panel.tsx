@@ -10,6 +10,7 @@ import {
   CLI_LABELS,
   cliOf,
   effortLabel,
+  workerName,
   type CliId,
   type WorkerStatus,
   type HistoryPage,
@@ -19,6 +20,7 @@ import { CopyText } from './copy-text.tsx'
 import { BrandIcon, Glyph } from './icons.tsx'
 import { WorkerModelMenu } from './worker-model-menu.tsx'
 import { SettingsDialog } from './settings-dialog.tsx'
+import { RenameWorker } from './rename-worker.tsx'
 
 const status: Record<WorkerStatus, string> = {
   queued: '排队中',
@@ -102,6 +104,7 @@ function SessionPanel({
   }, [])
   const [settingsCli, setSettingsCli] = useState<CliId>('antigravity')
   const [settings, setSettings] = useState(false)
+  const [renaming, setRenaming] = useState(false)
   const nativeSettingsRequested = useRef(false)
   useEffect(() => {
     // The native command must run after our Modal releases its focus/inert seat.
@@ -163,7 +166,7 @@ function SessionPanel({
   }
   const visibleWorkers = snapshot.workers.filter((w) => {
     const matches =
-      `${CLI_LABELS[cliOf(w.preference)]} ${w.title} ${w.preference.model} ${w.preference.effort}`
+      `${CLI_LABELS[cliOf(w.preference)]} ${workerName(w)} ${w.title} ${w.preference.model} ${w.preference.effort}`
         .toLowerCase()
         .includes(query.trim().toLowerCase())
     return (
@@ -216,8 +219,11 @@ function SessionPanel({
                 <Glyph name="back" />
               </Button>
             </Tooltip>
-            <h2 title={worker?.title}>
-              {worker?.title ?? snapshot.workers.find((w) => w.id === selected)?.title ?? '正在加载…'}
+            <h2 title={worker ? `${workerName(worker)}｜${worker.title}` : undefined}>
+              {(() => {
+                const current = worker ?? snapshot.workers.find((w) => w.id === selected)
+                return current ? `${workerName(current)}｜${current.title}` : '正在加载…'
+              })()}
             </h2>
             <details className="cwn-actions">
               <summary aria-label="任务选项" title="任务选项">
@@ -228,6 +234,16 @@ function SessionPanel({
                   <>
                     <strong>{CLI_LABELS[cliOf(worker.preference)]}</strong>
                     <p>{worker.mode === 'plan' ? 'CLI 规划模式' : '可编辑任务'}</p>
+                    {worker.role && <p title={worker.role.summary}>角色：{worker.role.name}</p>}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setRenaming(true)}
+                      disabled={unavailable}
+                    >
+                      修改智能体名称
+                    </Button>
                     {worker.observedModel && worker.observedModel !== worker.preference.model && (
                       <p>CLI 实际模型：{worker.observedModel}</p>
                     )}
@@ -259,7 +275,7 @@ function SessionPanel({
             <div className="cwn-wordmark">
               <BrandIcon size={36} />
               <h2 aria-label="CLI Worker Now">
-                <span>cli worker</span>
+                <span>Cli Worker</span>
                 <small>NOW</small>
               </h2>
             </div>
@@ -278,6 +294,15 @@ function SessionPanel({
           </>
         )}
       </header>
+      {renaming && worker && (
+        <RenameWorker
+          key={worker.id}
+          api={api}
+          sessionId={sessionId}
+          worker={worker}
+          onClose={() => setRenaming(false)}
+        />
+      )}
       <SettingsDialog
         openNativeSettings={
           openNativeSettings
@@ -306,7 +331,7 @@ function SessionPanel({
             icon={<Glyph name="search" />}
             type="search"
             aria-label="筛选子 Agent"
-            placeholder="搜索话题、CLI 或模型…"
+            placeholder="搜索智能体、话题或模型…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -382,7 +407,15 @@ function SessionPanel({
                             </span>
                           </span>
                           <span className="cwn-worker-meta">
-                            <span title={w.preference.model}>{modelName(w.preference)}</span>
+                            <span className="cwn-worker-name" title={workerName(w)}>
+                              {workerName(w)}
+                            </span>
+                            <span className="cwn-meta-divider" aria-hidden="true">
+                              ｜
+                            </span>
+                            <span className="cwn-worker-model" title={w.preference.model}>
+                              {modelName(w.preference)}
+                            </span>
                             <span className="cwn-meta-divider" aria-hidden="true">
                               ·
                             </span>
@@ -397,7 +430,7 @@ function SessionPanel({
             })}
           </nav>
           {snapshot.configuring && (
-            <div className="cwn-notice">等待选择模型和思考强度。请在主对话的问题卡片中确认。</div>
+            <div className="cwn-notice">等待选择模型、思考强度与智能体预设。请在主对话的问题卡片中确认。</div>
           )}
           {!connecting && !streamError && !snapshot.workers.length && !snapshot.configuring && (
             <div className="cwn-empty">
@@ -405,7 +438,7 @@ function SessionPanel({
               <h3>让协作过程看得见</h3>
               <p>在主对话中明确派遣任务：</p>
               <blockquote>用 ZCode、OMP、Pi、Harness 或 OpenCode 帮我检查这个项目</blockquote>
-              <p>首次运行先选择模型与思考强度，过程会实时显示在这里。</p>
+              <p>选择模型、思考强度与智能体预设后，协作过程会实时显示在这里。</p>
             </div>
           )}
         </div>
@@ -482,7 +515,7 @@ function SessionPanel({
           aria-busy={running || false}
         >
           {snapshot.configuring && (
-            <div className="cwn-notice">等待选择模型和思考强度。请在主对话的问题卡片中确认。</div>
+            <div className="cwn-notice">等待选择模型、思考强度与智能体预设。请在主对话的问题卡片中确认。</div>
           )}
           {!history && snapshot.truncated && (
             <div className="cwn-history-start">
