@@ -20,6 +20,7 @@ import {
   type Worker,
 } from '../shared/types.ts'
 import { modelName } from '../shared/models.ts'
+import { displayModelName, visibleModelChoices } from '../shared/model-presentation.ts'
 import { value, type API } from './workers.ts'
 import { operationMessage } from './operation-error.ts'
 
@@ -69,10 +70,12 @@ export function WorkerModelMenu({
       })
     return () => controller.abort()
   }, [open, api, sessionId, cli, attempt])
-  const name = modelName(worker.preference)
+  const identity = modelName(worker.preference)
   const chosen = catalog?.models.find(
-    (m) => m.id === name || Object.values(m.variants ?? {}).includes(worker.preference.model),
+    (m) => m.id === identity || Object.values(m.variants ?? {}).includes(worker.preference.model),
   )
+  const visible = visibleModelChoices(catalog?.models ?? [], worker.preference.model)
+  const name = visible.find((model) => model.id === chosen?.id)?.label ?? displayModelName(worker.preference)
   const locked = disabled || saving || active(worker.status)
   const close = () => {
     if (!saving) {
@@ -177,7 +180,7 @@ export function WorkerModelMenu({
             onChange={(e) => setQuery(e.target.value)}
           />
           <div className="cwn-model-provider">{CLI_LABELS[cli]}</div>
-          {catalog?.models
+          {visible
             .filter((m) => `${m.id} ${m.label}`.toLowerCase().includes(query.toLowerCase()))
             .map((m) => (
               <MenuItemButton
@@ -191,7 +194,7 @@ export function WorkerModelMenu({
                 }}
               >
                 <span className="cwn-model-cell">
-                  <span title={m.id}>{m.label || m.id}</span>
+                  <span title={m.label}>{m.label}</span>
                   {m.id === chosen?.id && <IconCheckOutlineRegular size={14} />}
                 </span>
               </MenuItemButton>

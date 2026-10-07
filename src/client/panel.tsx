@@ -1,6 +1,6 @@
 import { ComposerTelemetry } from './telemetry.tsx'
 import { ConversationTimeline } from './conversation-timeline.tsx'
-import { modelName } from '../shared/models.ts'
+import { displayModelName } from '../shared/model-presentation.ts'
 import { operationMessage } from './operation-error.ts'
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { Button, Input, Tooltip, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -249,7 +249,10 @@ function SessionPanel({
                       修改智能体名称
                     </Button>
                     {worker.observedModel && worker.observedModel !== worker.preference.model && (
-                      <p>CLI 实际模型：{worker.observedModel}</p>
+                      <p>
+                        CLI 实际模型：
+                        {displayModelName({ ...worker.preference, model: worker.observedModel })}
+                      </p>
                     )}
                     {worker.lastResult && (
                       <CopyText
@@ -429,8 +432,8 @@ function SessionPanel({
                               <span className="cwn-meta-divider" aria-hidden="true">
                                 ｜
                               </span>
-                              <span className="cwn-worker-model" title={w.preference.model}>
-                                {modelName(w.preference)}
+                              <span className="cwn-worker-model" title={displayModelName(w.preference)}>
+                                {displayModelName(w.preference)}
                               </span>
                               <span className="cwn-meta-divider" aria-hidden="true">
                                 ·

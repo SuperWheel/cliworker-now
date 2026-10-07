@@ -347,7 +347,7 @@ it('offers logout alongside an authenticated account and dispatches only logout 
   expect(terminal.started).toHaveBeenCalledTimes(1)
 })
 
-it('displays native model labels while saving the exact provider/model identifier', async () => {
+it('displays only the native model name while saving the exact provider/model identifier', async () => {
   const id = 'account:bigmodel-individual-coding-plan/GLM-5.3'
   const label = 'GLM-5.3（BigModel · 模拟）'
   const t = await setup({
@@ -356,9 +356,94 @@ it('displays native model labels while saving the exact provider/model identifie
     ),
   })
   await t.click('ZCode 设置')
-  expect(visibleText(t.button('默认模型'))).toContain(label)
+  expect(visibleText(t.button('默认模型'))).toContain('GLM-5.3')
+  expect(visibleText(t.button('默认模型'))).not.toContain('BigModel')
+  expect(visibleText(t.button('默认模型'))).not.toMatch(/[()（）]/u)
   await t.submit()
   expect(JSON.parse(t.configure.mock.calls[0]![1])).toEqual({ cli: 'zcode', model: id, effort: 'default' })
+})
+
+it('deduplicates route names and puts proven free models first without combining route capabilities', async () => {
+  const models = [
+    { id: 'paid/GLM-5.3', label: 'GLM-5.3（paid source）', cost: 'paid', efforts: ['high'] },
+    { id: 'paid/GLM-5.3-Flash', label: 'GLM-5.3-Flash（paid source）', cost: 'paid', efforts: ['medium'] },
+    { id: 'free/glm-5.3', label: 'GLM-5.3 (free source)', cost: 'free', efforts: ['default'] },
+  ]
+  const t = await setup({
+    catalogForCli: vi.fn(async (_parent, cli: CliId) =>
+      cli === 'zcode' ? remote({ cli, models }) : catalog(cli),
+    ),
+  })
+  await t.click('ZCode 设置')
+  expect(visibleText(t.button('默认模型')).trim()).toBe('GLM-5.3')
+  expect(visibleText(t.button('默认思考强度'))).toContain('沿用 CLI 配置')
+  expect(t.configure).not.toHaveBeenCalled()
+  await t.click('默认模型')
+  const menu = t.r.root.findByProps({ role: 'menu' })
+  expect(menu.findAllByType('button').map((button) => visibleText(button))).toEqual([
+    'GLM-5.3',
+    'GLM-5.3-Flash',
+  ])
+  expect(visibleText(menu)).not.toMatch(/source|[()（）]/u)
+  await t.click('GLM-5.3-Flash')
+  expect(visibleText(t.button('默认思考强度')).trim()).toBe('medium')
+  await t.submit()
+  expect(JSON.parse(t.configure.mock.calls[0]![1])).toEqual({
+    cli: 'zcode',
+    model: 'paid/GLM-5.3-Flash',
+    effort: 'medium',
+  })
+})
+
+it('retains the exact valid saved paid route when a free duplicate is available', async () => {
+  const models = [
+    { id: 'free/chat', label: 'Chat（free source）', cost: 'free', efforts: ['default'] },
+    { id: 'paid/chat', label: 'Chat（paid source）', cost: 'paid', efforts: ['high'] },
+  ]
+  const t = await setup({
+    catalogForCli: vi.fn(async (_parent, cli: CliId) =>
+      cli === 'pi'
+        ? remote({ cli, models, preference: { cli, model: 'paid/chat', effort: 'high' } })
+        : catalog(cli),
+    ),
+  })
+  await t.click('Pi 设置')
+  expect(visibleText(t.button('默认模型')).trim()).toBe('Chat')
+  expect(visibleText(t.button('默认思考强度')).trim()).toBe('high')
+  expect(t.configure).not.toHaveBeenCalled()
+  await t.click('默认模型')
+  expect(t.r.root.findByProps({ role: 'menu' }).findAllByType('button')).toHaveLength(1)
+  await t.click('Chat')
+  await t.submit()
+  expect(JSON.parse(t.configure.mock.calls[0]![1])).toEqual({ cli: 'pi', model: 'paid/chat', effort: 'high' })
+})
+
+it('asks to reselect an unavailable saved route instead of silently switching to a duplicate', async () => {
+  const t = await setup({
+    catalogForCli: vi.fn(async (_parent, cli: CliId) =>
+      cli === 'omp'
+        ? remote({
+            cli,
+            models: [{ id: 'free/chat', label: 'Chat（free source）', cost: 'free', efforts: ['default'] }],
+            preference: { cli, model: 'removed/chat', effort: 'high' },
+          })
+        : catalog(cli),
+    ),
+  })
+  await t.click('OMP 设置')
+  expect(visibleText(t.button('默认模型')).trim()).toBe('选择模型')
+  expect(t.text()).toContain('原默认模型已不可用，请重新选择模型')
+  expect(t.button('保存默认值').props.disabled).toBe(true)
+  await t.submit()
+  expect(t.configure).not.toHaveBeenCalled()
+  await t.click('默认模型')
+  await t.click('Chat')
+  await t.submit()
+  expect(JSON.parse(t.configure.mock.calls[0]![1])).toEqual({
+    cli: 'omp',
+    model: 'free/chat',
+    effort: 'default',
+  })
 })
 
 it('uses Kimi supported default effort without a saved preference and can persist it', async () => {

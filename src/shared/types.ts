@@ -57,6 +57,8 @@ export interface Preference {
 export interface ModelChoice {
   id: string
   label: string
+  /** Explicit native cost evidence only; missing/default zero prices are unknown. */
+  cost?: 'free' | 'paid' | 'unknown'
   efforts?: Effort[]
   /** Exact CLI model IDs for the supported effort variants. */
   variants?: Partial<Record<Effort, string>>

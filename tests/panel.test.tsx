@@ -604,6 +604,85 @@ it('model menu updates an idle worker without dispatching or changing project de
   expect(configure).not.toHaveBeenCalled()
   expect(t.followup).not.toHaveBeenCalled()
 })
+it('simplifies a historical full model route in task cards and the composer without a catalog', async () => {
+  const id = 'account:bigmodel-individual-coding-plan/GLM-5.3-Flash'
+  const history = [
+    { ...workers[0]!, preference: { cli: 'zcode' as const, model: id, effort: 'low' as const } },
+  ]
+  const t = await setup(false, undefined, history)
+  const card = t.r.root.findByProps({ className: 'cwn-worker-model' })
+  expect(card.children).toEqual(['GLM-5.3-Flash'])
+  expect(card.props.title).toBe('GLM-5.3-Flash')
+  expect(t.text()).not.toContain('account:bigmodel')
+  expect(history[0]!.preference.model).toBe(id)
+  await t.select('a')
+  await t.push('a')
+  const compose = t.r.root.findByProps({ 'aria-label': '模型与强度' })
+  expect(compose.findAllByType('span')[0]!.children).toEqual(['GLM-5.3-Flash'])
+  expect(compose.props.title).toBe('GLM-5.3-Flash · low')
+  expect(t.text()).not.toContain('account:bigmodel')
+})
+
+it('worker model choices deduplicate with free priority while keeping the selected exact route and effort', async () => {
+  const history = [
+    { ...workers[0]!, preference: { cli: 'pi' as const, model: 'paid/GLM-5.3', effort: 'high' as const } },
+  ]
+  const t = await setup(true, undefined, history)
+  const configureWorker = vi.fn().mockResolvedValue({ ok: true, value: '{}' })
+  const configure = vi.fn()
+  Object.assign(t.api.cliworker, {
+    catalogForCli: vi.fn().mockResolvedValue({
+      ok: true,
+      value: JSON.stringify({
+        models: [
+          { id: 'paid/GLM-5.3', label: 'GLM-5.3（paid source）', cost: 'paid', efforts: ['high'] },
+          { id: 'free/glm-5.3', label: 'GLM-5.3 (free source)', cost: 'free', efforts: ['default'] },
+          { id: 'native/other-free', label: 'Other free (provider)', cost: 'free', efforts: ['default'] },
+          {
+            id: 'native/GLM-5.3-Flash',
+            label: 'GLM-5.3-Flash (provider)',
+            cost: 'unknown',
+            efforts: ['medium'],
+          },
+        ],
+      }),
+    }),
+    configureWorker,
+    configure,
+  })
+  await t.click('模型与强度')
+  await t.click('effort')
+  const effortButtons = t.r.root
+    .findAllByType('button')
+    .filter((button) => ['high', 'default'].includes(button.props['aria-label']))
+  expect(effortButtons.map((button) => button.props['aria-label'])).toEqual(['high'])
+  await t.click('back')
+  await t.click('model')
+  const entries = t.r.root
+    .findAllByType('button')
+    .filter(
+      (button) =>
+        button.findAll((node) => node.type === 'span' && typeof node.props.title === 'string').length > 0,
+    )
+  expect(
+    entries.map((button) =>
+      button
+        .findAll((node) => node.type === 'span' && typeof node.props.title === 'string')[0]!
+        .children.join(''),
+    ),
+  ).toEqual(['Other free', 'GLM-5.3', 'GLM-5.3-Flash'])
+  expect(t.text()).not.toContain('source')
+  expect(configureWorker).not.toHaveBeenCalled()
+  await act(async () => entries[1]!.props.onClick())
+  expect(configureWorker).toHaveBeenCalledWith(
+    'parent',
+    'a',
+    JSON.stringify({ cli: 'pi', model: 'paid/GLM-5.3', effort: 'high' }),
+  )
+  expect(configure).not.toHaveBeenCalled()
+  expect(t.followup).not.toHaveBeenCalled()
+})
+
 it('model catalog failure is recoverable and never appears as a raw transport option', async () => {
   const t = await setup()
   Object.assign(t.api.cliworker, {

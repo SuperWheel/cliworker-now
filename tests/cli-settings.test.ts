@@ -269,3 +269,54 @@ describe('profile-wide CLI enablement', () => {
     await expect(service.catalogForCli('parent', 'antigravity', signal)).resolves.toContain('fixture')
   })
 })
+
+// Explicit synthetic account-supported catalog. No credential or model request.
+describe('account-supported model selection', () => {
+  const supported: Catalog = {
+    cli: 'antigravity',
+    models: [
+      { id: 'paid/GLM-5.3-Flash', label: 'GLM-5.3-Flash（付费来源）', efforts: ['default'], cost: 'paid' },
+      { id: 'native-free/glm-5.3-flash', label: 'GLM-5.3-Flash（免费来源）', efforts: ['default'], cost: 'free' },
+      { id: 'paid/GLM-5.3', label: 'GLM-5.3 (provider)', efforts: ['default'], cost: 'unknown' },
+    ],
+    notice: '【模拟】仅已确认账号支持的模型',
+  }
+
+  it('asks once using deduplicated names and saves the exact free route only after selection', async () => {
+    const { service, ask, storage, project, signal, backend } = fixture()
+    vi.mocked(catalogFor).mockResolvedValue(supported)
+    ask.mockResolvedValue({ answers: [{ id: 'cliworker_model', selected: ['GLM-5.3-Flash'] }] })
+    const agent = await (service as any).parent('parent')
+    const chosen = await (service as any).choose(agent, signal, 'antigravity')
+    const options = ask.mock.calls[0]![0].questions[0].options
+    expect(options).toEqual([
+      { label: 'GLM-5.3-Flash', description: '免费额度优先' },
+      { label: 'GLM-5.3', description: '' },
+    ])
+    expect(chosen).toEqual({ cli: 'antigravity', model: 'native-free/glm-5.3-flash', effort: 'default' })
+    expect(storage.preference(project, 'antigravity')).toEqual(chosen)
+    expect(backend.spawn).not.toHaveBeenCalled()
+  })
+
+  it('keeps an explicitly saved valid paid route despite an equivalent free choice', async () => {
+    const { service, ask, storage, project, signal, backend } = fixture()
+    vi.mocked(catalogFor).mockResolvedValue(supported)
+    const saved = { cli: 'antigravity' as const, model: 'paid/GLM-5.3-Flash', effort: 'default' as const }
+    storage.setPreference(project, saved)
+    const agent = await (service as any).parent('parent')
+    expect(await (service as any).choose(agent, signal, 'antigravity')).toEqual(saved)
+    expect(storage.preference(project, 'antigravity')).toEqual(saved)
+    expect(ask).not.toHaveBeenCalled()
+    expect(backend.spawn).not.toHaveBeenCalled()
+  })
+
+  it('refuses obsolete unsupported configure and followup without changing selection or starting a process', async () => {
+    const { service, storage, project, worker, signal, backend } = fixture()
+    vi.mocked(catalogFor).mockResolvedValue(supported)
+    storage.setPreference(project, worker.preference)
+    await expect(service.configure('parent', JSON.stringify(worker.preference), signal)).rejects.toThrow('不可用')
+    await expect(service.followup('parent', worker.id, '【模拟】继续', signal)).rejects.toThrow('不可用')
+    expect(storage.preference(project, 'antigravity')).toEqual(worker.preference)
+    expect(backend.spawn).not.toHaveBeenCalled()
+  })
+})

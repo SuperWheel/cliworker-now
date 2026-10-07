@@ -22,6 +22,7 @@ import {
 } from '../shared/types.ts'
 import type { AccountAction, AccountStatus } from '../shared/accounts.ts'
 import { modelName } from '../shared/models.ts'
+import { visibleModelChoices } from '../shared/model-presentation.ts'
 import { AccountTerminal } from './account-terminal.tsx'
 import { BrandIcon, Glyph } from './icons.tsx'
 import { operationMessage } from './operation-error.ts'
@@ -545,7 +546,14 @@ function CliSettings({
         onCatalogResult(cli, next.models.length > 0 ? 'success' : 'failed')
         if (!next.models.length) setModelError('此 CLI 未返回可用模型，请刷新重试')
         const preferred = next.preference ? modelName(next.preference) : ''
-        const chosen = next.models.find((item) => item.id === preferred) ?? next.models[0]
+        const saved = next.models.find(
+          (item) =>
+            item.id === preferred ||
+            Object.values(item.variants ?? {}).includes(next.preference?.model ?? ''),
+        )
+        const chosen = next.preference ? saved : visibleModelChoices(next.models)[0]
+        if (next.preference && !saved && next.models.length)
+          setModelError('原默认模型已不可用，请重新选择模型')
         setModel(chosen?.id ?? '')
         setEffort(
           next.preference && chosen?.efforts?.includes(next.preference.effort)
@@ -796,7 +804,10 @@ function CliSettings({
             <NativeChoice
               label="默认模型"
               selected={model}
-              choices={(catalog?.models ?? []).map((item) => ({ id: item.id, label: item.label || item.id }))}
+              choices={visibleModelChoices(catalog?.models ?? [], model).map((item) => ({
+                id: item.id,
+                label: item.label,
+              }))}
               disabled={inactive || modelLoading || saving || !catalog}
               onChange={changeModel}
             />

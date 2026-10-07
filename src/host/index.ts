@@ -1,4 +1,5 @@
 import { resolveModel } from '../shared/models.ts'
+import { visibleModelChoices } from '../shared/model-presentation.ts'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { z as validate } from 'zod'
@@ -240,6 +241,7 @@ export class CliWorkerService extends TypertRemoteService {
         /* Ask again for obsolete preferences. */
       }
     }
+    const choices = visibleModelChoices(models)
     const waiting = this.preferenceWaits.get(key)
     if (waiting) {
       const result = await waiting
@@ -259,15 +261,19 @@ export class CliWorkerService extends TypertRemoteService {
             header: `${CLI_LABELS[cli]} 模型`,
             question: '选择此项目默认使用的模型',
             detail: `项目：${project}\n${catalog.notice}\n选择后启动当前任务。`,
-            options: models.map((model) => ({ label: model.id, description: model.label })),
+            options: choices.map((model) => ({
+              label: model.label,
+              description: model.cost === 'free' ? '免费额度优先' : '',
+            })),
           },
         ],
       })
       signal.throwIfAborted()
       this.runtime.assertCliEnabled(cli)
-      const model = answer.answers.find((a) => a.id === 'cliworker_model')?.selected[0]
-      const chosen = models.find((m) => m.id === model)
+      const label = answer.answers.find((a) => a.id === 'cliworker_model')?.selected[0]
+      const chosen = choices.find((m) => m.label === label)
       if (!chosen?.efforts?.length) throw new Error('请选择列表中的模型')
+      const model = chosen.id
       let effort = chosen.efforts[0]
       if (chosen.efforts.length > 1) {
         const selection = await agent.ctx.get('userQuestions')!.ask({
@@ -277,7 +283,7 @@ export class CliWorkerService extends TypertRemoteService {
             {
               id: 'cliworker_effort',
               header: '思考强度',
-              question: `选择 ${model} 的默认思考强度`,
+              question: `选择 ${chosen.label} 的默认思考强度`,
               options: chosen.efforts.map((effort) => ({ label: effort, description: effortLabel(effort) })),
             },
           ],
