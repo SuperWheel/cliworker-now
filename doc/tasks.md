@@ -537,3 +537,18 @@
 - [x] 指南相对链接、运行时依赖/exports/安装元数据保持不变、六个生成技能版本、`git diff --check` 检查通过；正式 `lib/` 的 172 个文件 SHA256 前后完全一致。检查报告与指令快照在 `.test-data/openspec-adoption/`（忽略目录）。
 - 本次不执行正式 build、Desktop 更新或真实 CLI 模型任务，不提升插件版本；Kimi/Grok/Hermes 以及其他历史真实验收边界继续保留，未虚勾历史任务。原有 Logo 归档和历史文档整理与本次改动分别保留。
 - [x] 本次 change 已归档为 `openspec/changes/archive/2026-10-07-adopt-openspec-workflow/`；主规格 development-workflow 含 4 条需求。归档后 `pnpm spec:check`、`pnpm spec validate --archived --strict --no-interactive` 通过，活动变更为 0。
+
+## 2026-10-07：v0.6.7 CLI 路由、原生模型目录与连接状态
+
+- OpenSpec：`fix-cli-routing-model-catalog-health`，覆盖 worker-dispatch、cli-model-discovery、cli-connection-health；规划提交 `dff43bf`，路由提交 `fa5bc7c`，后续实现及交付按阶段本地提交，不推送。
+- 路由：统一 agy→Antigravity、glm／zhipu／智谱→ZCode、harmes→Hermes；长名称唯一轻微误差可解析，短名称、歧义、普通讨论、否定与引用不自动派遣。当前步提示通过原生 pre-step 的 accepted human messages 生成；真实 Cordis／SystemPrompt／ToolRuntime 装配、生命周期、角色与权限门槛有回归。原有 skill 和宿主核心未修改。
+- 模型：ZCode 原生 builtin＋personal 合并、隐藏／禁用与 manual 覆盖、原生推理参数及完整 ID；本机纯读取目录 21 个模型、9 个 provider。Pi／OMP 读取全局及插件账号、模型配置、缓存和原生环境，同 provider 插件来源优先；Host CN 引用仅用于对应 provider。默认数据目录的账号读取同时覆盖发现和任务启动，新增无子进程参数准备回归，原账号文件未变。
+- Pi／OMP 原生离线查询（禁止网络）：仅原生来源 OMP 29 项、Pi 无账号 0 项；明确标注合成 CN 凭据做 metadata 查询时 OMP 39 项、Pi 4 项。源文件前后哈希相同，0 模型请求。证据 `.test-data/model-catalog-health/offline-catalog.json` 与同目录 `offline-check.ts`。原生目录可读不证明远端订阅。
+- 续聊：Pi／OMP 精确 provider/model/effort 与 observed 核验、原生 env 和刷新 OAuth 保留、同会话改选和查询取消；ZCode 先原生 metadata resume／setModel／read／close，完全退出后才 headless。真实已安装 ZCode 在全新私有数据、合成 API 配置和原生导入的一条明确模拟历史下，改选 high 后重启恢复相同 session/model/options；仅允许本机 IPC、拒绝外网、没有 send 任务。证据 `.test-data/cli-fixes-067/zcode-native-metadata.json`。探针早期超时来自独立客户端未处理反向 RPC 与空 metadata 会话不持久化，修正探针后通过，未据失败误判生产 wrapper。
+- 状态：unconfigured 灰、明确认证失效或配置／读取错误红、unknown 灰、可读原生配置或登录绿；绿灯说明本地或原生 CLI 证据不代表远端验证。导航与账号摘要共用映射，未配置优先于空目录错误；刷新恢复不写模型偏好。脚本路径须为可读普通文件，Node 脚本不要求执行位。
+- 最终 `pnpm test`：34 文件、495 项通过；`pnpm typecheck`、`pnpm spec:check`、`pnpm build:preview`、`pnpm build` 与 `pnpm pack --out artifacts/dsh-cliworker-now-0.6.7.tgz` 通过。preview/src 与最终 src 逐文件哈希一致，Host／Remote 合同已重新生成。日志 `.test-data/cli-fixes-067/{full-tests-final,typecheck,preview-build,production-build,production-typecheck,package}.log`。初轮过时目录夹具及取消签名已修正；原生沙箱测试在支持 sandbox-exec 的环境重验，未把受限外层沙箱的失败计为通过。
+- 隔离渲染：Tabbit 实际检查灰／红／绿和 ZCode／OMP 多模型，标签显示型号＋provider，保存仍用完整 ID。模拟夹具有独立包元数据，避免误注册原生产 Client；最终截图包含“模拟”标签：`.test-data/cli-fixes-067/ui-health-zcode-multimodel-simulation-final.png`、`ui-omp-multimodel-simulation.png`。该证据不冒充真实模型对话。
+- Desktop：更新前全部后台 Worker 已结束、账号终端为 0；旧生成文件备份 `.cache/desktop-before-cli-fixes-067/lib`。本地源码链接加载新构建，重开后在实际设置菜单目视核对 ZCode 多服务商模型、OMP 的原生接口和列表末端 zhipu-coding-plan 模型、Pi 的 4 个 CN 模型；没有选择／保存新默认、提交登录或发送模型任务。CUA 的原生截图在本次聊天工具记录中；摘要 `.test-data/cli-fixes-067/desktop-verification.json`。既有 10 份 worker／preference／CLI 开关／角色文件前后 SHA-256 全相同。
+- 安装包共 183 项，新增两个 runtime 脚本齐全，yaml 固定 2.9.1，无 `.test-data`、`.cache`、账号或运行数据。SHA-256：`06a90c50a8be869c6512d14ed6c43ba81bb5c3f95e2bb5e09d9ac8f108829eae`。交付摘要 `artifacts/dsh-cliworker-now-0.6.7-verification.json`。
+- 测试隔离事件：一项旧账号测试的失败断言意外把本机自定义 provider 的 API key 带入工具输出。已隔离临时 HOME、账号来源和子进程环境，观察文件仅记录合成值匹配／存在布尔，新增父环境凭据不导入回归；本轮验收及自建临时目录检查匹配文件为 0。未写入 Git，未修改或轮换用户凭据。该事件已经向用户说明，避免将测试成功描述成从未发生过暴露。
+- 未做：本轮未用主模型新对话验收自然语言服从，也未发起真实 CLI 模型任务或验证所有 provider 的订阅／远端凭据；已有 Kimi／Grok／Hermes 等历史未验证项继续保留，不能由目录／元数据／模拟回归推断成功。

@@ -14,7 +14,7 @@
 
 1. Host 名称解析接受规范 ID、常用别名以及较长名称的唯一轻微误差。短别名必须精确匹配，retired harness 拒绝；多个目标或歧义返回澄清。工具描述用中文明确例句，可增加只读路由工具。保持省略 cli 的旧 Antigravity 工具调用兼容。
 2. 通过原生 pre-step 读取本步 `source.kind=user` 文本，只有明确命令才在提示中标出规范路由；不拼入原始用户文本，不扫描旧历史，不直接调用 launch。动态提示逐步更新并随 agent／插件生命周期清理。普通讨论、否定或引用不生成派遣提示；最终是否调用工具仍由宿主模型决定，离线测试不得声称每个模型必定遵循。
-3. ZCode 遍历原生可见 provider 和有效 model，保留完整 ID及推理能力。Pi 采用原生 SDK 查询／模型 registry；OMP 使用原生 models JSON 查询／配置目录。bridge 使用选定模型，动态核验 observed model；没有能力证据的强度保留 default。既有 Flash 原生 ID保持兼容。
+3. ZCode 按原生规则合并 builtin 与 personal provider／模型规则，保留完整 ID、隐藏／禁用覆盖和推理能力；仅在私有副本中覆盖当前选型。原生 headless --resume 会忽略默认模型配置，因此续聊由私有 metadata wrapper 先 app-server resume／setModel／read／close，读回精确会话与选型并等进程退出后才转发原 headless；取消或拒绝不得后续启动任务。Pi 采用原生 SDK 查询／模型 registry；OMP 使用原生 models JSON 查询／配置目录。bridge 使用选定模型并在同会话改选时用原生设置 RPC，动态核验 observed model；没有能力证据的强度保留 default。既有 Flash 原生 ID保持兼容。
 4. Pi／OMP 连通插件持久账号目录与 worker 隔离目录；原生账号是读取来源，worker 的 session 和运行状态保持隔离。显式 Host CN 引用作为兼容来源，不能覆盖无关 provider。原生配置使用安全读取／私有副本，凭据不输出、不入 Git、不写全局目录。
 5. 账号状态增加明确 unconfigured；unauthenticated 表示已知失效，unavailable 表示读取／配置错误，unknown 保留无法确认。Client 共用指示灯投影，优先区分未配置后再看目录失败。无安装用灰色，但显式执行路径配置失败用红色。不新增隐式网络认证探测。
 

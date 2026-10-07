@@ -345,3 +345,12 @@ Hermes 与角色功能共享同一 WorkerRuntime；名称、角色快照与原�
 - 本文继续保存架构及版本演进；`doc/tasks.md` 继续记录实际验证结果。后续修改依据当前源码、测试与最新有效决策提取相关规格，不机械迁移旧版本未完成清单。
 - 首次仅建立 development-workflow 规格，业务能力域在实际变更触及时逐步补充。命名角色及预设已实现，Grok/Hermes/Kimi 的真实验收边界继续以现有证据为准。
 - 本次不改 Host/Client/共享协议，不更新 Desktop 或真实运行 CLI。使用方法、候选能力域与升级方式见 [OpenSpec 开发指南](openspec.md)。
+
+## 2026-10-07：v0.6.7 明确调用、原生目录与状态证据
+
+- 名称表统一驱动 Host 派遣工具和中文调用提示。规范 ID 与常用别名可直接解析，agy 对应 antigravity，glm／zhipu／智谱对应 zcode，harmes 对应 hermes。较长名称只接受唯一轻微拼写误差，短名称、歧义与 retired harness 不作模糊替换；省略 cli 的旧 Antigravity 工具调用保持兼容。
+- 通过 Harness 原生 agent/pre-step 观察本步用户消息，在 systemPrompt 动态 section 增加明确调用的规范路由提示；不扫描旧会话来猜本轮请求，不注入原始用户文本，不直接启动任务。讨论、否定与引用不产生派遣提示。所有调用继续经过项目／CLI 偏好、首次选型、角色问题及宿主规划／只读／子 Agent 拒绝门槛；现有名称续聊仍使用 followup。
+- ZCode 按原生规则合并 builtin 与 personal 服务商／模型配置，保留完整 ID、隐藏与禁用覆盖以及原生推理能力；不再把 PoC 的 GLM-5.3-Flash 作为唯一模型。私有副本保留原生个人规则，只覆盖本次选型。headless resume 原生忽略默认选型，因此续聊先通过受同一沙箱及进程组约束的 app-server metadata wrapper 改选并读回，close 完整退出后才启动 headless；取消、拒绝与观察不匹配不会继续任务。Pi／OMP 同会话改选使用原生 RPC 并核验；原生目录、账号读取与任务 bridge 使用相同来源，不给其他 provider 注入 CN 智谱引用。
+- Pi／OMP 从全局原生配置和插件持久账号目录安全读取允许的认证／模型输入；同 provider 的有效插件账号优先，空插件配置不遮蔽全局账号。worker 的会话与运行状态继续隔离，原生全局配置保持只读；仅复制所需账号和模型数据，不复制历史会话。Host 智谱引用仅作为显式兼容来源。
+- AccountState 增加 unconfigured 以区分未配置与已知失效。默认缺安装、无账号、空配置灰色；unauthenticated 表示明确失效，unavailable 表示读取／配置错误，二者红色。显式坏 executable 配置红色。未知信息保持灰色并说明原因；Client 导航与账号摘要共用投影，未配置优先于空目录失败。
+- 原生目录和本地账号记录仅证明相应本地事实，不证明远端模型或订阅可用。此次变更通过 OpenSpec 的 worker-dispatch、cli-model-discovery 和 cli-connection-health 管理；自动回归、非模型本机查询、实际界面和未做真实任务的边界见 doc/tasks.md。
