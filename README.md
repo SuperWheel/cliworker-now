@@ -267,9 +267,19 @@ pnpm --config.verify-deps-before-run=false smoke:extended --help
 
 v0.6.5 的 Logo 与界面改动通过类型检查、27 项界面与注册测试、隔离构建、正式构建及打包校验，并做过亮暗界面检查。各 CLI 的真实验收范围请看第 4 节和 [实际验证记录](doc/tasks.md)。
 
+开发变更使用 **OpenSpec** 管理方案、增量规格与任务；按变更逐步补齐规格，保留现有设计和验收历史。依赖已固定在项目中，安装后可运行：
+
+```sh
+pnpm spec:list
+pnpm spec:check
+```
+
+Codex 中选择 `openspec-propose` 技能准备方案，再用 `openspec-apply-change` 实施；完成验证后用 `openspec-archive-change` 归档。具体命令、文档分工及其他 CLI 的接入见 [OpenSpec 开发指南](doc/openspec.md)。OpenSpec 是本仓库的开发工具，插件使用者无需安装。
+
 ## 9. 文档、反馈与许可
 
 - [设计与协议](doc/design.md)：架构、调度、权限与持久化设计。
+- [OpenSpec 开发指南](doc/openspec.md)：需求到实施、验证与归档的工作流。
 - [任务与实际验证](doc/tasks.md)：已实施内容和验收记录。
 - [历史版本与详细配置](doc/version-notes.md)：逐版本变更、适配器配置及限制。
 - [角色预设](doc/role-presets.md)：默认智能体的职责与边界。

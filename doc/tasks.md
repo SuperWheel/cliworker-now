@@ -526,3 +526,14 @@
 - [x] 三色原生 CSS 预览检查 24/32/48px，保存 `doc/assets/project-icon/official-v4/preview.png`；隔离 Harness 深色界面显示白色标题及蓝色入口，正式 Desktop 重启后显示黑色标题及蓝色入口。截图在 `.test-data/evidence/logo066-isolated-dark.png`、`logo066-desktop-light.png`。临时预览页和服务器均已关闭。
 - [x] 更新前 3 个 worker 均 completed、账号终端数 0；备份 `.cache/desktop-before-ui-066`。重启后 7 份 worker/偏好/角色/CLI 设置文件 SHA256 未变。未更改其他配置。
 - [x] 安装包 `artifacts/dsh-cliworker-now-0.6.6.tgz` 共 175 项，包含选定 PNG；无旧黑色 PNG、测试数据或缓存目录。只本地提交，不推送或发布远程。
+
+
+## 2026-10-07：OpenSpec 开发流程接入
+
+- [x] 核查 OpenSpec 官方资料、本机发布版与当前源码，固定开发依赖 `@fission-ai/openspec@1.14.1`；新增 `pnpm spec`、`pnpm spec:list`、`pnpm spec:check`。Node v22.23.1、pnpm 11.25.0；`pnpm install --frozen-lockfile --offline --ignore-scripts` 通过。
+- [x] 官方 `init --tools codex --profile core --language Chinese --no-animation` 生成六个项目级技能，未改用户全局技能；中文 context、各产物 rules 和 apply/archive guidance 注入检查通过。项目入口关闭本次命令遥测。
+- [x] 完成 `adopt-openspec-workflow` 的提案、设计、development-workflow 增量规格与任务；`status` 四类规划产物齐全，严格校验通过。新增 `doc/openspec.md`，同步 AGENTS、README 和设计入口。业务能力域只提供提取索引，不宣称全部完成规格迁移。
+- [x] `pnpm typecheck`、`pnpm test`（31 文件 / 390 项）、`pnpm build:preview` 通过；自动测试因本机进程与沙箱夹具需求在获准的本机执行环境运行，不调用真实模型。日志在 `.test-data/openspec-adoption/{typecheck,test,build-preview}.log`。
+- [x] 指南相对链接、运行时依赖/exports/安装元数据保持不变、六个生成技能版本、`git diff --check` 检查通过；正式 `lib/` 的 172 个文件 SHA256 前后完全一致。检查报告与指令快照在 `.test-data/openspec-adoption/`（忽略目录）。
+- 本次不执行正式 build、Desktop 更新或真实 CLI 模型任务，不提升插件版本；Kimi/Grok/Hermes 以及其他历史真实验收边界继续保留，未虚勾历史任务。原有 Logo 归档和历史文档整理与本次改动分别保留。
+- [x] 本次 change 已归档为 `openspec/changes/archive/2026-10-07-adopt-openspec-workflow/`；主规格 development-workflow 含 4 条需求。归档后 `pnpm spec:check`、`pnpm spec validate --archived --strict --no-interactive` 通过，活动变更为 0。

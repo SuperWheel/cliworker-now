@@ -63,7 +63,10 @@
     "smoke:stop": "tsx scripts/smoke-stop.ts",
     "build:preview": "node scripts/build-preview.mjs",
     "smoke:multi": "tsx scripts/smoke-multi.ts",
-    "smoke:extended": "tsx scripts/smoke-extended.ts"
+    "smoke:extended": "tsx scripts/smoke-extended.ts",
+    "spec": "OPENSPEC_TELEMETRY=0 openspec",
+    "spec:list": "pnpm spec list",
+    "spec:check": "pnpm spec validate --all --strict --no-interactive"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.4",
@@ -141,6 +144,7 @@
     "@deepseek-ai/dsh-user-questions": "0.2.0-rc.2",
     "@deepseek-ai/dsh-util-values": "0.2.0-rc.2",
     "@deepseek-ai/dsh-workspace": "0.2.0-rc.2",
+    "@fission-ai/openspec": "1.14.1",
     "@types/node": "22.18.6",
     "@types/react": "18.3.28",
     "@types/react-dom": "18.3.7",

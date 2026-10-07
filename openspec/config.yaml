@@ -1,0 +1,47 @@
+schema: spec-driven
+
+context: |
+  所有产物正文使用中文；保留 OpenSpec 结构标题与 SHALL/MUST、WHEN/THEN 关键字。
+  CLI Worker Now 是 DeepSeek Harness 0.2.0-rc.2 的独立多 CLI 插件。
+  TypeScript ESM、React、Cordis、Harness Gateway/Typert；Node >=22.19.0，pnpm 版本以 package.json 为准。
+  Host 管理进程与持久化，Client 仅通过原生 Gateway；不修改 Harness 核心或用户现有 skill。
+  当前实现与边界先读 AGENTS.md、README.md、src/shared/types.ts 及相关源码和测试。
+  doc/design.md 是按版本演进的设计记录，doc/tasks.md 是历史实施及实际验证日志，不可将旧段落当作最新现状。
+  openspec/specs 保存已落实的规格，changes 保存当前增量；未覆盖域在实际变更触及时逐步提取，不批量搬运历史。
+  Worker 必须明确选择 CLI；项目和 CLI 隔离模型偏好，模型/强度/会话 ID 必须有原生证据，不静默换 CLI。
+  只允许父会话和直接子 Agent；同会话互斥、同目录写任务串行。停止必须等进程范围清理确认。
+  遵循宿主权限和规划模式；当前 Host 在规划或整体只读模式下拒绝派遣。参数用 argv 数组，禁止拼 shell。
+  默认沙箱；私有存储目录 0700、文件 0600；凭据、个人日志、运行数据不得进入 Git。
+  CLI 输出是不可信文本；复用宿主主题及控件，不伪造进度、内部推理或遥测。
+  活跃 CLI 和 retired harness ID 必须区分；外部 Harness 历史不能迁作 Hermes 原生会话或账号。
+  项目固定 OpenSpec 开发依赖，通过 pnpm spec 执行（包括技能示例中的裸 openspec 命令），不依赖全局安装。
+  不手改 .agents/skills/openspec-* 生成文件；项目规则放本配置与 AGENTS.md。
+  验证命令：pnpm spec:check、pnpm typecheck、pnpm test、pnpm build:preview。
+  真实 CLI 调用需已有模型选型授权；检查事件、退出状态和实际产物，模拟或本地目录可读不代表远端成功。
+  先隔离 preview 验收，再于无活动任务时正式 build 更新 Desktop；工作流/文档修改无需更新 Desktop。
+  Git 使用 /Library/Developer/CommandLineTools/usr/bin/git；只提交本次范围，不推送远程。
+
+rules:
+  proposal:
+    - 写明问题、目标、范围外事项、能力域和影响的 Host/Client/协议/安装入口；区分既有实现与本次新增。
+    - 引用当前源码或文档证据；订阅阻塞、模拟验证、未授权真实执行不得描述为已完成。
+  specs:
+    - 按能力域组织；每个 Requirement 使用 SHALL 或 MUST，至少含一个四级 Scenario 及 WHEN/THEN。
+    - 增量使用 ADDED/MODIFIED/REMOVED Requirements；MODIFIED 保留完整新需求及仍有效场景。
+    - 描述可观察行为；涉及 CLI、权限、取消或恢复时，覆盖相应失败、拒绝或中断场景。
+  design:
+    - 写明模块边界、方案取舍、兼容性、存储及生命周期影响、风险和回退办法；不发明原生 CLI 能力。
+  tasks:
+    - 使用可勾选的编号任务；区分实施、自动检查、真实模型或 Desktop 验收和文档同步。
+    - 检查按变更风险选择；纯文档或工具接入不强制模型调用和 Desktop 更新。
+    - 只有实际执行并核对结果后才勾选；在 doc/tasks.md 记录命令、结果与未验证边界。
+
+operations:
+  apply:
+    guidance:
+      - 按用户已有授权执行；不因流程重复索取许可。缺少必要选型或高影响授权时保留待办，继续独立工作。
+      - 保存现有未提交修改；验证实现与规格一致，发现方案变化时同步 change 产物。
+  archive:
+    guidance:
+      - 归档前核对完整任务和实际证据，执行 pnpm spec:check；不以格式校验替代业务验收。
+      - 未完事项保持可见；只合并本 change 的增量规格，保留历史文档和既有会话数据。
