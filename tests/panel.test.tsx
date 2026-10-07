@@ -583,7 +583,7 @@ it('model menu updates an idle worker without dispatching or changing project de
   Object.assign(t.api.cliworker, {
     catalogForCli: vi.fn().mockResolvedValue({
       ok: true,
-      value: JSON.stringify({ models: [{ id: 'next-model', efforts: ['low'] }] }),
+      value: JSON.stringify({ cli: 'antigravity', models: [{ id: 'next-model', efforts: ['low'] }] }),
     }),
     configureWorker,
     configure,
@@ -634,6 +634,7 @@ it('worker model choices deduplicate with free priority while keeping the select
     catalogForCli: vi.fn().mockResolvedValue({
       ok: true,
       value: JSON.stringify({
+        cli: 'pi',
         models: [
           { id: 'paid/GLM-5.3', label: 'GLM-5.3（paid source）', cost: 'paid', efforts: ['high'] },
           { id: 'free/glm-5.3', label: 'GLM-5.3 (free source)', cost: 'free', efforts: ['default'] },
@@ -692,6 +693,82 @@ it('model catalog failure is recoverable and never appears as a raw transport op
   expect(t.text()).toContain('插件服务尚未更新')
   expect(t.text()).not.toContain('HTTP 404')
   expect(t.text()).not.toContain('transport failure')
+})
+
+it('worker model menu clears old options on reopen and rejects a different CLI until a fresh retry succeeds', async () => {
+  const t = await setup()
+  const read = deferred()
+  const result = (cli: string, model: string) => ({
+    ok: true,
+    value: JSON.stringify({
+      cli,
+      models: [{ id: model, efforts: ['low'] }],
+    }),
+  })
+  const catalogForCli = vi
+    .fn()
+    .mockResolvedValueOnce(result('antigravity', 'original-model'))
+    .mockReturnValueOnce(read.promise)
+    .mockResolvedValueOnce(result('antigravity', 'fresh-model'))
+  const configureWorker = vi.fn().mockResolvedValue({ ok: true, value: '{}' })
+  Object.assign(t.api.cliworker, { catalogForCli, configureWorker })
+  await t.click('模型与强度')
+  await t.click('model')
+  expect(t.text()).toContain('original-model')
+  await t.click('模型与强度')
+  await t.click('模型与强度')
+  expect(t.text()).not.toContain('original-model')
+  const menuChoice = () => t.r.root.findAllByType('button').find((b) => b.props['aria-label'] === 'model')!
+  expect(menuChoice().props.disabled).toBe(true)
+  await act(async () => menuChoice().props.onClick())
+  expect(configureWorker).not.toHaveBeenCalled()
+  await act(async () => read.resolve(result('pi', 'wrong-cli-model')))
+  expect(t.text()).toContain('收到不匹配的 CLI 模型目录')
+  expect(t.text()).not.toContain('wrong-cli-model')
+  expect(menuChoice().props.disabled).toBe(true)
+  await t.click('重试')
+  expect(menuChoice().props.disabled).toBe(false)
+  await t.click('model')
+  const freshChoice = t.r.root
+    .findAllByType('button')
+    .find((b) => b.findAll((n) => n.type === 'span' && n.props.title === 'fresh-model').length > 0)!
+  await act(async () => freshChoice.props.onClick())
+  expect(configureWorker).toHaveBeenCalledExactlyOnceWith(
+    'parent',
+    'a',
+    JSON.stringify({ cli: 'antigravity', model: 'fresh-model', effort: 'low' }),
+  )
+  expect(t.followup).not.toHaveBeenCalled()
+})
+
+it('worker model menu keeps its previous choices unavailable after a failed refresh or empty result', async () => {
+  const t = await setup()
+  const catalogForCli = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ok: true,
+      value: JSON.stringify({ cli: 'antigravity', models: [{ id: 'old-model', efforts: ['low'] }] }),
+    })
+    .mockRejectedValueOnce(new Error('模拟：原生目录读取失败'))
+    .mockResolvedValueOnce({
+      ok: true,
+      value: JSON.stringify({ cli: 'antigravity', models: [], notice: '模拟：请完成登录后刷新' }),
+    })
+  const configureWorker = vi.fn()
+  Object.assign(t.api.cliworker, { catalogForCli, configureWorker })
+  await t.click('模型与强度')
+  await t.click('model')
+  expect(t.text()).toContain('old-model')
+  await t.click('模型与强度')
+  await t.click('模型与强度')
+  expect(t.text()).not.toContain('old-model')
+  expect(t.text()).toContain('模拟：原生目录读取失败')
+  await t.click('重试')
+  expect(t.text()).toContain('模拟：请完成登录后刷新')
+  expect(
+    t.r.root.findAllByType('button').find((b) => b.props['aria-label'] === 'model')!.props.disabled,
+  ).toBe(true)
+  expect(configureWorker).not.toHaveBeenCalled()
 })
 
 it('closing settings during slow CLI discovery leaves conversation and stop controls available', async () => {

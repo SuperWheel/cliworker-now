@@ -8,6 +8,14 @@ import { DEFAULT_CONFIG, type ProcessBackend } from '../src/host/process.ts'
 import { attachTelemetry, TelemetryReader } from '../src/host/telemetry.ts'
 import { foldEvents, type WorkerEvent } from '../src/shared/types.ts'
 
+vi.mock('../src/host/hermes-installation.ts', () => ({ verifyHermesExecutable: async () => undefined }))
+vi.mock('../src/host/hermes-models.ts', () => ({
+  hermesAccountModels: vi.fn(async () => ({
+    state: 'supported',
+    source: 'account-models',
+    models: [{ id: 'fixture/model', cost: 'unknown' }],
+  })),
+}))
 const directories: string[] = []
 function directory() {
   const path = mkdtempSync(join(tmpdir(), 'hermes-integration-fixture-'))
@@ -76,7 +84,7 @@ describe('Hermes dispatch and telemetry integration (synthetic fixtures)', () =>
       new AbortController().signal,
     )
     expect(catalog.models).toEqual([
-      { id: '["openrouter","fixture/model"]', label: 'fixture/model (openrouter)', efforts: ['default'] },
+      { id: '["openrouter","fixture/model"]', label: 'fixture/model', efforts: ['default'], cost: 'unknown' },
     ])
     expect(calls.map((argv) => argv[argv.indexOf('get') + 1])).toEqual(['model.default', 'model.provider'])
     expect(resolveCredential).not.toHaveBeenCalled()

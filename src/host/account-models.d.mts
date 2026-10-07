@@ -8,7 +8,12 @@ export interface AccountModelInput {
   credential: { type: 'api' | 'oauth'; key?: string; access?: string; expires?: number; accountId?: string }
   baseUrl?: string
   apiType?: string
+  /** Mirror a native route that explicitly sends both Anthropic auth headers. */
+  anthropicAuth?: 'api-key-and-bearer'
   customModelIds?: string[]
   verifiedModelIds?: string[]
 }
-export function probeAccountModels(input: AccountModelInput, options?: { signal?: AbortSignal; fetch?: typeof fetch; timeoutMs?: number }): Promise<AccountModelScope>
+export function probeAccountModels(
+  input: AccountModelInput,
+  options?: { signal?: AbortSignal; fetch?: typeof fetch; timeoutMs?: number },
+): Promise<AccountModelScope>

@@ -24,6 +24,7 @@ import {
 } from './zcode-grok-accounts.ts'
 import { readPiOmpAccount, readOpenCodeAccount, prepareOpenCodeAccount } from './harness-opencode-accounts.ts'
 import { prepareHermesAccount, readHermesAccount } from './hermes-accounts.ts'
+import { verifyHermesExecutable, HermesExecutableError } from './hermes-installation.ts'
 import { preparePiOmpAccountTerminal } from './pi-omp-accounts.ts'
 
 const STATUS_TIMEOUT = 10_000
@@ -223,9 +224,10 @@ export class AccountManager {
     const control = AbortSignal.any([signal, this.controller.signal, timer.signal])
     let installed = false
     try {
-      const executable = await abortable(resolveCliExecutable(cli, this.backend, this.config), control)
+      const executable = await resolveCliExecutable(cli, this.backend, this.config, control)
       installed = true
       control.throwIfAborted()
+      if (cli === 'hermes') await verifyHermesExecutable(executable, control)
       if (isExtendedCli(cli)) {
         const identity = await abortable(
           cli === 'zcode' || cli === 'grok'
@@ -311,6 +313,16 @@ export class AccountManager {
     } catch (error) {
       if (signal.aborted || this.controller.signal.aborted) throw new Error('账号状态查询已取消')
       const code = (error as NodeJS.ErrnoException)?.code
+      if (error instanceof HermesExecutableError)
+        return { cli, installed, state: 'unavailable', summary: error.message, actions: [] }
+      if (code === 'CLI_IDENTITY_MISMATCH')
+        return {
+          cli,
+          installed: true,
+          state: 'unavailable',
+          summary: `${cli === 'omp' ? 'OMP' : 'Pi'} 执行入口身份不匹配，请检查该 CLI 的安装和路径`,
+          actions: [],
+        }
       const failed =
         installed ||
         this.hasCustomExecutable(cli) ||
@@ -395,7 +407,8 @@ export class AccountManager {
     let release: (() => void | Promise<void>) | undefined
     let instruction = instructionFor(cli, action)
     try {
-      const executable = await abortable(resolveCliExecutable(cli, this.backend, this.config), startup)
+      const executable = await resolveCliExecutable(cli, this.backend, this.config, startup)
+      if (cli === 'hermes') await verifyHermesExecutable(executable, startup)
       startup.throwIfAborted()
       let launch: { argv: string[]; cwd: string; env?: Record<string, string> } = {
         argv: [executable, ...argumentsFor(cli, action)],
@@ -530,6 +543,9 @@ export class AccountManager {
       if (error instanceof Error && error.message === '此 CLI 已有账号终端，请先关闭后重试') throw error
       if (timeout.signal.aborted) throw new Error('账号终端启动超时，正在回收启动过程；请稍后重试')
       if (error instanceof ZCodeAccountCapabilityError) throw error
+      if (error instanceof HermesExecutableError) throw error
+      if ((error as NodeJS.ErrnoException)?.code === 'CLI_IDENTITY_MISMATCH')
+        throw new Error(`${cli === 'omp' ? 'OMP' : 'Pi'} 执行入口身份不匹配，请检查该 CLI 的安装和路径`)
       throw new Error(
         session || startup.aborted
           ? '账号终端启动已取消或清理失败，请关闭设置后重试'

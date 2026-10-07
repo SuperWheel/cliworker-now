@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { AccountAction } from '../shared/accounts.ts'
-import { accountEmail, type AccountIdentity } from './account-identity.ts'
+import { accountEmail, localTokenExpired, type AccountIdentity } from './account-identity.ts'
 import { confineExtended, privateDirectory } from './extended-adapters.ts'
 import { hermesHomeDirectory } from './hermes-adapter.ts'
 import { projectDirectory, type RuntimeConfig } from './process.ts'
@@ -45,24 +45,36 @@ export function projectHermesIdentity(raw: unknown): AccountIdentity | undefined
   const providers = record(raw.providers) ? raw.providers : {}
   const ids = nonempty(raw.active_provider) ? [raw.active_provider] : Object.keys(providers)
   const identities: AccountIdentity[] = []
+  let expired = false
   for (const id of ids) {
     const state = providers[id]
     if (!record(state) || !record(state.tokens)) continue
     const recognized =
       (id === 'openai-codex' && state.auth_mode === 'chatgpt') ||
       (id === 'xai-oauth' && ['oauth_device_code', 'oauth_pkce'].includes(String(state.auth_mode)))
-    if (!recognized || !nonempty(state.tokens.access_token) || !nonempty(state.tokens.refresh_token)) continue
+    if (!recognized || !nonempty(state.tokens.access_token)) continue
+    if (localTokenExpired(state.tokens.access_token)) {
+      expired = true
+      continue
+    }
     const email = tokenEmail(state.tokens.id_token)
     if (email)
       identities.push({
-        state: 'authenticated',
+        state: 'configured',
         authMethod: 'oauth',
         accountLabel: email,
         verification: 'local',
-        summary: '已读取 Hermes 本地 OAuth 登录会话',
+        summary: '已读取 Hermes 本地 OAuth 配置，登录有效性待原生确认',
       })
   }
   if (identities.length === 1) return identities[0]
+  if (expired && !identities.length)
+    return {
+      state: 'unauthenticated',
+      verification: 'local',
+      authMethod: 'oauth',
+      summary: 'Hermes 本地访问令牌已过期，请在原生登录设置中确认或重新登录',
+    }
   // Do not choose an arbitrary identity when several providers are configured.
   const pool = record(raw.credential_pool) ? Object.values(raw.credential_pool).flat() : []
   const api = pool.some(

@@ -15,6 +15,7 @@ import {
   cliOf,
   CLI_LABELS,
   effortLabel,
+  type CliId,
   type ModelChoice,
   type Preference,
   type Worker,
@@ -39,7 +40,7 @@ export function WorkerModelMenu({
   const cli = cliOf(worker.preference)
   const [open, setOpen] = useState(false)
   const [pane, setPane] = useState<'root' | 'model' | 'effort'>('root')
-  const [catalog, setCatalog] = useState<{ models: ModelChoice[] }>()
+  const [catalog, setCatalog] = useState<{ cli: CliId; models: ModelChoice[] }>()
   const [error, setError] = useState('')
   const [attempt, retry] = useState(0)
   const [saving, setSaving] = useState(false)
@@ -56,14 +57,23 @@ export function WorkerModelMenu({
     if (!open) return
     const controller = new AbortController()
     setLoading(true)
+    setCatalog(undefined)
     setError('')
     void api.cliworker
       .catalogForCli(sessionId, cli, controller.signal)
       .then((result) => {
-        if (!controller.signal.aborted) setCatalog(JSON.parse(value(result)))
+        if (controller.signal.aborted) return
+        const next = JSON.parse(value(result))
+        if (next.cli !== cli) throw new Error('收到不匹配的 CLI 模型目录，请重试')
+        if (!Array.isArray(next.models) || !next.models.length)
+          throw new Error(next.notice || '此 CLI 未返回可用模型，请登录或刷新重试')
+        setCatalog(next)
       })
       .catch((e) => {
-        if (!controller.signal.aborted) setError(operationMessage(e))
+        if (!controller.signal.aborted) {
+          setCatalog(undefined)
+          setError(operationMessage(e))
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false)
@@ -77,6 +87,7 @@ export function WorkerModelMenu({
   const visible = visibleModelChoices(catalog?.models ?? [], worker.preference.model)
   const name = visible.find((model) => model.id === chosen?.id)?.label ?? displayModelName(worker.preference)
   const locked = disabled || saving || active(worker.status)
+  const choicesLocked = locked || loading || !catalog || !!error
   const close = () => {
     if (!saving) {
       setOpen(false)
@@ -85,7 +96,12 @@ export function WorkerModelMenu({
     }
   }
   const save = async (next: Preference) => {
-    if (locked) return
+    if (
+      choicesLocked ||
+      next.cli !== cli ||
+      !catalog?.models.some((item) => item.id === next.model && item.efforts?.includes(next.effort))
+    )
+      return
     setSaving(true)
     setError('')
     try {
@@ -111,17 +127,17 @@ export function WorkerModelMenu({
   const items: MenuEntry[] =
     pane === 'root'
       ? [
-          { id: 'model', label: cell('模型', name), disabled: locked },
+          { id: 'model', label: cell('模型', name), disabled: choicesLocked },
           {
             id: 'effort',
             label: cell('思考强度', effortLabel(worker.preference.effort)),
-            disabled: locked || !chosen,
+            disabled: choicesLocked || !chosen,
           },
         ]
       : [
           { id: 'back', label: '‹ 返回', disabled: saving },
           ...(pane === 'effort'
-            ? (chosen?.efforts ?? []).map((e) => ({ id: e, label: effortLabel(e), disabled: locked }))
+            ? (chosen?.efforts ?? []).map((e) => ({ id: e, label: effortLabel(e), disabled: choicesLocked }))
             : []),
         ]
   return (
@@ -140,6 +156,7 @@ export function WorkerModelMenu({
           setPane('root')
           return
         }
+        if (choicesLocked) return
         if (pane === 'root') {
           setPane(id as 'model' | 'effort')
           return
@@ -185,7 +202,7 @@ export function WorkerModelMenu({
             .map((m) => (
               <MenuItemButton
                 key={m.id}
-                disabled={locked}
+                disabled={choicesLocked}
                 onSelect={() => {
                   const effort = m.efforts?.includes(worker.preference.effort)
                     ? worker.preference.effort

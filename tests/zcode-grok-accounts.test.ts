@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -23,6 +32,7 @@ const launcher = fileURLToPath(new URL('../src/host/private-launch.mjs', import.
 const wrapped = (argv: string[]) => [process.execPath, launcher, ...argv]
 afterEach(() => {
   vi.useRealTimers()
+  vi.unstubAllEnvs()
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 function fixture(help = 'zcode 0.16.9\n  login [zai|bigmodel]  Sign in through browser authorization\n') {
@@ -70,6 +80,45 @@ function fixture(help = 'zcode 0.16.9\n  login [zai|bigmodel]  Sign in through b
 }
 
 describe('ZCode/Grok user-operated account helpers', () => {
+  it.each(['login', 'logout', 'manage'] as const)(
+    'passes the existing cipher secret only to the ZCode %s environment',
+    async (action) => {
+      const f = fixture()
+      const secret = 'SYNTHETIC_ACCOUNT_CIPHER_SECRET'
+      vi.stubEnv('ZCODE_CREDENTIAL_SECRET', ` ${secret} `)
+      const launch = await zcodeGrokAccountLaunch(
+        'zcode',
+        action,
+        '/synthetic/zcode.cjs',
+        f.config,
+        f.backend,
+        f.signal,
+        f,
+      )
+      expect(launch.env.ZCODE_CREDENTIAL_SECRET).toBe(secret)
+      expect(JSON.stringify(launch.argv)).not.toContain(secret)
+      expect(launch.instruction).not.toContain(secret)
+      const grok = await zcodeGrokAccountLaunch(
+        'grok',
+        action,
+        '/synthetic/grok',
+        f.config,
+        f.backend,
+        f.signal,
+        f,
+      )
+      expect(grok.env).not.toHaveProperty('ZCODE_CREDENTIAL_SECRET')
+      vi.stubEnv('ZCODE_CREDENTIAL_SECRET', '   ')
+      expect(
+        zcodeEnvironment(
+          '/synthetic/zcode.cjs',
+          join(f.home, 'empty-secret'),
+          undefined,
+          f.config.zcodeBuiltinConfig,
+        ),
+      ).not.toHaveProperty('ZCODE_CREDENTIAL_SECRET')
+    },
+  )
   it('uses the same native Grok auth source as workers, with only verified action arguments', async () => {
     const f = fixture()
     for (const action of ['login', 'logout', 'manage'] as const) {
@@ -314,7 +363,7 @@ it('decrypts ZCode 0.16.9 records and exposes only the user-info identity', () =
   }
   const status = projectZCodeIdentity(raw, secret)
   expect(status).toMatchObject({
-    state: 'authenticated',
+    state: 'configured',
     authMethod: 'oauth',
     verification: 'local',
     accountLabel: 'fixture@example.invalid',
@@ -323,28 +372,47 @@ it('decrypts ZCode 0.16.9 records and exposes only the user-info identity', () =
   expect(() => projectZCodeIdentity(raw, 'wrong-key')).toThrow()
   expect(projectZCodeIdentity({ 'oauth:active_provider': 'bigmodel' }, secret).state).toBe('unauthenticated')
 })
-it('recognizes Grok issuer-keyed refreshable sessions, expiry and missing identities', () => {
+it('keeps Grok local sessions unverified and rejects expired access even with refresh credentials', () => {
   const session = {
     auth_mode: 'oidc',
     key: 'SECRET',
     refresh_token: 'SECRET_REFRESH',
     email: 'fixture@example.invalid',
-    expires_at: '2020-01-01T00:00:00Z',
+    expires_at: new Date(Date.now() + 60_000).toISOString(),
   }
   const raw = { 'https://auth.x.ai::synthetic-client': session }
   const status = projectGrokIdentity(raw)
   expect(status).toMatchObject({
-    state: 'authenticated',
+    state: 'configured',
     accountLabel: 'fixture@example.invalid',
     verification: 'local',
   })
   expect(JSON.stringify(status)).not.toContain('SECRET')
   expect(
-    projectGrokIdentity({ 'https://auth.x.ai::synthetic-client': { ...session, refresh_token: '' } }).state,
+    projectGrokIdentity({
+      'https://auth.x.ai::synthetic-client': { ...session, expires_at: '2020-01-01T00:00:00Z' },
+    }).state,
   ).toBe('unauthenticated')
   expect(projectGrokIdentity({ unrelated: session }).state).toBe('unknown')
   expect(
     projectGrokIdentity({ 'https://auth.x.ai::synthetic-client': { ...session, email: 'Bearer SECRET' } })
       .accountLabel,
   ).toBeUndefined()
+})
+
+it('does not label refresh-only or expired ZCode OAuth as authenticated', () => {
+  const raw = { 'oauth:active_provider': 'bigmodel', 'oauth:bigmodel:refresh_token': 'SYNTHETIC_REFRESH' }
+  expect(projectZCodeIdentity(raw, 'synthetic-secret')).toMatchObject({
+    state: 'configured',
+    authMethod: 'oauth',
+  })
+  const expired = `e30.${Buffer.from(JSON.stringify({ exp: 1 })).toString('base64url')}.synthetic`
+  expect(
+    projectZCodeIdentity({ ...raw, 'oauth:bigmodel:access_token': expired }, 'synthetic-secret'),
+  ).toMatchObject({ state: 'unauthenticated' })
+  expect(
+    projectGrokIdentity({
+      'https://auth.x.ai::fixture': { auth_mode: 'oidc', refresh_token: 'SYNTHETIC_REFRESH' },
+    }),
+  ).toMatchObject({ state: 'configured' })
 })

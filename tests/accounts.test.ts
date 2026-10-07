@@ -15,6 +15,14 @@ import { DEFAULT_CONFIG, type ProcessBackend, type RuntimeConfig } from '../src/
 import type { CliId } from '../src/shared/types.ts'
 import type { AccountIdentitySource } from '../src/host/account-identity.ts'
 
+vi.mock('../src/host/pi-omp-identity.ts', () => ({
+  verifyPiOmpExecutable: async (_cli: string, executable: string) => executable,
+}))
+vi.mock('../src/host/hermes-installation.ts', async (load) => ({
+  ...(await load<typeof import('../src/host/hermes-installation.ts')>()),
+  verifyHermesExecutable: async () => {},
+}))
+
 vi.mock('../src/host/zcode-grok-accounts.ts', async (load) => ({
   ...(await load<typeof import('../src/host/zcode-grok-accounts.ts')>()),
   zcodeGrokAccountStatus: async () => ({
@@ -298,6 +306,22 @@ describe('account status safety (synthetic CLI output)', () => {
     const missing = await f.manager.status('codex', f.cwd, f.signal)
     expect(missing).toMatchObject({ state: 'unconfigured', installed: false, actions: [] })
     expect(JSON.stringify(missing)).not.toContain('SECRET')
+  })
+
+  it('reports a mismatched CLI identity distinctly and never opens its account terminal', async () => {
+    const f = fixture()
+    vi.mocked(f.backend.resolveExecutable).mockRejectedValue(
+      Object.assign(new Error('SECRET native mismatch'), { code: 'CLI_IDENTITY_MISMATCH' }),
+    )
+    const status = await f.manager.status('omp', f.cwd, f.signal)
+    expect(status).toMatchObject({
+      installed: true,
+      state: 'unavailable',
+      actions: [],
+      summary: expect.stringContaining('OMP 执行入口身份不匹配'),
+    })
+    expect(JSON.stringify(status)).not.toContain('SECRET')
+    expect(f.backend.spawnTerminal).not.toHaveBeenCalled()
   })
 
   it('status lookup can be cancelled before spawn and does not launch an account process', async () => {

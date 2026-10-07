@@ -4,8 +4,9 @@ import { HermesProtocol } from './hermes-adapter.ts'
 import { GrokProtocol } from './grok-adapter.ts'
 import { OpenCodeProtocol } from './opencode-adapter.ts'
 import { BridgeProtocol } from './bridge-protocol.ts'
+import { verifyPiOmpExecutable } from './pi-omp-identity.ts'
 import { groupAgyModels, resolveModel } from '../shared/models.ts'
-import { readFileSync, existsSync, statSync, accessSync, constants } from 'node:fs'
+import { readFileSync, existsSync, statSync, lstatSync, accessSync, constants } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -32,6 +33,20 @@ export interface Catalog {
   models: ModelChoice[]
   notice: string
 }
+const managedPiEntry = () =>
+  join(
+    homedir(),
+    '.local/share/cliworker-now/runtimes/pi-1.0.2/node_modules/@earendil-works/pi-coding-agent/dist/cli.js',
+  )
+function entryPresent(path: string): boolean {
+  try {
+    lstatSync(path)
+    return true
+  } catch (error: any) {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return false
+    throw error
+  }
+}
 export const executableFor = (cli: CliId, config: RuntimeConfig): string => {
   if (cli === 'harness') throw new Error('Harness CLI 已移除，请新建 Hermes 任务')
   if (cli === 'antigravity') return config.executable
@@ -43,11 +58,10 @@ export const executableFor = (cli: CliId, config: RuntimeConfig): string => {
       : '/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs'
   if (cli === 'grok') return join(homedir(), '.grok/bin/grok')
   if (cli === 'pi') {
-    const managed = join(
-      homedir(),
-      '.local/share/cliworker-now/runtimes/pi-1.0.2/node_modules/@earendil-works/pi-coding-agent/dist/cli.js',
-    )
-    if (existsSync(managed)) return managed
+    const native = join(homedir(), '.local/bin/pi')
+    if (entryPresent(native)) return native
+    const official = join(homedir(), '.pi/agent/bin/pi')
+    if (entryPresent(official)) return official
   }
   // Desktop processes do not source .zshrc. Recognize official per-user installers.
   const nativeDirectory = cli === 'kimi' ? '.kimi-code/bin' : cli === 'mimo' ? '.mimocode/bin' : '.local/bin'
@@ -111,7 +125,7 @@ export async function catalogFor(
   cwd: string,
   signal: AbortSignal,
 ): Promise<Catalog> {
-  const executable = await resolveCliExecutable(cli, backend, config)
+  const executable = await resolveCliExecutable(cli, backend, config, signal)
   signal.throwIfAborted()
   if (isExtendedCli(cli)) {
     const models = await extendedCatalog(
@@ -124,21 +138,13 @@ export async function catalogFor(
     )
     if (!models.length)
       throw new Error(
-        ['pi', 'omp', 'opencode'].includes(cli)
-          ? `${CLI_LABELS[cli]} 尚无可确认当前账号支持的 Worker 模型；请检查登录及账号模型权限后刷新。仅有目录、自定义配置或旧成功记录的候选已隐藏。`
-          : `${CLI_LABELS[cli]} 未返回可选模型，请检查原生安装与凭据配置`,
+        `${CLI_LABELS[cli]} 尚无可确认当前账号支持的 Worker 模型；请检查该 CLI 的原生登录及模型权限后刷新。只有公共目录或默认配置的候选已隐藏。`,
       )
     return {
       cli,
       models,
       notice:
-        cli === 'zcode'
-          ? 'ZCode 使用原生可见服务商和模型目录；目录不证明账号或额度可用。交互权限请求拒绝；原生允许的全局 MCP 仍可能执行。'
-          : cli === 'grok'
-            ? 'Grok 仅完成离线协议验证；账号、真实任务和续聊尚未验收。模型来自原生目录，不代表订阅可用。'
-            : cli === 'pi' || cli === 'omp' || cli === 'opencode'
-              ? '仅列出有当前账号支持证据且适用于 Worker 的模型，无法确认的通用目录已隐藏。相同型号去重，新选择优先有明确证据的免费额度；当前额度仍以服务商实时结果为准，失败不会切换模型。'
-              : '模型来自原生 CLI；目录不代表账号额度。额外权限默认拒绝，失败时不切换 CLI 或模型。',
+        '仅列出原生配置与当前账号支持范围相符的 Worker 模型；思考强度来自对应原生能力。读取模型清单不等于已登录或实际调用成功，失败不会切换 CLI 或模型。',
     }
   }
   if (cli === 'antigravity')
@@ -349,14 +355,49 @@ export async function resolveCliExecutable(
   cli: CliId,
   backend: ProcessBackend,
   config: RuntimeConfig,
+  signal: AbortSignal = AbortSignal.timeout(15000),
 ): Promise<string> {
+  signal.throwIfAborted()
   const executable = executableFor(cli, config)
+  let resolved: string
   if (isExtendedCli(cli) && /\.[cm]?js$/.test(executable) && existsSync(executable)) {
     // JavaScript launchers run through Node and need readability, not an executable bit.
     // A directory ending in .js is a broken configuration, not an installed CLI.
     if (!statSync(executable).isFile()) throw new Error('CLI 脚本路径不是普通文件')
     accessSync(executable, constants.R_OK)
-    return executable
+    resolved = executable
+  } else {
+    const lookup = async () => {
+      try {
+        return await backend.resolveExecutable(executable)
+      } catch (error: any) {
+        // Only an absent default PATH entry can use the legacy private install.
+        // A broken or incompatible native/configured entry must remain an error.
+        if (cli === 'pi' && executable === 'pi' && ['ENOENT', 'ENOTDIR'].includes(error.code)) {
+          const managed = managedPiEntry()
+          if (existsSync(managed) && statSync(managed).isFile()) {
+            accessSync(managed, constants.R_OK)
+            return managed
+          }
+        }
+        throw error
+      }
+    }
+    // Path lookup owns no process; it may be abandoned, but no late resolution
+    // may start an identity probe after its caller has cancelled.
+    resolved = await new Promise<string>((resolve, reject) => {
+      const abort = () => reject(signal.reason)
+      signal.addEventListener('abort', abort, { once: true })
+      void lookup()
+        .then(resolve, reject)
+        .finally(() => signal.removeEventListener('abort', abort))
+      if (signal.aborted) abort()
+    })
   }
-  return backend.resolveExecutable(executable)
+  signal.throwIfAborted()
+  if (cli === 'pi' || cli === 'omp')
+    return verifyPiOmpExecutable(cli, resolved, (argv, cwd, env) =>
+      captureCatalogMetadata(backend, config, argv, cwd, signal, env),
+    )
+  return resolved
 }

@@ -36,6 +36,12 @@ function idTokenClaims(value: unknown): Record<string, unknown> | undefined {
   }
 }
 
+/** Local expiry is negative evidence only; an unsigned claim never proves login. */
+export function localTokenExpired(value: unknown, now = Date.now()): boolean {
+  const expiry = idTokenClaims(value)?.exp
+  return typeof expiry === 'number' && Number.isFinite(expiry) && expiry * 1000 <= now
+}
+
 /**
  * This format/path is verified from the installed AGY CLI. Reading is
  * bounded and ephemeral. No credential leaves this function; ID tokens are decoded

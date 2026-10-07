@@ -15,6 +15,17 @@ const reply = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } })
 
 describe('read-only account-supported metadata (all credentials and responses simulated)', () => {
+  it('keeps ordinary Anthropic metadata authentication unchanged without native dual-header opt-in', async () => {
+    const fetcher = vi.fn(async (_url: any, options: any) => {
+      expect(options.headers['x-api-key']).toBe(key)
+      expect(options.headers['anthropic-version']).toBe('2023-06-01')
+      expect(options.headers.Authorization).toBeUndefined()
+      return reply({ data: [{ id: 'supported' }] })
+    })
+    expect(
+      (await probeAccountModels(api({ apiType: 'anthropic-messages' }), { fetch: fetcher })).models,
+    ).toEqual([{ id: 'supported', cost: 'unknown' }])
+  })
   it('uses exact current model scope and never includes denied/hidden or token echo entries', async () => {
     const fetch = vi.fn(async (_url: unknown, init: any) => {
       expect(init.method).toBe('GET')

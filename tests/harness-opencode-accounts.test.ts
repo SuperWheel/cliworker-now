@@ -23,6 +23,14 @@ import { discoverOpenCode, openCodeAuthDirectory, prepareOpenCode } from '../src
 import { extendedLaunch, extendedCatalog } from '../src/host/extended-adapters.ts'
 
 // Every native source and network response in this suite is synthetic.
+vi.mock('../src/host/pi-omp-native.ts', async (load) => {
+  const original = await load<typeof import('../src/host/pi-omp-native.ts')>()
+  return {
+    ...original,
+    inspectPiOmpNativeAccount: (cli: 'pi' | 'omp', root: string, signal: AbortSignal) =>
+      original.inspectPiOmpNativeAccount(cli, root, signal, { nativeHome: join(root, 'test-native') }),
+  }
+})
 vi.mock('../src/host/opencode-native.ts', async (load) => {
   const original = await load<typeof import('../src/host/opencode-native.ts')>()
   return {
@@ -74,27 +82,25 @@ const catalog =
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })))
 
 describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
-  it('projects managed references without returning secrets, account labels or remote login claims', async () => {
+  it('keeps independent native account status when a shared Host API reference exists', async () => {
     const config = {
       ...fixture(),
       zaiCredentialRef: 'synthetic-ref',
       resolveCredential: async () => 'synthetic-secret',
     }
     const state = await readPiOmpAccount('pi', config, signal())
-    expect(state).toEqual({
-      state: 'configured',
-      authMethod: 'api',
+    expect(state).toMatchObject({
+      state: 'unconfigured',
       verification: 'local',
-      summary: expect.stringContaining('未进行远程验证'),
+      summary: expect.stringContaining('不代表本 CLI 已登录'),
     })
     expect(await readOpenCodeAccount(config, signal())).toMatchObject({
-      state: 'configured',
-      authMethod: 'api',
+      state: 'unconfigured',
     })
     expect(JSON.stringify(state)).not.toContain('synthetic-')
     expect(
       await readPiOmpAccount('pi', { ...config, resolveCredential: async () => undefined }, signal()),
-    ).toMatchObject({ state: 'unavailable' })
+    ).toMatchObject({ state: 'unconfigured', summary: expect.stringContaining('引用不可用') })
     const failed = await readPiOmpAccount(
       'pi',
       {
@@ -105,8 +111,16 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
       },
       signal(),
     )
-    expect(failed.state).toBe('unavailable')
+    expect(failed.state).toBe('unconfigured')
     expect(JSON.stringify(failed)).not.toContain('synthetic-secret')
+    const native = join(config.stateDirectory, 'test-native/.pi/agent')
+    mkdirSync(native, { recursive: true })
+    writeFileSync(
+      join(native, 'auth.json'),
+      JSON.stringify({ fixture: { type: 'oauth', access: 'synthetic-expired', expires: 1 } }),
+    )
+    expect(await readPiOmpAccount('pi', config, signal())).toMatchObject({ state: 'unauthenticated' })
+    expect(await readPiOmpAccount('omp', config, signal())).toMatchObject({ state: 'unconfigured' })
   })
   it('reads native credentials only from the same stable profile data root and never projects OAuth tokens', async () => {
     const config = fixture(),

@@ -46,12 +46,12 @@ const fixtureEnvironment = (home: string | undefined, env: Record<string, string
   LANG: 'C',
   ...env,
 })
-async function fixture(cli: PiOmpCli, scenario = 'success') {
+async function fixture(cli: PiOmpCli, scenario = 'success', version = '1.0.2') {
   const root = await mkdtemp(join(tmpdir(), 'cliworker-rpc-fixture-'))
   roots.push(root)
   const project = join(root, 'project'),
     stateDirectory = join(root, 'state'),
-    executable = join(root, 'dist/fixture.mjs')
+    executable = join(root, 'dist/cli.js')
   await mkdir(project)
   await mkdir(join(root, 'dist/core'), { recursive: true })
   const provider =
@@ -118,8 +118,12 @@ async function fixture(cli: PiOmpCli, scenario = 'success') {
     'export class AuthStorage { static inMemory(value) { return value } }',
   )
   await writeFile(
+    join(root, 'dist/index.js'),
+    '// SIMULATED SDK package marker; this suite does not invoke login.\n',
+  )
+  await writeFile(
     join(root, 'package.json'),
-    JSON.stringify({ type: 'module', name: '@earendil-works/pi-coding-agent', version: '1.0.2' }),
+    JSON.stringify({ type: 'module', name: '@earendil-works/pi-coding-agent', version }),
   )
   await writeFile(
     join(root, 'dist/core/model-runtime.js'),
@@ -235,6 +239,24 @@ async function prepareConfirmed(input: PiOmpInput) {
   )
 }
 describe('Pi/OMP bridge with simulated native RPC processes', () => {
+  it.each(['1.0.2', '1.0.4'])(
+    'Pi %s discovers and executes through the same SDK and native RPC package',
+    async (version) => {
+      const { input } = await fixture('pi', 'non-glm', version)
+      const catalog = await discoverPiOmp(
+        'pi',
+        input.executable,
+        async (argv, env) =>
+          (await exec(argv[0]!, argv.slice(1), { env: fixtureEnvironment(input.nativeHome, env) })).stdout,
+        input.stateDirectory,
+        { nativeHome: input.nativeHome, accountRoot: input.accountRoot },
+      )
+      expect(catalog.map((model) => model.id)).toContain(input.preference.model)
+      const run = await launch(input)
+      expect(run.code).toBe(0)
+      expect(run.frames.at(-1)).toMatchObject({ type: 'result', status: 'SUCCESS' })
+    },
+  )
   it('uses one offline Host sandbox then a metadata-only phase on the same managed OMP snapshot', async () => {
     const { root, input } = await fixture('omp', 'non-glm')
     vi.stubEnv('HOME', root)

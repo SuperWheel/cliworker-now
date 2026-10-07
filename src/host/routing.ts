@@ -100,7 +100,9 @@ export function requireCliName(name: string): ActiveCliId {
   throw new Error(`无法唯一确定 CLI，请明确选择：${candidates}；尚未启动任务或保存选型。`)
 }
 
-export const CLI_NAME_GUIDANCE = CLI_IDS.map((cli) => `${CLI_ALIASES[cli].join(' / ')} → ${cli}`).join('；')
+export const CLI_NAME_GUIDANCE =
+  CLI_IDS.map((cli) => `${CLI_ALIASES[cli].join(' / ')} → ${cli}`).join('；') +
+  '。OMP（Oh My Pi，cli=omp）和 Pi Coding Agent（cli=pi）是两个独立 CLI；即使使用同名模型也必须按用户指定分别选择账号、模型、强度和会话，禁止互换或合并'
 
 export const CLI_DELEGATION_GUIDANCE = `CLI Worker Now 是调用外部 CLI 的插件入口。用户明确要求“调用 agy cli 帮我检查代码”或“使用 glm cli 完成任务”时，应通过 cliworker_start 进入插件，不要仅解释用法，也不要通过 bash 运行这些 CLI。名称映射：${CLI_NAME_GUIDANCE}。glm、zhipu、智谱在 CLI 调用语境中指 ZCode，不代表已选择或授权任何 GLM 模型；“用 Pi 的 GLM 模型”仍使用 Pi。仅讨论、比较、介绍模型或 CLI、否定调用、引用调用示例不构成派遣授权。较长名称的唯一轻微拼写误差可以解析；不确定时可用只读 cliworker_resolve 检查，歧义、未知或多个目标先澄清，不能猜测或改用其他 CLI。任务内容缺失时先确认任务。
 首次使用须让用户选择模型和强度，后续沿用同项目同 CLI 偏好；每个新 Worker 都须让用户选择角色预设、无角色或临时角色，禁止代答。Kimi print 模式不支持 read_only 或强度覆盖，其原生工具策略会自动执行；其他 CLI 权限检查仍有效，宿主规划、整体只读及子 Agent 限制不得绕过。

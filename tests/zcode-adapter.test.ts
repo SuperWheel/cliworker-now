@@ -204,7 +204,7 @@ describe('ZCode adapter (explicitly synthetic fixtures)', () => {
       expect(existsSync(join(outside, 'personal.json'))).toBe(false)
     },
   )
-  it('reads every visible installed model with native regex matching; never spawns or reads auth', async () => {
+  it('keeps native candidates for rule validation but hides the public catalog without account support', async () => {
     const { path, state } = setup()
     const models = await discoverZCode(
       '/native/zcode',
@@ -216,7 +216,8 @@ describe('ZCode adapter (explicitly synthetic fixtures)', () => {
       path,
       { nativeHome: join(dirname(path), 'native-home') },
     )
-    expect(models).toEqual([
+    expect(models).toEqual([])
+    expect(parseZCodeBuiltin(builtin())).toEqual([
       {
         id: `${route}/GLM-5.3-Flash`,
         label: `GLM-5.3-Flash（${route} · 本机目录）`,
@@ -320,12 +321,15 @@ describe('ZCode adapter (explicitly synthetic fixtures)', () => {
     })
     const models = await discoverZCode(f.input.executable, capture, f.state, f.input.authDirectory, f.path, {
       nativeHome: f.input.nativeHome,
+      probeOptions: {
+        fetch: async () => new Response(JSON.stringify({ data: [{ id: 'custom/model-v1' }] })),
+      },
     })
     expect(
       models.some(
         (model) => model.id === 'personal:external/custom/model-v1' && model.efforts?.includes('high'),
       ),
-    ).toBe(true)
+    ).toBe(false)
     expect(JSON.stringify(models)).not.toContain('SYNTHETIC_SECRET')
     expect(capture).not.toHaveBeenCalled()
     const launch = await prepareZCode({

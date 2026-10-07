@@ -395,7 +395,12 @@ export class WorkerRuntime {
     let release: (() => void) | undefined
     let quiescent = false
     try {
-      const executable = await resolveCliExecutable(cliOf(worker.preference), this.backend, this.config)
+      const executable = await resolveCliExecutable(
+        cliOf(worker.preference),
+        this.backend,
+        this.config,
+        controller.signal,
+      )
       controller.signal.throwIfAborted()
       worker.status = 'running'
       this.storage.save(worker)

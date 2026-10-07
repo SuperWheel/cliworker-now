@@ -7,10 +7,10 @@
 ## Requirements
 
 ### Requirement: 原生模型和服务商发现
-ZCode、Pi、OMP、OpenCode SHALL 从各自原生目录或已有配置发现候选模型，不得固定为 GLM-5.3-Flash。Pi、OMP、OpenCode 的可选模型 MUST 经过当前账号和 Worker 路由的可用性筛选，不能直接呈现提供商大全。模型 SHALL 保留 provider 与原生 model 标识，区分可选项与隐藏、无效或缺乏账号支持证据的条目。目录读取失败 MUST 提供错误，不得用编造模型填补。
+ZCode、Grok、Pi、OMP、Hermes、OpenCode SHALL 从各自原生目录或已有配置发现候选模型，不得固定为 GLM-5.3-Flash。六个 CLI 的可选模型 MUST 经过当前账号和 Worker 路由的可用性筛选，不能直接呈现提供商大全。模型 SHALL 保留 provider 与原生 model 标识，区分可选项与隐藏、无效或缺乏账号支持证据的条目。目录读取失败 MUST 提供错误，不得用编造模型填补。
 
 #### Scenario: ZCode 多账号目录
-- **WHEN** 原生目录包含多个可见账号服务商及 GLM-5.3、GLM-5.3-Flash、GLM-5.2 等模型
+- **WHEN** 原生目录与当前账号支持范围相交后包含多个可见服务商及 GLM-5.3、GLM-5.3-Flash、GLM-5.2 等模型
 - **THEN** 可选择各有效条目，隐藏服务商不作为用户选项
 
 #### Scenario: Pi 和 OMP 多接口
@@ -60,7 +60,7 @@ ZCode、Pi、OMP、OpenCode SHALL 从各自原生目录或已有配置发现候�
 - **THEN** 界面说明该证据范围，仍保留实际调用可能出现订阅或认证失败的结果
 
 ### Requirement: 按账号与执行路由筛选
-Pi、OMP、OpenCode SHALL 结合当前认证有效性、原生账号模型范围、原生候选配置及绑定当前账号的可核查路由证据筛选可选模型。未登录、已知失效、账号不支持、仅在公共大全或自定义配置中存在但没有账号支持证据、或已知不适用于 Worker 的模型 MUST 不进入设置、首次派遣和 Worker 改选选项。无法确认账号范围时 SHALL 隐藏未经确认的候选并说明证据边界，不通过批量计费任务猜测。
+ZCode、Grok、Pi、OMP、Hermes、OpenCode SHALL 结合当前认证有效性、原生账号模型范围、原生候选配置及绑定当前账号的可核查路由证据筛选可选模型。未登录、已知失效、账号不支持、仅在公共大全或自定义配置中存在但没有账号支持证据、或已知不适用于 Worker 的模型 MUST 不进入设置、首次派遣和 Worker 改选选项。无法确认账号范围时 SHALL 隐藏未经确认的候选并说明证据边界，不通过批量计费任务猜测。
 
 #### Scenario: OAuth 账号模型范围
 - **WHEN** 已登录 OAuth 账号只公布一部分可用模型
@@ -89,6 +89,14 @@ Pi、OMP、OpenCode SHALL 结合当前认证有效性、原生账号模型范围
 #### Scenario: 公共免费目录但 Worker 不可用
 - **WHEN** 原生公共目录包含免费模型但该模型已知拒绝当前 Worker 执行方式
 - **THEN** 不把它作为可用或免费优先的选项，不静默替换其他模型
+
+#### Scenario: 仅公共或默认目录
+- **WHEN** Grok ACP 返回公共目录，Hermes 只有默认 provider/model，或 ZCode 只有内置目录且无对应账号支持证据
+- **THEN** 不作为可调用模型展示；保留登录、配置和刷新入口，不能用其他 CLI 的账号证明可用
+
+#### Scenario: 刷新失效与返回身份不符
+- **WHEN** 设置或 Worker 改选重新查询期间、查询失败，或返回的 CLI 与所选 CLI 不同
+- **THEN** 旧目录不可继续选择；原有存储偏好不变，派遣必须重新验证精确模型及强度
 
 ### Requirement: 简化名称与模型去重
 设置、首次派遣、Worker 改选和任务卡片 SHALL 仅显示模型名称，去除 provider／account 前缀及括号附注，内部完整原生 ID SHALL 保留。相同原生模型 SHALL 在可见选项中去重，不能仅凭相似显示名称合并不同型号或将不同路由的能力合并。有效的既有选择 SHALL 保持精确路由，不可用时请求重新选择而非静默切换。

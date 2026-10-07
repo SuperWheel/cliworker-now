@@ -1,8 +1,8 @@
 // Native metadata only. No prompts, API keys, OAuth objects, headers or raw errors leave this boundary.
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { readFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
+import { inspectPiInstallation } from './pi-installation.mjs'
 
 const levels = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 export function snapshotNativeCandidates(candidates, env = {}) {
@@ -118,12 +118,11 @@ async function nativeCandidates(
   options = {},
 ) {
   if (cli === 'pi') {
-    const dist = dirname(executable)
-    const manifest = JSON.parse(await readFile(join(dist, '../package.json'), 'utf8'))
-    if (manifest.name !== '@earendil-works/pi-coding-agent' || manifest.version !== '1.0.2')
-      throw new Error('Unsupported Pi catalog SDK version')
+    const { dist } = inspectPiInstallation(executable)
     const { ModelRuntime } = await import(pathToFileURL(join(dist, 'core/model-runtime.js')).href)
     const { AuthStorage } = await import(pathToFileURL(join(dist, 'core/auth-storage.js')).href)
+    if (typeof ModelRuntime?.create !== 'function' || typeof AuthStorage?.inMemory !== 'function')
+      throw new Error('Unsupported Pi catalog SDK capabilities')
     const auth = await privateJSON(join(directory, 'auth.json'))
     const usable = Object.fromEntries(
       Object.entries(auth).filter(

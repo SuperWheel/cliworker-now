@@ -44,7 +44,7 @@ interface Catalog {
   notice?: string
 }
 type Enabled = Record<CliId, boolean>
-type CatalogConnection = 'unknown' | 'success' | 'failed'
+type CatalogConnection = 'unknown' | 'pending' | 'success' | 'failed'
 interface AccountEntry {
   loading: boolean
   data?: AccountStatus
@@ -71,6 +71,7 @@ function connectionStatus(
   if (account.error || !account.data || ['unavailable', 'unauthenticated'].includes(account.data.state)) {
     return { state: 'failed', label: account.error || account.data?.summary || '连接失败' }
   }
+  if (catalogConnection === 'pending') return { state: 'pending', label: '正在读取模型目录' }
   if (catalogConnection === 'failed') return { state: 'failed', label: '模型目录读取失败，请刷新模型重试' }
   if (!['authenticated', 'configured'].includes(account.data.state)) {
     return {
@@ -78,15 +79,9 @@ function connectionStatus(
       label: 'CLI 已安装，连接状态待验证',
     }
   }
-  return {
-    state: 'connected',
-    label:
-      account.data.state === 'authenticated'
-        ? account.data.verification === 'local'
-          ? '已保存登录信息，未进行远程验证'
-          : 'CLI 报告账号已登录，未进行远程验证'
-        : '已读取本地凭据配置，未进行远程验证',
-  }
+  if (account.data.state === 'authenticated' && account.data.verification === 'cli')
+    return { state: 'connected', label: 'CLI 报告账号已登录，未进行远程验证' }
+  return { state: 'unverified', label: '已读取本地账号配置，登录状态待验证' }
 }
 
 /** Native modal owns focus, dismissal, theme, elevation and entrance animation. */
@@ -121,10 +116,14 @@ function OpenSettingsDialog({
   const toggleController = useRef<AbortController>()
 
   const refreshAccount = useCallback(
-    (id: CliId) => {
-      if (!enabledRef.current?.[id] || probes.current.has(id)) return
+    (id: CliId, replace = false) => {
+      if (!enabledRef.current?.[id]) return
+      const previous = probes.current.get(id)
+      if (previous && !replace) return
+      previous?.abort()
       const controller = new AbortController()
       probes.current.set(id, controller)
+      catalogResult(id, 'unknown')
       setAccounts((old) => ({ ...old, [id]: { data: old[id]?.data, loading: true } }))
       void (async () => {
         try {
@@ -142,7 +141,7 @@ function OpenSettingsDialog({
         }
       })()
     },
-    [api, sessionId],
+    [api, sessionId, catalogResult],
   )
 
   useEffect(() => {
@@ -313,7 +312,7 @@ function OpenSettingsDialog({
             enabled={enabled?.[cli]}
             account={accounts[cli]}
             connection={connectionStatus(enabled?.[cli], accounts[cli], verifiedCatalogs[cli], settingsError)}
-            onRefreshAccount={() => refreshAccount(cli)}
+            onRefreshAccount={(replace) => refreshAccount(cli, replace)}
             onCatalogResult={catalogResult}
             onToggle={(next) => void toggleCli(cli, next)}
             toggleBusy={!!togglingCli}
@@ -407,6 +406,7 @@ function AccountSummary({
   const data = account?.data
   const current = enabled === true && !loading && !settingsError && !account?.error
   const authenticated = current && data?.state === 'authenticated'
+  const verifiedLogin = authenticated && data.verification === 'cli'
   const apiLogin = authenticated && data.authMethod === 'api'
   const state = connection.state
   const label =
@@ -422,19 +422,23 @@ function AccountSummary({
               ? data?.state === 'unauthenticated'
                 ? '登录失效'
                 : '配置或连接失败'
-              : authenticated
-                ? apiLogin
-                  ? 'API 登录'
-                  : '已登录'
-                : data?.state === 'unconfigured'
-                  ? data.installed
-                    ? '未配置'
-                    : '未安装'
-                  : data?.state === 'configured'
-                    ? '已配置'
-                    : connection.state === 'connected'
-                      ? '模型目录已连接'
-                      : '状态待确认'
+              : connection.state === 'pending'
+                ? '正在检查连接…'
+                : verifiedLogin
+                  ? apiLogin
+                    ? 'API 登录'
+                    : '已登录'
+                  : authenticated
+                    ? '本地登录信息 · 待验证'
+                    : data?.state === 'unconfigured'
+                      ? data.installed
+                        ? '未配置'
+                        : '未安装'
+                      : data?.state === 'configured'
+                        ? '本地配置 · 待验证'
+                        : connection.state === 'connected'
+                          ? '模型目录已连接'
+                          : '状态待确认'
   const detail =
     enabled === false
       ? '开启后即可管理账号与模型。'
@@ -447,13 +451,13 @@ function AccountSummary({
             : connection.state === 'failed'
               ? connection.label
               : authenticated
-                ? data.verification === 'local'
+                ? !verifiedLogin
                   ? '本地登录信息，未进行远程验证'
                   : apiLogin
                     ? '使用 CLI 当前配置的 API 凭据，未进行远程验证'
                     : '登录状态由 CLI 提供，未进行远程验证'
                 : data?.state === 'configured'
-                  ? '已读取本地凭据配置，未进行远程验证'
+                  ? [data.summary, '本地凭据不代表登录有效，未进行远程验证'].filter(Boolean).join('；')
                   : connection.state === 'connected'
                     ? [data?.summary, connection.label].filter(Boolean).join('；')
                     : (data?.summary ?? '')
@@ -473,7 +477,7 @@ function AccountSummary({
         )}
         {authenticated && logout}
       </div>
-      {(!authenticated || connection.state === 'failed') && detail && (
+      {(!verifiedLogin || connection.state === 'failed') && detail && (
         <div className="cwn-account-detail" role="status">
           {detail}
         </div>
@@ -504,7 +508,7 @@ function CliSettings({
   enabled?: boolean
   account?: AccountEntry
   connection: ReturnType<typeof connectionStatus>
-  onRefreshAccount: () => void
+  onRefreshAccount: (replace?: boolean) => void
   onCatalogResult: (cli: CliId, verified: CatalogConnection) => void
   onToggle: (enabled: boolean) => void
   toggleBusy: boolean
@@ -526,15 +530,25 @@ function CliSettings({
   const saveController = useRef<AbortController>()
   useEffect(() => () => saveController.current?.abort(), [])
   useEffect(() => {
+    setCatalog(undefined)
+    setModel('')
+    setEffort('default')
+    setModelError('')
+    setSaveError('')
+    setSaved(false)
     if (!enabled) {
       setModelLoading(false)
       onCatalogResult(cli, 'unknown')
       return
     }
-    const controller = new AbortController()
     setModelLoading(true)
-    setModelError('')
-    setSaved(false)
+    onCatalogResult(cli, 'pending')
+    // A changed account invalidates the old model scope. Start discovery only
+    // after this account check settles, including a fresh independent read if
+    // the CLI cannot report an account identity.
+    if (!account || account.loading) return () => onCatalogResult(cli, 'unknown')
+    const controller = new AbortController()
+    let settled = false
     void (async () => {
       try {
         const next: Catalog = JSON.parse(
@@ -542,9 +556,10 @@ function CliSettings({
         )
         if (next.cli !== cli) throw new Error('收到不匹配的 CLI 模型目录，请重试')
         if (controller.signal.aborted) return
+        settled = true
         setCatalog(next)
         onCatalogResult(cli, next.models.length > 0 ? 'success' : 'failed')
-        if (!next.models.length) setModelError('此 CLI 未返回可用模型，请刷新重试')
+        if (!next.models.length) setModelError(next.notice || '此 CLI 未返回可用模型，请登录或刷新重试')
         const preferred = next.preference ? modelName(next.preference) : ''
         const saved = next.models.find(
           (item) =>
@@ -562,6 +577,7 @@ function CliSettings({
         )
       } catch (error) {
         if (!controller.signal.aborted) {
+          settled = true
           setCatalog(undefined)
           onCatalogResult(cli, 'failed')
           setModel('')
@@ -571,8 +587,11 @@ function CliSettings({
         if (!controller.signal.aborted) setModelLoading(false)
       }
     })()
-    return () => controller.abort()
-  }, [api, sessionId, cli, enabled, modelRevision, onCatalogResult])
+    return () => {
+      controller.abort()
+      if (!settled) onCatalogResult(cli, 'unknown')
+    }
+  }, [api, sessionId, cli, enabled, account, modelRevision, onCatalogResult])
   const inactive = !enabled || toggling
   const settingsPending = enabled === undefined && !settingsError
   const accountLoading = !settingsError && enabled !== false && (!account || account.loading)
@@ -606,11 +625,11 @@ function CliSettings({
     if (!efforts.includes(effort)) setEffort(efforts[0] ?? 'default')
   }
   const finishedAccountAction = () => {
-    onRefreshAccount()
-    refreshModels((n) => n + 1)
+    onRefreshAccount(true)
   }
   const closeAccount = () => {
     setAction(undefined)
+    onRefreshAccount(true)
   }
   const accountAction = (id: AccountAction) => {
     const item = account?.data?.actions.find((candidate) => candidate.id === id)
@@ -674,7 +693,7 @@ function CliSettings({
             </>
           ) : item?.label === '登录设置' ? (
             '登录设置'
-          ) : account?.data?.state === 'authenticated' ? (
+          ) : account?.data?.state === 'authenticated' && account.data.verification === 'cli' ? (
             '切换账号'
           ) : (
             '登录账号'
@@ -724,8 +743,8 @@ function CliSettings({
                 size="md"
                 className="cwn-refresh"
                 aria-label="刷新状态"
-                disabled={inactive || accountLoading}
-                onClick={onRefreshAccount}
+                disabled={inactive || accountLoading || saving}
+                onClick={() => onRefreshAccount()}
               >
                 <IconRefreshOutlineRegular size={16} />
               </Button>
@@ -760,7 +779,7 @@ function CliSettings({
               sessionId={sessionId}
               cli={cli}
               action={action}
-              onClose={() => setAction(undefined)}
+              onClose={closeAccount}
               onFinished={finishedAccountAction}
             />
           </Modal>

@@ -6,6 +6,8 @@ import { StringDecoder } from 'node:string_decoder'
 import { EFFORTS, type Effort, type ModelChoice, type TaskMode } from '../shared/types.ts'
 import type { EventInput, ProtocolResult } from './protocol.ts'
 import type { TokenUsage } from '../shared/telemetry.ts'
+import { hermesAccountModels } from './hermes-models.ts'
+import { verifyHermesExecutable } from './hermes-installation.ts'
 
 export interface HermesInput {
   executable: string
@@ -166,31 +168,46 @@ export async function discoverHermes(
   capture: (argv: string[], env?: Record<string, string>) => Promise<string>,
   stateDirectory: string,
   hermesHome?: string,
+  options: { signal?: AbortSignal; fetch?: typeof fetch } = {},
 ): Promise<ModelChoice[]> {
+  options.signal?.throwIfAborted()
+  await verifyHermesExecutable(executable, options.signal ?? AbortSignal.timeout(15000))
   const home = hermesHomeDirectory(hermesHome)
   await requireConfiguration(home)
+  options.signal?.throwIfAborted()
   const env = await environment(stateDirectory, home)
-  const get = async (key: string): Promise<unknown> =>
-    JSON.parse(await capture([executable, 'config', 'get', key, '--json'], env))
+  const get = async (key: string): Promise<unknown> => {
+    options.signal?.throwIfAborted()
+    const result = await capture([executable, 'config', 'get', key, '--json'], env)
+    options.signal?.throwIfAborted()
+    return JSON.parse(result)
+  }
   // Native launchers take a per-home install lock and may initialize a new profile's
   // runtime. Parallel scalar queries can race that first initialization.
   const model = await get('model.default')
   const provider = await get('model.provider')
   if (!nonempty(model) || !nonempty(provider) || provider === 'auto')
     throw new Error('请在 Hermes 登录设置中明确选择服务商和模型，然后刷新')
-  return [
-    {
-      id: JSON.stringify([provider, model]),
-      label: `${model} (${provider})`,
-      efforts: await reasoningEfforts(home, provider, model),
-    },
-  ]
+  const scope = await hermesAccountModels(home, provider, options)
+  options.signal?.throwIfAborted()
+  if (scope.state !== 'supported') return []
+  const models = await Promise.all(
+    scope.models.map(async (candidate) => ({
+      id: JSON.stringify([provider, candidate.id]),
+      label: candidate.name ?? candidate.id,
+      efforts: await reasoningEfforts(home, provider, candidate.id),
+      cost: candidate.cost,
+    })),
+  )
+  options.signal?.throwIfAborted()
+  return models
 }
 
 /** Official stream-json CLI; not a claim of local installation or live execution. */
 export async function prepareHermes(
   input: HermesInput,
 ): Promise<{ argv: string[]; env: Record<string, string> }> {
+  await verifyHermesExecutable(input.executable, AbortSignal.timeout(15000))
   const [provider, model] = selection(input.preference.model)
   if (!['plan', 'accept-edits'].includes(input.mode)) throw new Error('Invalid Hermes mode')
   if (!nonempty(input.prompt)) throw new Error('Prompt must not be empty')

@@ -19,6 +19,7 @@ import {
   projectHermesIdentity,
   readHermesAccount,
 } from '../src/host/hermes-accounts.ts'
+import { verifyHermesExecutable } from '../src/host/hermes-installation.ts'
 
 const roots: string[] = []
 const signal = () => new AbortController().signal
@@ -54,6 +55,14 @@ const oauth = (email = 'fixture@example.test') => ({
 afterEach(() => roots.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true })))
 
 describe('Hermes native accounts (explicit synthetic fixtures)', () => {
+  it('rejects a broken fixed exec shim without running any launcher', async () => {
+    const { root } = fixture(),
+      shim = join(root, 'hermes')
+    writeFileSync(shim, `#!/bin/sh\nexec ${join(root, 'missing-install/bin/hermes')} "$@"\n`, { mode: 0o700 })
+    await expect(verifyHermesExecutable(shim, signal())).rejects.toThrow('实际程序不可用')
+    writeFileSync(shim, '#!/bin/sh\nexec /bin/sh "$@"\n', { mode: 0o700 })
+    await expect(verifyHermesExecutable(shim, signal())).resolves.toBeUndefined()
+  })
   it('does not treat a file or configuration as a logged-in account', async () => {
     const { config } = fixture()
     expect((await readHermesAccount(config, signal())).state).toBe('unconfigured')
@@ -79,7 +88,7 @@ describe('Hermes native accounts (explicit synthetic fixtures)', () => {
     const before = readFileSync(join(config.hermesHome, 'auth.json'), 'utf8')
     const result = await readHermesAccount(config, signal())
     expect(result).toMatchObject({
-      state: 'authenticated',
+      state: 'configured',
       authMethod: 'oauth',
       verification: 'local',
       accountLabel: 'fixture@example.test',
@@ -105,7 +114,7 @@ describe('Hermes native accounts (explicit synthetic fixtures)', () => {
     const xai = { ...codex.providers['openai-codex'], auth_mode: 'oauth_device_code' }
     expect(
       projectHermesIdentity({ active_provider: 'xai-oauth', providers: { 'xai-oauth': xai } }),
-    ).toMatchObject({ state: 'authenticated', authMethod: 'oauth', accountLabel: 'fixture@example.test' })
+    ).toMatchObject({ state: 'configured', authMethod: 'oauth', accountLabel: 'fixture@example.test' })
     expect(projectHermesIdentity({ providers: { ...codex.providers, 'xai-oauth': xai } })?.state).toBe(
       'configured',
     )
@@ -118,6 +127,15 @@ describe('Hermes native accounts (explicit synthetic fixtures)', () => {
     })
     expect(result).toMatchObject({ state: 'configured', authMethod: 'api', verification: 'local' })
     expect(JSON.stringify(result)).not.toContain('synthetic-api')
+  })
+
+  it('keeps refresh-only OAuth unverified and reports locally expired access', () => {
+    const refreshOnly = oauth()
+    refreshOnly.providers['openai-codex'].tokens.access_token = ''
+    expect(projectHermesIdentity(refreshOnly)?.state).toBe('configured')
+    const expired = oauth()
+    expired.providers['openai-codex'].tokens.access_token = jwt({ exp: 1 })
+    expect(projectHermesIdentity(expired)).toMatchObject({ state: 'unauthenticated', verification: 'local' })
   })
 
   it.each(['invalid-json', 'symlink', 'hardlink', 'oversized'])(

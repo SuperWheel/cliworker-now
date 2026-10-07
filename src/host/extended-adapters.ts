@@ -273,6 +273,7 @@ export async function extendedCatalog(
           state,
           zcodeAuthDirectory(config.zcodeAuthDirectory, config.stateDirectory ?? stateDirectory),
           config.zcodeBuiltinConfig,
+          { signal },
         )
       : cli === 'pi' || cli === 'omp'
         ? await discoverPiOmp(cli, executable, run, state, {
@@ -289,7 +290,7 @@ export async function extendedCatalog(
               { credentialEnv: creds, signal },
             )
           : cli === 'hermes'
-            ? await discoverHermes(executable, run, state, config.hermesHome)
+            ? await discoverHermes(executable, run, state, config.hermesHome, { signal })
             : cli === 'grok'
               ? await discoverGrok(executable, run, state)
               : undefined

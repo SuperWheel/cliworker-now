@@ -59,10 +59,10 @@ describe('Grok adapter (synthetic fixtures; real execution not subscription-vali
     expect(editing.env.GROK_HOME).toBe(prepared.env.GROK_HOME)
     expect(editing.argv[editing.argv.indexOf('--permission-mode') + 1]).toBe('acceptEdits')
   })
-  it('uses native ACP catalog and rejects invented effort tiers', async () => {
+  it('never offers anonymous ACP models as current-account Worker entitlements and rejects invented effort tiers', async () => {
     const models = [{ id: 'grok-4.5', label: 'Grok 4.5', efforts: ['high', 'medium', 'low'] }]
-    expect(
-      await discoverGrok(
+    await expect(
+      discoverGrok(
         '/bin/grok',
         async (argv, env) => {
           expect(argv[1]).toMatch(/grok-catalog\.mjs$/)
@@ -72,7 +72,7 @@ describe('Grok adapter (synthetic fixtures; real execution not subscription-vali
         },
         directory(),
       ),
-    ).toEqual(models)
+    ).rejects.toThrow('公共候选')
     await expect(
       discoverGrok(
         '/bin/grok',

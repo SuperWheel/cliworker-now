@@ -140,7 +140,10 @@ export async function discoverGrok(
   })
   if (!models.length || new Set(models.map((x) => x.id)).size !== models.length)
     throw new Error('Grok 模型目录为空或重复')
-  return models
+  // ACP initialize is deliberately anonymous and returns the public directory.
+  // Installed Grok 1.0.0 has no verified read-only account/Worker entitlement
+  // response here. A local login or native candidate never grants a subscription.
+  throw new Error('Grok 原生目录只提供公共候选，当前账号的 Worker 模型权限尚无法确认；未验证的模型已隐藏')
 }
 /** Native streaming-json parser from installed 1.0.0 docs; no fabricated execution evidence. */
 export class GrokProtocol {

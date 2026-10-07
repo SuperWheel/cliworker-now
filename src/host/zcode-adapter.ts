@@ -20,6 +20,8 @@ import { fileURLToPath } from 'node:url'
 import { EFFORTS, type Effort, type ModelChoice, type TaskMode } from '../shared/types.ts'
 import type { EventInput, ProtocolResult } from './protocol.ts'
 import type { AccountIdentity } from './account-identity.ts'
+import { probeAccountModels } from './account-models.mjs'
+import { readZCodeAccountApiKeys } from './zcode-account-models.ts'
 
 // Native ZCode uses exact tool-name sets, not globs. Deny its own delegation
 // surface and bundled browser REPL. This is not a general MCP isolation policy;
@@ -104,7 +106,12 @@ export function zcodeEnvironment(executable: string, state: string, auth?: strin
       throw new Error('ZCode state directory must not be a symlink')
     chmodSync(dir, 0o700)
   }
+  // Harness deliberately scrubs parent SECRET variables. Native authentication,
+  // metadata decryption and resumed/headless tasks must use the same cipher key.
+  // Keep it exclusively in the selected ZCode child's environment.
+  const credentialSecret = process.env.ZCODE_CREDENTIAL_SECRET?.trim()
   return {
+    ...(credentialSecret ? { ZCODE_CREDENTIAL_SECRET: credentialSecret } : {}),
     ZCODE_DATA_BASE_DIR: auth ?? zcodeAuthDirectory(),
     ZCODE_STORAGE_DIR: join(state, 'storage'),
     ZCODE_SESSION_DB_PATH: join(state, 'storage/session.sqlite'),
@@ -204,6 +211,10 @@ interface PersonalDocument {
 export interface ZCodeDiscoveryOptions {
   nativeHome?: string
   personalConfig?: string
+  signal?: AbortSignal
+  /** Isolated read-only account metadata transport for tests. */
+  probeOptions?: Parameters<typeof probeAccountModels>[1]
+  credentialSecret?: string
 }
 const BUILTIN_MODEL_GROUPS = [
   'modelRules',
@@ -459,6 +470,8 @@ interface ResolvedZCodeModel {
   providerId: string
   modelId: string
   nativeReasoningDefault?: string
+  /** Private effective native routing; never returned as a public model choice. */
+  providerConfig: Record<string, any>
 }
 function resolveZCodeModels(value: unknown, personal: PersonalDocument): ResolvedZCodeModel[] {
   if (!record(value) || value.schemaVersion !== 1 || !record(value.config))
@@ -582,6 +595,7 @@ function resolveZCodeModels(value: unknown, personal: PersonalDocument): Resolve
         providerId,
         modelId,
         nativeReasoningDefault: Array.isArray(values) ? values.at(-1) : undefined,
+        providerConfig: config,
         choice: {
           id,
           label: `${modelId}（${providerId} · 本机目录）`,
@@ -598,6 +612,53 @@ export function parseZCodeBuiltin(value: unknown, personal?: unknown): ModelChoi
     (entry) => entry.choice,
   )
 }
+// Exact canonical IDs from ZCode 0.16.9's official-glm-model-id.ts. The native
+// account metadata returns lowercase aliases, while execution keeps these IDs.
+// Unknown spellings/suffixes remain exact; this is not general case folding.
+const officialGlmIds = new Map(
+  [
+    'GLM-5.3',
+    'GLM-5.3-Flash',
+    'GLM-5V-Turbo',
+    'GLM-5.2',
+    'GLM-5.1',
+    'GLM-5.1-Highspeed',
+    'GLM-5',
+    'GLM-5-Turbo',
+    'GLM-4.7',
+    'GLM-4.7-FlashX',
+    'GLM-4.7-Flash',
+    'GLM-4.6',
+    'GLM-4.5-Air',
+    'GLM-4.5',
+    'GLM-4.6V',
+    'GLM-4.6V-Flash',
+    'GLM-4.6V-FlashX',
+    'GLM-4.1V-Thinking-FlashX',
+    'GLM-4.1V-Thinking-Flash',
+    'GLM-4-FlashX-250414',
+    'GLM-4-Flash-250414',
+    'GLM-4V-Flash',
+  ].map((id) => [id.toLowerCase(), id]),
+)
+function usesOfficialGlmAliases(entry: ResolvedZCodeModel): boolean {
+  const { access, api } = entry.providerConfig
+  if (
+    access.type !== 'zhipu-account' ||
+    access.mode !== 'individual-coding-plan' ||
+    api.type !== 'anthropic-messages'
+  )
+    return false
+  const baseUrl = api.baseUrl.replace(/\/+$/, '')
+  return (
+    (entry.providerId === 'account:bigmodel-individual-coding-plan' &&
+      access.accountType === 'bigmodel' &&
+      baseUrl === 'https://open.bigmodel.cn/api/anthropic') ||
+    (entry.providerId === 'account:zai-individual-coding-plan' &&
+      access.accountType === 'zai' &&
+      baseUrl === 'https://api.z.ai/api/anthropic')
+  )
+}
 export async function discoverZCode(
   executable: string,
   _capture: (argv: string[], env?: Record<string, string>) => Promise<string>,
@@ -606,10 +667,83 @@ export async function discoverZCode(
   builtinConfig?: string,
   options: ZCodeDiscoveryOptions = {},
 ): Promise<ModelChoice[]> {
+  options.signal?.throwIfAborted()
   const personal = readZCodePersonal(authDirectory, options)
-  return resolveZCodeModels(readZCodeConfig(builtinPath(executable, builtinConfig), false), personal).map(
-    (entry) => entry.choice,
+  const candidates = resolveZCodeModels(
+    readZCodeConfig(builtinPath(executable, builtinConfig), false),
+    personal,
   )
+  const bound = await readZCodeAccountApiKeys(
+    authDirectory ?? zcodeAuthDirectory(),
+    candidates.flatMap((entry) => {
+      const access = entry.providerConfig.access
+      return access?.type === 'zhipu-account' &&
+        access.mode === 'individual-coding-plan' &&
+        ['bigmodel', 'zai'].includes(access.accountType)
+        ? [entry.providerId]
+        : []
+    }),
+    options,
+  )
+  const groups = new Map<string, ResolvedZCodeModel[]>()
+  for (const entry of candidates) {
+    const { access, api } = entry.providerConfig
+    // Native OAuth login binds a concrete Worker API key to the current account.
+    // Only that exact binding enters the same native route; static entitled flags,
+    // old identities, desktop OAuth tokens and refresh tokens do not substitute.
+    const apiKey =
+      access?.type === 'zhipu-account'
+        ? bound.get(entry.providerId)
+        : ['api-key', 'zhipu-coding-plan-api-key'].includes(access?.type)
+          ? access.apiKey
+          : undefined
+    if (!nonempty(apiKey)) continue
+    // Custom headers may alter both credential and scope. Until this query can
+    // mirror the native route exactly, keep that route out of the public list.
+    if (record(api.headers) && Object.keys(api.headers).length) continue
+    const group = groups.get(entry.providerId) ?? []
+    group.push(entry)
+    groups.set(entry.providerId, group)
+  }
+  const results = await Promise.all(
+    [...groups.values()].map(async (entries) => {
+      const { access, api } = entries[0]!.providerConfig
+      const secret =
+        access.type === 'zhipu-account' ? bound.get(entries[0]!.providerId)! : (access.apiKey as string)
+      const scope = await probeAccountModels(
+        {
+          provider: entries[0]!.providerId,
+          credential: { type: 'api', key: secret },
+          baseUrl: api.baseUrl,
+          apiType: api.type,
+          // Native createAnthropic adds x-api-key, while ZCode's factory also
+          // supplies withAnthropicAuthorizationHeader for the same bound key.
+          ...(api.type === 'anthropic-messages' ? { anthropicAuth: 'api-key-and-bearer' as const } : {}),
+          verifiedModelIds: [],
+        },
+        { ...options.probeOptions, signal: options.signal ?? options.probeOptions?.signal },
+      )
+      if (scope.state !== 'supported') return []
+      const officialAliases = usesOfficialGlmAliases(entries[0]!)
+      return entries.flatMap(({ modelId, choice }) => {
+        const supported = scope.models.find(
+          (entry) =>
+            entry.id === modelId ||
+            (officialAliases && officialGlmIds.get(entry.id.toLowerCase()) === modelId),
+        )
+        if (!supported || choice.id.includes(secret) || choice.label.includes(secret)) return []
+        return [
+          {
+            ...choice,
+            cost:
+              access.type !== 'api-key' && supported.cost === 'free' ? ('unknown' as const) : supported.cost,
+          },
+        ]
+      })
+    }),
+  )
+  options.signal?.throwIfAborted()
+  return results.flat()
 }
 
 export class ZCodeProtocol {

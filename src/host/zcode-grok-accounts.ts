@@ -7,7 +7,7 @@ import { StringDecoder } from 'node:string_decoder'
 import { stripVTControlCharacters } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import type { AccountAction } from '../shared/accounts.ts'
-import { accountEmail, type AccountIdentity } from './account-identity.ts'
+import { accountEmail, localTokenExpired, type AccountIdentity } from './account-identity.ts'
 import type { ProcessBackend, RuntimeConfig } from './process.ts'
 import { readZCodePersonalIdentity, zcodeAuthDirectory, zcodeEnvironment } from './zcode-adapter.ts'
 
@@ -70,13 +70,38 @@ export function projectZCodeIdentity(raw: unknown, secret: string): AccountIdent
     }
   }
   try {
+    for (const name of Object.keys(raw)) {
+      const match = /^account-provider:(.+):identity$/.exec(name)
+      if (!match) continue
+      const identity = decode(raw[name]).trim()
+      if (
+        identity &&
+        decode(
+          raw[`account-provider:coding-plan:${match[1]}:account:${encodeURIComponent(identity)}:api-key`],
+        ).trim()
+      )
+        return {
+          state: 'configured',
+          verification: 'local',
+          summary: '已读取 ZCode 当前原生账号绑定的 Worker 凭据，模型权限需单独验证',
+        }
+    }
     const provider = decode(raw['oauth:active_provider'])
     if (provider !== 'bigmodel' && provider !== 'zai')
       return provider
         ? { state: 'unknown', verification: 'local', summary: '暂时无法识别 ZCode 登录服务商' }
         : { state: 'unconfigured', verification: 'local', summary: '尚未登录 ZCode' }
-    if (!decode(raw[`oauth:${provider}:access_token`]) && !decode(raw[`oauth:${provider}:refresh_token`]))
+    const access = decode(raw[`oauth:${provider}:access_token`])
+    const refresh = decode(raw[`oauth:${provider}:refresh_token`])
+    if (!access && !refresh)
       return { state: 'unauthenticated', verification: 'local', summary: '本地登录凭据已清除' }
+    if (localTokenExpired(access))
+      return {
+        state: 'unauthenticated',
+        verification: 'local',
+        authMethod: 'oauth',
+        summary: 'ZCode 本地访问令牌已过期，请在原生登录设置中确认或重新登录',
+      }
     let info: unknown
     try {
       info = JSON.parse(decode(raw[`oauth:${provider}:user_info`]))
@@ -94,11 +119,13 @@ export function projectZCodeIdentity(raw: unknown, secret: string): AccountIdent
         ? name.trim()
         : undefined
     return {
-      state: 'authenticated',
+      state: 'configured',
       authMethod: 'oauth',
       verification: 'local',
       accountLabel: email || display || undefined,
-      summary: '已读取 ZCode 本地登录会话',
+      summary: access
+        ? '已读取 ZCode 本地 OAuth 配置，登录有效性待原生确认'
+        : '仅保存 ZCode 续期凭据，登录有效性待原生确认',
     }
   } finally {
     key.fill(0)
@@ -113,14 +140,21 @@ export function projectGrokIdentity(raw: unknown, now = Date.now()): AccountIden
   for (const [, value] of accounts) {
     if (!record(value)) continue
     const expires = typeof value.expires_at === 'string' ? Date.parse(value.expires_at) : NaN
-    if (!nonempty(value.refresh_token) && !(nonempty(value.key) && Number.isFinite(expires) && expires > now))
+    const active = nonempty(value.key) && Number.isFinite(expires) && expires > now
+    if (!active && !nonempty(value.refresh_token)) continue
+    if (
+      nonempty(value.key) &&
+      ((Number.isFinite(expires) && expires <= now) || localTokenExpired(value.key, now))
+    )
       continue
     return {
-      state: 'authenticated',
+      state: 'configured',
       authMethod: 'oauth',
       verification: 'local',
       accountLabel: accountEmail(value.email),
-      summary: '已读取 Grok 本地登录会话',
+      summary: active
+        ? '已读取 Grok 本地 OAuth 配置，登录有效性待原生确认'
+        : '仅保存 Grok 续期凭据，登录有效性待原生确认',
     }
   }
   return {

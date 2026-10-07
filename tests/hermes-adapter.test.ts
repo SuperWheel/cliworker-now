@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   mkdirSync,
   mkdtempSync,
@@ -23,6 +23,15 @@ import {
 import type { EventInput } from '../src/host/protocol.ts'
 import { foldEvents } from '../src/shared/types.ts'
 
+vi.mock('../src/host/hermes-installation.ts', () => ({ verifyHermesExecutable: async () => undefined }))
+vi.mock('../src/host/hermes-models.ts', () => ({
+  hermesAccountModels: vi.fn(async () => ({
+    state: 'supported',
+    source: 'account-models',
+    models: [{ id: 'synthetic/model', cost: 'unknown' }],
+  })),
+}))
+// Synthetic supported account metadata; credential/HTTP boundaries have a separate suite.
 const directories: string[] = []
 function directory() {
   const path = mkdtempSync(join(tmpdir(), 'hermes-fixture-'))
@@ -102,10 +111,30 @@ describe('Hermes adapter (synthetic fixtures; no inference)', () => {
     expect(models).toEqual([
       {
         id: '["openrouter","synthetic/model"]',
-        label: 'synthetic/model (openrouter)',
+        label: 'synthetic/model',
+        cost: 'unknown',
         efforts: ['default', 'low', 'high'],
       },
     ])
+  })
+
+  it('does not continue scalar discovery after caller cancellation', async () => {
+    const controller = new AbortController(),
+      calls: string[][] = []
+    await expect(
+      discoverHermes(
+        '/bin/hermes',
+        async (argv) => {
+          calls.push(argv)
+          controller.abort(new Error('synthetic metadata cancelled'))
+          return JSON.stringify('synthetic/model')
+        },
+        directory(),
+        home(),
+        { signal: controller.signal },
+      ),
+    ).rejects.toThrow('synthetic metadata cancelled')
+    expect(calls).toHaveLength(1)
   })
 
   it('does not invent choices for missing, stale, other-provider or ambiguous capabilities', async () => {

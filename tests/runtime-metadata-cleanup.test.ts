@@ -10,6 +10,9 @@ import { WorkerStorage } from '../src/host/storage.ts'
 import { DEFAULT_CONFIG, ProcessCleanupUnconfirmedError, type ProcessBackend } from '../src/host/process.ts'
 
 // Synthetic preparation only: this suite never invokes an installed CLI or reads its accounts.
+vi.mock('../src/host/pi-omp-identity.ts', () => ({
+  verifyPiOmpExecutable: async (_cli: string, executable: string) => executable,
+}))
 vi.mock('../src/host/extended-adapters.ts', () => ({
   isExtendedCli: (cli: string) => cli === 'omp',
   extendedLaunch: vi.fn(),

@@ -43,11 +43,28 @@ export async function readPiOmpAccount(
   cli: 'pi' | 'omp',
   config: RuntimeConfig,
   signal: AbortSignal,
+  options: { nativeHome?: string } = {},
 ): Promise<AccountIdentity> {
-  // An explicit broken reference is a configuration error, never silently replaced.
-  return config.zaiCredentialRef
-    ? managedIdentity(config, signal)
-    : inspectPiOmpNativeAccount(cli, config.stateDirectory, signal)
+  const native = await inspectPiOmpNativeAccount(cli, config.stateDirectory, signal, options)
+  return withManagedSource(native, config, signal)
+}
+
+/** A Host API reference is an additional execution source, never a native login. */
+async function withManagedSource(
+  native: AccountIdentity,
+  config: RuntimeConfig,
+  signal: AbortSignal,
+): Promise<AccountIdentity> {
+  if (!config.zaiCredentialRef) return native
+  const managed = await managedIdentity(config, signal)
+  return {
+    ...native,
+    summary: `${native.summary}；${
+      managed.state === 'configured'
+        ? '另有 Harness 智谱凭据引用供对应 API 路由使用，不代表本 CLI 已登录'
+        : '另有 Harness 智谱凭据引用不可用，请检查宿主模型设置'
+    }`,
+  }
 }
 
 /** Project only capability metadata, never keys, arbitrary provider metadata or token claims. */
@@ -56,9 +73,12 @@ export async function readOpenCodeAccount(
   signal: AbortSignal,
   options: OpenCodeNativeOptions = {},
 ): Promise<AccountIdentity> {
-  if (config.zaiCredentialRef) return managedIdentity(config, signal)
   signal.throwIfAborted()
-  return inspectOpenCodeProfile(openCodeAuthDirectory(config.stateDirectory), { ...options, signal })
+  const native = await inspectOpenCodeProfile(openCodeAuthDirectory(config.stateDirectory), {
+    ...options,
+    signal,
+  })
+  return withManagedSource(native, config, signal)
 }
 
 async function withCancellation<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {

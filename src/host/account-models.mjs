@@ -140,7 +140,9 @@ export async function probeAccountModels(input, options = {}) {
     const base = metadataBase(input, codex)
     const headers = { accept: 'application/json', Authorization: `Bearer ${token}` }
     if (input.apiType === 'anthropic-messages' && !oauth) {
-      delete headers.Authorization
+      // ZCode's native Anthropic factory sends both headers. Other callers keep
+      // the ordinary x-api-key contract unless they explicitly mirror that route.
+      if (input.anthropicAuth !== 'api-key-and-bearer') delete headers.Authorization
       headers['x-api-key'] = token
       headers['anthropic-version'] = '2023-06-01'
     }

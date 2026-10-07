@@ -16,6 +16,7 @@ for (const name of [
   'terminal-bridge',
   'pi-omp-bridge',
   'pi-native-catalog',
+  'pi-installation',
   'account-models',
   'zcode-resume',
   'pi-login',
@@ -29,6 +30,8 @@ if (existsSync('src/host/account-models.mjs')) {
   cpSync('src/host/account-models.mjs', 'lib/types/host/account-models.mjs')
   cpSync('src/host/account-models.d.mts', 'lib/types/host/account-models.d.mts')
 }
+cpSync('src/host/pi-installation.mjs', 'lib/types/host/pi-installation.mjs')
+cpSync('src/host/pi-installation.d.mts', 'lib/types/host/pi-installation.d.mts')
 await build({
   entry: { index: 'lib/types/host/index.js' },
   outDir: 'lib',

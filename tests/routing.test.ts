@@ -74,6 +74,10 @@ describe('explicit requests from this human step', () => {
     ['调用智谱 CLI 帮我检查', 'zcode'],
     ['Please use codx CLI to review the code', 'codex'],
     ['用 Pi 的 GLM 模型帮我检查代码', 'pi'],
+    ['调用 OMP cli 用 GLM 模型检查代码', 'omp'],
+    ['使用 Oh My Pi 检查代码', 'omp'],
+    ['使用 oh-my-pi 检查代码', 'omp'],
+    ['使用 Pi Coding Agent 检查代码', 'pi'],
     ['调用 harmes cli 检查代码', 'hermes'],
   ])('%s routes to %s without choosing a model', (text, cli) => {
     expect(invocationResolution([user(text)])).toMatchObject({ status: 'resolved', cli })
@@ -291,6 +295,10 @@ describe('native prompt/tool integration', () => {
       ['agy', 'antigravity'],
       ['glm', 'zcode'],
       ['codx', 'codex'],
+      ['omp', 'omp'],
+      ['Oh My Pi', 'omp'],
+      ['pi', 'pi'],
+      ['Pi Coding Agent', 'pi'],
     ]) {
       expect(await f.start(alias)).toBe('synthetic-background-receipt')
       expect(f.choose).toHaveBeenLastCalledWith(f.agent, expect.any(AbortSignal), cli)

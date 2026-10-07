@@ -20,12 +20,12 @@ it('checks script installation as a readable file without requiring a shell exec
   try {
     mkdirSync(script)
     await expect(
-      resolveCliExecutable('pi', backend, { ...DEFAULT_CONFIG, piExecutable: script }),
+      resolveCliExecutable('grok', backend, { ...DEFAULT_CONFIG, grokExecutable: script }),
     ).rejects.toThrow('普通文件')
     rmSync(script, { recursive: true })
     writeFileSync(script, '// Explicit simulation: no CLI runs.\n', { mode: 0o600 })
     await expect(
-      resolveCliExecutable('pi', backend, { ...DEFAULT_CONFIG, piExecutable: script }),
+      resolveCliExecutable('grok', backend, { ...DEFAULT_CONFIG, grokExecutable: script }),
     ).resolves.toBe(script)
   } finally {
     rmSync(root, { recursive: true, force: true })
