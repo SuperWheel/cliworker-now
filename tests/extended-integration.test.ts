@@ -49,6 +49,34 @@ vi.mock('../src/host/zcode-adapter.ts', async (load) => {
       }),
   }
 })
+vi.mock('../src/host/opencode-adapter.ts', async (load) => {
+  const actual = await load<typeof import('../src/host/opencode-adapter.ts')>()
+  return {
+    ...actual,
+    discoverOpenCode: (...args: Parameters<typeof actual.discoverOpenCode>) => {
+      args[5] = {
+        ...args[5],
+        nativeHome: join(args[2], 'synthetic-home'),
+        probeOptions: {
+          fetch: async (_url, request) => {
+            expect(request?.method).toBe('GET')
+            return Response.json({ data: [{ id: 'model' }] })
+          },
+        },
+      }
+      return actual.discoverOpenCode(...args)
+    },
+  }
+})
+function seedSyntheticOpenCode(root: string) {
+  const account = join(root, 'accounts/opencode')
+  const auth = join(account, 'data/opencode')
+  const config = join(account, 'config/opencode')
+  mkdirSync(auth, { recursive: true, mode: 0o700 })
+  mkdirSync(config, { recursive: true, mode: 0o700 })
+  writeFileSync(join(auth, 'auth.json'), JSON.stringify({ fixture: { type: 'api', key: 'SYNTHETIC_ONLY' } }), { mode: 0o600 })
+  writeFileSync(join(config, 'opencode.json'), JSON.stringify({ provider: { fixture: { options: { baseURL: 'https://synthetic.invalid/v1' } } } }), { mode: 0o600 })
+}
 vi.mock('node:fs', async (original) => {
   const fs = await original<typeof import('node:fs')>()
   return {
@@ -345,6 +373,7 @@ describe('extended worker boundaries (simulated protocol)', () => {
     async () => {
       const root = mkdtempSync(join(tmpdir(), 'cwn-catalog-isolation-'))
       try {
+        seedSyntheticOpenCode(root)
         const roots: string[] = []
         let release!: () => void
         const concurrent = new Promise<void>((resolve) => {
@@ -392,6 +421,7 @@ describe('extended worker boundaries (simulated protocol)', () => {
       const root = mkdtempSync(join(tmpdir(), 'cwn-catalog-failed-'))
       let native: string | undefined
       try {
+        seedSyntheticOpenCode(root)
         const capture = async (_argv: string[], env?: Record<string, string>) => {
           native = join(dirname(env!.OPENCODE_CONFIG_DIR!), 'still-owned')
           writeFileSync(native, 'synthetic')

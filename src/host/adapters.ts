@@ -19,7 +19,13 @@ import {
 } from '../shared/types.ts'
 import { AgyProtocol, type EventInput } from './protocol.ts'
 import { CliProtocol } from './cli-protocol.ts'
-import { agyArguments, discoverModels, type ProcessBackend, type RuntimeConfig } from './process.ts'
+import {
+  agyArguments,
+  discoverModels,
+  ProcessCleanupUnconfirmedError,
+  type ProcessBackend,
+  type RuntimeConfig,
+} from './process.ts'
 
 export interface Catalog {
   cli: CliId
@@ -49,7 +55,7 @@ export const executableFor = (cli: CliId, config: RuntimeConfig): string => {
   return existsSync(nativePath) ? nativePath : (configured ?? cli)
 }
 /** Read-only discovery with bounded output. Never persist or expose provider credentials. */
-async function capture(
+export async function captureCatalogMetadata(
   backend: ProcessBackend,
   config: RuntimeConfig,
   argv: string[],
@@ -86,12 +92,18 @@ async function capture(
     if (outcome.exitCode !== 0) throw new Error('CLI 模型查询失败，请在终端检查该 CLI 配置')
     return output
   } finally {
-    process.terminate()
-    if (!(await process.waitForExit()))
-      throw new Error('CLI catalog process cleanup did not reach quiescence')
+    let exited = false
+    try {
+      process.terminate()
+      exited = await process.waitForExit()
+    } catch {
+      throw new ProcessCleanupUnconfirmedError()
+    }
+    if (!exited) throw new ProcessCleanupUnconfirmedError()
     await Promise.allSettled([...readers, process.done])
   }
 }
+const capture = captureCatalogMetadata
 export async function catalogFor(
   cli: CliId,
   backend: ProcessBackend,
@@ -108,8 +120,14 @@ export async function catalogFor(
       (argv, env) => capture(backend, config, argv, cwd, signal, env),
       config.stateDirectory ?? join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'cliworker-now'),
       config,
+      signal,
     )
-    if (!models.length) throw new Error(`${CLI_LABELS[cli]} 未返回可选模型，请检查原生安装与凭据配置`)
+    if (!models.length)
+      throw new Error(
+        ['pi', 'omp', 'opencode'].includes(cli)
+          ? `${CLI_LABELS[cli]} 尚无可确认当前账号支持的 Worker 模型；请检查登录及账号模型权限后刷新。仅有目录、自定义配置或旧成功记录的候选已隐藏。`
+          : `${CLI_LABELS[cli]} 未返回可选模型，请检查原生安装与凭据配置`,
+      )
     return {
       cli,
       models,
@@ -118,8 +136,8 @@ export async function catalogFor(
           ? 'ZCode 使用原生可见服务商和模型目录；目录不证明账号或额度可用。交互权限请求拒绝；原生允许的全局 MCP 仍可能执行。'
           : cli === 'grok'
             ? 'Grok 仅完成离线协议验证；账号、真实任务和续聊尚未验收。模型来自原生目录，不代表订阅可用。'
-            : cli === 'pi' || cli === 'omp'
-              ? '模型来自原生目录和已有账号配置；读取成功不证明远端订阅有效。使用隔离运行目录与项目沙箱，额外执行工具暂未开放。'
+            : cli === 'pi' || cli === 'omp' || cli === 'opencode'
+              ? '仅列出有当前账号支持证据且适用于 Worker 的模型，无法确认的通用目录已隐藏。相同型号去重，新选择优先有明确证据的免费额度；当前额度仍以服务商实时结果为准，失败不会切换模型。'
               : '模型来自原生 CLI；目录不代表账号额度。额外权限默认拒绝，失败时不切换 CLI 或模型。',
     }
   }

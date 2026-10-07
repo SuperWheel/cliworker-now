@@ -20,9 +20,14 @@ import {
   type RoleSnapshot,
 } from '../shared/types.ts'
 import { agentNameSchema, availableAgentName, promptForWorker, roleSnapshotSchema } from './roles.ts'
-import { protocolFor, resolveCliExecutable, workerArguments } from './adapters.ts'
+import { protocolFor, resolveCliExecutable, workerArguments, captureCatalogMetadata } from './adapters.ts'
 import { spawnManagedAgent } from './managed-agent.ts'
-import { projectDirectory, type ProcessBackend, type RuntimeConfig } from './process.ts'
+import {
+  projectDirectory,
+  ProcessCleanupUnconfirmedError,
+  type ProcessBackend,
+  type RuntimeConfig,
+} from './process.ts'
 import { join } from 'node:path'
 import { AgyContextReader } from './agy-context.ts'
 import { attachTelemetry, TelemetryReader } from './telemetry.ts'
@@ -406,6 +411,8 @@ export class WorkerRuntime {
             join(this.storage.directory, 'native', worker.id),
             this.config,
             expectedConversation,
+            (argv, env) =>
+              captureCatalogMetadata(this.backend, this.config, argv, worker.project, controller.signal, env),
           )
         : {
             argv: workerArguments(
@@ -458,6 +465,8 @@ export class WorkerRuntime {
       worker.lastResult = protocol.result.response
     } catch (error) {
       failure = error
+      if (error instanceof ProcessCleanupUnconfirmedError)
+        this.blocked = `无法确认 CLI 进程已清理，已暂停后续派遣：${error.message}`
     } finally {
       clearTimeout(timeout)
       if (handle) {
@@ -473,7 +482,7 @@ export class WorkerRuntime {
       }
     }
     try {
-      if (!handle || quiescent) release?.()
+      if ((!handle || quiescent) && !this.blocked) release?.()
     } catch (error) {
       failure ??= error
     }

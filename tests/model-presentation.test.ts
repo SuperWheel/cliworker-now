@@ -4,6 +4,14 @@ import { resolveModel } from '../src/shared/models.ts'
 import type { ModelChoice, Preference } from '../src/shared/types.ts'
 
 describe('pure model presentation (synthetic catalog metadata)', () => {
+  it('handles long nested untrusted annotations without repeatedly rescanning them', () => {
+    const model: ModelChoice = {
+      id: 'native/model-v1',
+      label: `Model v1 ${'（('.repeat(20000)}Synthetic vendor metadata${')）'.repeat(20000)} (suffix)`,
+    }
+    expect(displayModelName(model)).toBe('Model v1')
+    expect(model.id).toBe('native/model-v1')
+  })
   it('cleans route prefixes and Chinese/English annotations without altering historical preferences', () => {
     const preference: Preference = {
       cli: 'zcode',

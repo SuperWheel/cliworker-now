@@ -1,5 +1,5 @@
-import { constants, lstatSync, rmSync } from 'node:fs'
-import { lstat, open, mkdtemp } from 'node:fs/promises'
+import { lstatSync, rmSync } from 'node:fs'
+import { mkdtemp } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { AccountAction } from '../shared/accounts.ts'
@@ -12,6 +12,7 @@ import {
 } from './opencode-adapter.ts'
 import { confineExtended, privateDirectory } from './extended-adapters.ts'
 import { inspectPiOmpNativeAccount } from './pi-omp-native.ts'
+import { inspectOpenCodeProfile, type OpenCodeNativeOptions } from './opencode-native.ts'
 
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -53,73 +54,11 @@ export async function readPiOmpAccount(
 export async function readOpenCodeAccount(
   config: RuntimeConfig,
   signal: AbortSignal,
+  options: OpenCodeNativeOptions = {},
 ): Promise<AccountIdentity> {
   if (config.zaiCredentialRef) return managedIdentity(config, signal)
   signal.throwIfAborted()
-  const data = openCodeAuthDirectory(config.stateDirectory)
-  let file: Awaited<ReturnType<typeof open>> | undefined
-  try {
-    // Do not follow a planted credential file or the two owned directory entries.
-    for (const path of [data, join(data, 'opencode')]) {
-      const info = await lstat(path)
-      signal.throwIfAborted()
-      if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('Unsafe auth directory')
-    }
-    file = await open(
-      join(data, 'opencode', 'auth.json'),
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-    )
-    const info = await file.stat()
-    if (!info.isFile() || info.nlink !== 1 || info.size > 64 * 1024) throw new Error('Unsafe auth file')
-    // Read at most the cap even if a concurrent writer grows the file after stat.
-    const buffer = Buffer.alloc(64 * 1024 + 1)
-    let length = 0
-    while (length < buffer.length) {
-      const result = await file.read(buffer, length, buffer.length - length, length)
-      signal.throwIfAborted()
-      if (!result.bytesRead) break
-      length += result.bytesRead
-    }
-    if (length > 64 * 1024) throw new Error('Unsafe auth file')
-    const raw: unknown = JSON.parse(buffer.subarray(0, length).toString('utf8'))
-    signal.throwIfAborted()
-    if (!record(raw)) throw new Error('Invalid auth data')
-    const kinds = new Set<'api' | 'oauth'>()
-    let expired = false
-    for (const value of Object.values(raw)) {
-      if (!record(value)) continue
-      if (value.type === 'api' && typeof value.key === 'string' && value.key.trim()) kinds.add('api')
-      if (value.type === 'oauth' && typeof value.expires === 'number' && Number.isFinite(value.expires)) {
-        const refreshable = typeof value.refresh === 'string' && !!value.refresh.trim()
-        const access = typeof value.access === 'string' && !!value.access.trim()
-        if (refreshable || (access && value.expires > Date.now())) kinds.add('oauth')
-        else if (access && value.expires <= Date.now()) expired = true
-      }
-    }
-    if (kinds.size)
-      return {
-        state: 'configured',
-        verification: 'local',
-        ...(kinds.size === 1 ? { authMethod: [...kinds][0]! } : {}),
-        summary: '已配置 OpenCode 原生凭据；未进行远程验证',
-      }
-    if (expired)
-      return {
-        state: 'unauthenticated',
-        verification: 'local',
-        summary: 'OpenCode 本地登录已过期，请重新登录',
-      }
-    return Object.keys(raw).length
-      ? { state: 'unknown', summary: '原生凭据格式无法确认，请在账号终端检查', verification: 'local' }
-      : { state: 'unconfigured', summary: '尚未配置 OpenCode 原生凭据' }
-  } catch (error) {
-    signal.throwIfAborted()
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-      return { state: 'unconfigured', summary: '尚未配置 OpenCode 原生凭据' }
-    return { state: 'unavailable', summary: 'OpenCode 本地凭据配置读取失败，请在账号终端检查' }
-  } finally {
-    await file?.close()
-  }
+  return inspectOpenCodeProfile(openCodeAuthDirectory(config.stateDirectory), { ...options, signal })
 }
 
 async function withCancellation<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {

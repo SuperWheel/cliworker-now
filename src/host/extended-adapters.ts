@@ -19,7 +19,7 @@ import { homedir } from 'node:os'
 import type { CliId, Preference, TaskMode, ModelChoice } from '../shared/types.ts'
 import type { RuntimeConfig } from './process.ts'
 import { prepareZCode, discoverZCode, zcodeAuthDirectory } from './zcode-adapter.ts'
-import { preparePiOmp, discoverPiOmp } from './pi-omp-adapter.ts'
+import { preparePiOmp, discoverPiOmp, type PiOmpMetadataCapture } from './pi-omp-adapter.ts'
 import {
   prepareOpenCode,
   discoverOpenCode,
@@ -95,7 +95,10 @@ export async function credentialEnvironment(
   config: RuntimeConfig,
   selectedModel?: string,
 ): Promise<Record<string, string>> {
-  if (cli === 'opencode') return openCodeCredentialEnvironment(config)
+  if (cli === 'opencode')
+    return selectedModel && !selectedModel.startsWith('zhipuai-coding-plan/')
+      ? {}
+      : openCodeCredentialEnvironment(config)
   if (!['pi', 'omp'].includes(cli) || !config.zaiCredentialRef) return {}
   const provider = selectedModel?.slice(0, selectedModel.indexOf('/'))
   if (provider && !['zai-coding-cn', 'cliworker-zai-cn', 'zhipu-coding-plan'].includes(provider)) return {}
@@ -137,9 +140,18 @@ export async function extendedLaunch(
   stateDirectory: string,
   config: RuntimeConfig,
   conversationId?: string,
+  metadataCapture?: PiOmpMetadataCapture,
 ) {
   const state = privateDirectory(stateDirectory)
   const input = { executable, project, preference, mode, prompt, conversationId, stateDirectory: state }
+  const creds = await credentialEnvironment(cli, config, preference.model)
+  const metadata: PiOmpMetadataCapture | undefined =
+    metadataCapture &&
+    (async (argv, env, phase) => {
+      const confined = confineExtended(privateArgv(argv), state, state, 'plan')
+      if (phase === 'native-candidates') confined[2] += '\n(deny network*)\n'
+      return metadataCapture(confined, { ...env, ...creds, ELECTRON_RUN_AS_NODE: '1' }, phase)
+    })
   const launch =
     cli === 'zcode'
       ? await prepareZCode({
@@ -148,18 +160,23 @@ export async function extendedLaunch(
           builtinConfig: config.zcodeBuiltinConfig,
         })
       : cli === 'pi' || cli === 'omp'
-        ? await preparePiOmp({
-            ...input,
-            cli,
-            accountRoot:
-              config.stateDirectory ?? join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'cliworker-now'),
-            managedCredentials: !!config.zaiCredentialRef,
-          })
+        ? await preparePiOmp(
+            {
+              ...input,
+              cli,
+              accountRoot:
+                config.stateDirectory ??
+                join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'cliworker-now'),
+              managedCredentials: !!config.zaiCredentialRef,
+            },
+            metadata,
+          )
         : cli === 'opencode'
           ? await prepareOpenCode({
               ...input,
               authDirectory: openCodeAuthDirectory(config.stateDirectory),
-              managedCredentials: !!config.zaiCredentialRef,
+              managedCredentials:
+                !!config.zaiCredentialRef && preference.model.startsWith('zhipuai-coding-plan/'),
             })
           : cli === 'hermes'
             ? await prepareHermes({ ...input, hermesHome: config.hermesHome })
@@ -167,7 +184,6 @@ export async function extendedLaunch(
               ? await prepareGrok(input)
               : undefined
   if (!launch) throw new Error('未知 CLI')
-  const creds = await credentialEnvironment(cli, config, preference.model)
   const temporary = cli === 'zcode' ? mkdtempSync('/private/tmp/cwn-') : undefined
   if (temporary) chmodSync(temporary, 0o700)
   const env = {
@@ -215,11 +231,13 @@ export async function extendedCatalog(
   capture: (argv: string[], env?: Record<string, string>) => Promise<string>,
   stateDirectory: string,
   config: RuntimeConfig,
+  signal?: AbortSignal,
 ): Promise<ModelChoice[]> {
+  signal?.throwIfAborted()
   const catalogRoot = privateDirectory(join(stateDirectory, 'catalog', cli))
   const state = privateDirectory(mkdtempSync(join(catalogRoot, 'query-')))
   const creds = await credentialEnvironment(cli, config)
-  const run = async (argv: string[], env?: Record<string, string>) => {
+  const run: PiOmpMetadataCapture = async (argv, env, phase) => {
     const temporary = cli === 'zcode' ? mkdtempSync('/private/tmp/cwn-') : undefined
     if (temporary) chmodSync(temporary, 0o700)
     try {
@@ -234,9 +252,9 @@ export async function extendedCatalog(
               temporary,
               cli === 'opencode' ? openCodeAuthDirectory(config.stateDirectory ?? stateDirectory) : undefined,
             )
-      // Metadata queries use the native local cache; never renew OAuth or fetch
-      // remote model endpoints while listing models in settings.
-      if (cli === 'pi' || cli === 'omp') confined[2] += '\n(deny network*)\n'
+      // Exactly one outer sandbox owns each phase. Only the SDK/native directory
+      // phase is offline; the account phase performs bounded metadata GETs.
+      if (phase === 'native-candidates') confined[2] += '\n(deny network*)\n'
       return await capture(confined, {
         ...env,
         ...creds,
@@ -268,6 +286,7 @@ export async function extendedCatalog(
               state,
               openCodeAuthDirectory(config.stateDirectory ?? stateDirectory),
               !!config.zaiCredentialRef,
+              { credentialEnv: creds, signal },
             )
           : cli === 'hermes'
             ? await discoverHermes(executable, run, state, config.hermesHome)
@@ -275,6 +294,7 @@ export async function extendedCatalog(
               ? await discoverGrok(executable, run, state)
               : undefined
   if (!models) throw new Error('未知 CLI')
+  signal?.throwIfAborted()
   // A successful capture has confirmed that its process range exited. On a
   // rejected capture preserve the query directory without touching live files.
   sealPrivateTree(state)

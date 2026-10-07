@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { execFile, spawn } from 'node:child_process'
+import { createServer } from 'node:http'
 import { promisify } from 'node:util'
 import {
   mkdtemp,
@@ -19,11 +20,23 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { preparePiOmp, discoverPiOmp, type PiOmpInput, type PiOmpCli } from '../src/host/pi-omp-adapter.ts'
+import { extendedCatalog } from '../src/host/extended-adapters.ts'
+import { DEFAULT_CONFIG, ProcessCleanupUnconfirmedError } from '../src/host/process.ts'
 
 const exec = promisify(execFile)
 const roots: string[] = []
+const servers: ReturnType<typeof createServer>[] = []
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
+  await Promise.all(
+    servers.splice(0).map(
+      (server) =>
+        new Promise<void>((resolve) => {
+          server.closeAllConnections()
+          server.close(() => resolve())
+        }),
+    ),
+  )
   vi.unstubAllEnvs()
 })
 const fixtureKey = 'SYNTHETIC_TEST_KEY_NOT_A_CREDENTIAL'
@@ -32,7 +45,6 @@ const fixtureEnvironment = (home: string | undefined, env: Record<string, string
   HOME: home ?? '/private/tmp',
   LANG: 'C',
   ...env,
-  ZAI_CODING_CN_API_KEY: fixtureKey,
 })
 async function fixture(cli: PiOmpCli, scenario = 'success') {
   const root = await mkdtemp(join(tmpdir(), 'cliworker-rpc-fixture-'))
@@ -73,6 +85,38 @@ async function fixture(cli: PiOmpCli, scenario = 'success') {
     scenario === 'switch' || scenario === 'multi'
       ? [model, extra, { provider: 'plain', id: 'chat', name: 'Plain fixture', reasoning: false }]
       : [model]
+  const server = createServer((request, response) => {
+    if (request.method !== 'GET' || request.url !== '/models') {
+      response.writeHead(405).end()
+      return
+    }
+    response.setHeader('content-type', 'application/json')
+    response.end(JSON.stringify({ data: catalog.map((model) => ({ id: model.id })) }))
+  })
+  servers.push(server)
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address() as { port: number }
+  const account = join(stateDirectory, 'accounts', cli, 'agent')
+  await mkdir(account, { recursive: true, mode: 0o700 })
+  const providers = Object.fromEntries(
+    [...new Set(catalog.map((model) => model.provider))].map((provider) => [
+      provider,
+      {
+        api: 'openai-completions',
+        baseUrl: `http://127.0.0.1:${address.port}`,
+        apiKey: 'FIXTURE_API_KEY',
+        models: catalog.filter((model) => model.provider === provider),
+      },
+    ]),
+  )
+  await writeFile(join(account, cli === 'pi' ? 'models.json' : 'models.yml'), JSON.stringify({ providers }), {
+    mode: 0o600,
+  })
+  await writeFile(join(account, '.env'), `FIXTURE_API_KEY=${fixtureKey}\n`, { mode: 0o600 })
+  await writeFile(
+    join(root, 'dist/core/auth-storage.js'),
+    'export class AuthStorage { static inMemory(value) { return value } }',
+  )
   await writeFile(
     join(root, 'package.json'),
     JSON.stringify({ type: 'module', name: '@earendil-works/pi-coding-agent', version: '1.0.2' }),
@@ -142,8 +186,8 @@ process.on('SIGTERM',()=>setTimeout(()=>{writeFileSync(marker,'STOPPED');process
   return { root, input }
 }
 async function launch(input: PiOmpInput) {
-  const prepared = await preparePiOmp(input)
   try {
+    const prepared = await prepareConfirmed(input)
     const result = await exec(prepared.argv[0]!, prepared.argv.slice(1), {
       env: fixtureEnvironment(input.nativeHome, prepared.env),
       timeout: 10000,
@@ -157,6 +201,16 @@ async function launch(input: PiOmpInput) {
       stdout: result.stdout,
     }
   } catch (error: any) {
+    if (String(error.message).includes('symlink')) throw error
+    if (!error.stdout) {
+      const frame = {
+        type: 'result',
+        status: 'ERROR',
+        response: '',
+        error: '无法读取 Pi/OMP 原生模型目录，请检查本机配置',
+      }
+      return { code: 1, frames: [frame], stdout: JSON.stringify(frame) }
+    }
     return {
       code: error.code,
       frames: error.stdout
@@ -168,7 +222,105 @@ async function launch(input: PiOmpInput) {
     }
   }
 }
+async function prepareConfirmed(input: PiOmpInput) {
+  return preparePiOmp(
+    input,
+    async (argv, env) =>
+      (
+        await exec(argv[0]!, argv.slice(1), {
+          env: fixtureEnvironment(input.nativeHome, env),
+          timeout: 10000,
+        })
+      ).stdout,
+  )
+}
 describe('Pi/OMP bridge with simulated native RPC processes', () => {
+  it('uses one offline Host sandbox then a metadata-only phase on the same managed OMP snapshot', async () => {
+    const { root, input } = await fixture('omp', 'non-glm')
+    vi.stubEnv('HOME', root)
+    const policies: string[] = []
+    const phases: string[] = []
+    const states: string[] = []
+    const outputs: unknown[] = []
+    const models = await extendedCatalog(
+      'omp',
+      input.executable,
+      async (argv, env) => {
+        expect(argv[0]).toBe('/usr/bin/sandbox-exec')
+        expect(argv.filter((arg) => arg === '/usr/bin/sandbox-exec')).toHaveLength(1)
+        policies.push(argv[2]!)
+        const request = JSON.parse(await readFile(argv.at(-1)!, 'utf8'))
+        phases.push(request.metadataPhase)
+        states.push(request.stateDirectory)
+        const result = await exec(argv[0]!, argv.slice(1), {
+          env: fixtureEnvironment(root, env),
+          timeout: 10000,
+        })
+        outputs.push(JSON.parse(result.stdout))
+        return result.stdout
+      },
+      input.stateDirectory,
+      {
+        ...DEFAULT_CONFIG,
+        stateDirectory: input.accountRoot,
+        zaiCredentialRef: 'SIMULATED_REF',
+        resolveCredential: async () => 'SYNTHETIC_HOST_REFERENCE_MUST_STAY_IN_ENV',
+      },
+    )
+    expect(phases).toEqual(['native-candidates', 'account-scope'])
+    expect(new Set(states).size).toBe(1)
+    expect(policies[0]).toContain('(deny network*)')
+    expect(policies[1]).not.toContain('(deny network*)')
+    expect(outputs[0]).toEqual({ phase: 'native-candidates', count: 1 })
+    expect(models.map((model) => model.id)).toEqual([input.preference.model])
+    expect(JSON.stringify(outputs)).not.toContain(fixtureKey)
+    expect(JSON.stringify(outputs)).not.toContain('SYNTHETIC_HOST_REFERENCE_MUST_STAY_IN_ENV')
+    const candidatesPath = join(states[0]!, 'agent', 'catalog-candidates.json')
+    expect((await stat(candidatesPath)).mode & 0o777).toBe(0o600)
+    expect(
+      (await readFile(candidatesPath, 'utf8')).includes('SYNTHETIC_HOST_REFERENCE_MUST_STAY_IN_ENV'),
+    ).toBe(false)
+  })
+  it('never persists native SDK expansion of the synthetic Host credential into intermediate candidates', async () => {
+    const { snapshotNativeCandidates } = await import('../src/host/pi-native-catalog.mjs')
+    const hostKey = 'SYNTHETIC_HOST_REFERENCE_MUST_STAY_IN_ENV'
+    const candidates = snapshotNativeCandidates(
+      [
+        {
+          provider: 'fixture',
+          id: 'safe-model',
+          name: hostKey,
+          apiKey: hostKey,
+          headers: { 'x-public': hostKey },
+          baseUrl: 'https://metadata.invalid',
+          api: 'openai-completions',
+          thinkingLevelMap: { high: hostKey },
+        },
+      ],
+      { ZAI_CODING_CN_API_KEY: hostKey },
+    )
+    expect(JSON.stringify(candidates).includes(hostKey)).toBe(false)
+    expect(candidates).toMatchObject([
+      { name: 'safe-model', headers: { 'x-public': true }, thinkingLevelMap: { high: true } },
+    ])
+  })
+  it('keeps preparation cleanup failures typed and does not start the account phase', async () => {
+    const { input } = await fixture('omp')
+    const capture = vi.fn(async () => {
+      throw new ProcessCleanupUnconfirmedError()
+    })
+    await expect(preparePiOmp(input, capture)).rejects.toBeInstanceOf(ProcessCleanupUnconfirmedError)
+    expect(capture).toHaveBeenCalledTimes(1)
+  })
+  it('cannot execute an unconfirmed prepared request', async () => {
+    const { input } = await fixture('omp')
+    const prepared = await preparePiOmp(input)
+    const outcome = await exec(prepared.argv[0]!, prepared.argv.slice(1), {
+      env: fixtureEnvironment(input.nativeHome, prepared.env),
+    }).catch((error) => error)
+    expect(outcome.code).toBe(1)
+    expect(outcome.stdout).not.toContain('HELLO')
+  })
   it.each(['pi', 'omp'] as const)(
     '%s rejects every prepared state-directory symlink before writing a prompt',
     async (cli) => {
@@ -187,6 +339,7 @@ describe('Pi/OMP bridge with simulated native RPC processes', () => {
               ? join(input.stateDirectory, cli)
               : join(input.stateDirectory, cli, identity)
         await mkdir(dirname(target), { recursive: true })
+        await rm(target, { recursive: true, force: true })
         await symlink(outside, target)
         await expect(preparePiOmp(input)).rejects.toThrow('symlink')
         expect(await readdir(outside)).toEqual([])
@@ -305,15 +458,16 @@ describe('Pi/OMP bridge with simulated native RPC processes', () => {
     const models = await discoverPiOmp(
       cli,
       input.executable,
-      async (argv) =>
-        (await exec(argv[0]!, argv.slice(1), { env: fixtureEnvironment(input.nativeHome) })).stdout,
+      async (argv, env) =>
+        (await exec(argv[0]!, argv.slice(1), { env: fixtureEnvironment(input.nativeHome, env) })).stdout,
       input.stateDirectory,
       { nativeHome: input.nativeHome, accountRoot: input.accountRoot },
     )
     expect(models).toEqual([
       {
         id: input.preference.model,
-        label: `GLM-5.3-Flash（${cli === 'pi' ? 'zai-coding-cn' : 'cliworker-zai-cn'}）`,
+        label: 'GLM-5.3-Flash',
+        cost: 'unknown',
         efforts: ['low', 'high', 'max'],
       },
     ])
@@ -392,7 +546,7 @@ describe('Pi/OMP bridge with simulated native RPC processes', () => {
   })
   it('waits for native SIGTERM cleanup before bridge termination', async () => {
     const { root, input } = await fixture('pi', 'cancel')
-    const prepared = await preparePiOmp(input)
+    const prepared = await prepareConfirmed(input)
     const child = spawn(prepared.argv[0]!, prepared.argv.slice(1), {
       env: fixtureEnvironment(input.nativeHome, prepared.env),
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -530,6 +684,12 @@ describe('Pi/OMP bridge with simulated native RPC processes', () => {
   it('cleans up OMP native metadata queries when the bridge is stopped', async () => {
     const { root, input } = await fixture('omp', 'catalog-cancel')
     const prepared = await preparePiOmp(input)
+    const request = JSON.parse(await readFile(prepared.argv[2]!, 'utf8'))
+    await writeFile(
+      prepared.argv[2]!,
+      JSON.stringify({ ...request, discover: true, metadataPhase: 'native-candidates' }),
+      { mode: 0o600 },
+    )
     const processHandle = spawn(prepared.argv[0]!, prepared.argv.slice(1), {
       env: fixtureEnvironment(input.nativeHome, prepared.env),
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -585,4 +745,33 @@ describe('Pi/OMP bridge with simulated native RPC processes', () => {
     expect(JSON.parse(observedText).unexpectedNativeKey).toBe(false)
     expect(observedText).not.toContain('SIMULATED_PARENT_KEY_MUST_NOT_ENTER_FIXTURE')
   })
+  it.each(['pi', 'omp'] as const)(
+    '%s never writes the resolved Host key into private snapshot files or rewrites another selected provider',
+    async (cli) => {
+      const { input } = await fixture(cli, 'non-glm')
+      const prepared = await prepareConfirmed({ ...input, managedCredentials: true })
+      const request = JSON.parse(await readFile(prepared.argv[2]!, 'utf8'))
+      const hostKey = 'SYNTHETIC_HOST_REFERENCE_MUST_STAY_IN_ENV'
+      const result = await exec(prepared.argv[0]!, prepared.argv.slice(1), {
+        env: { ...fixtureEnvironment(input.nativeHome, prepared.env), ZAI_CODING_CN_API_KEY: hostKey },
+        timeout: 10000,
+      })
+      expect(JSON.parse(result.stdout.trim().split('\n').at(-1)!)).toMatchObject({ status: 'SUCCESS' })
+      const files = async (directory: string): Promise<string[]> =>
+        (await readdir(directory, { withFileTypes: true })).flatMap((entry) =>
+          entry.isFile() ? [join(directory, entry.name)] : [],
+        )
+      for (const path of await files(join(request.stateDirectory, 'agent'))) {
+        expect((await readFile(path)).includes(Buffer.from(hostKey))).toBe(false)
+      }
+      expect(
+        JSON.parse(
+          await readFile(
+            join(request.stateDirectory, 'agent', cli === 'pi' ? 'models.json' : 'models.yml'),
+            'utf8',
+          ),
+        ).providers['fixture-native'].baseUrl,
+      ).toMatch(/^http:\/\/127\.0\.0\.1:/)
+    },
+  )
 })

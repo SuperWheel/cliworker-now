@@ -6,6 +6,13 @@ import { isAbsolute, join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import { EFFORTS, type ModelChoice, type TaskMode } from '../shared/types.ts'
 import type { EventInput, ProtocolResult } from './protocol.ts'
+import {
+  activeOpenCodeCredential,
+  readOpenCodeProfile,
+  snapshotOpenCodeAuth,
+  type OpenCodeNativeOptions,
+} from './opencode-native.ts'
+import { probeAccountModels, type AccountModelScope } from './account-models.mjs'
 
 export interface OpenCodeInput {
   executable: string
@@ -19,6 +26,8 @@ export interface OpenCodeInput {
   authDirectory?: string
   /** Host-managed API references must not silently fall back to native credentials. */
   managedCredentials?: boolean
+  nativeHome?: string
+  modelsPath?: string
 }
 type Capture = (argv: string[], env?: Record<string, string>) => Promise<string>
 const object = (value: unknown): value is Record<string, any> =>
@@ -60,6 +69,7 @@ export async function openCodeEnvironment(
   config: Record<string, unknown>,
   authDirectory = join(stateDirectory, 'data'),
   managedCredentials = false,
+  modelsPath?: string,
 ) {
   if (!isAbsolute(stateDirectory) || !isAbsolute(authDirectory))
     throw new Error('OpenCode state and auth directories must be absolute')
@@ -72,15 +82,19 @@ export async function openCodeEnvironment(
     await chmod(path, 0o700)
   }
   const configFile = join(stateDirectory, 'config', 'cliworker.json')
+  const { provider, ...inline } = config
   const temporary = join(stateDirectory, 'config', `.cliworker-${randomUUID()}.tmp`)
   try {
-    await writeFile(temporary, '{}\n', { flag: 'wx', mode: 0o600 })
+    await writeFile(temporary, JSON.stringify(provider ? { provider } : {}) + '\n', {
+      flag: 'wx',
+      mode: 0o600,
+    })
     // Replace an existing link itself, rather than following it from the unsandboxed Host.
     await rename(temporary, configFile)
   } finally {
     await rm(temporary, { force: true })
   }
-  const nativeModels = join(homedir(), '.cache', 'opencode', 'models.json')
+  const nativeModels = modelsPath ?? join(homedir(), '.cache', 'opencode', 'models.json')
   return {
     XDG_CONFIG_HOME: paths[0]!,
     XDG_DATA_HOME: authDirectory,
@@ -98,7 +112,7 @@ export async function openCodeEnvironment(
       mcp: {},
       lsp: false,
       formatter: false,
-      ...config,
+      ...inline,
     }),
     OPENCODE_PERMISSION: JSON.stringify(config.permission ?? { '*': 'deny' }),
     OPENCODE_AUTO_SHARE: '0',
@@ -129,12 +143,23 @@ export async function prepareOpenCode(
   if (!isAbsolute(project) || !prompt.trim()) throw new Error('OpenCode requires a project and prompt')
   if (mode !== 'plan' && mode !== 'accept-edits') throw new Error('Unsupported OpenCode task mode')
   if (conversationId && !sessionID(conversationId)) throw new Error('Invalid native OpenCode session ID')
+  const selectedProvider = preference.model.slice(0, preference.model.indexOf('/'))
+  if (input.managedCredentials && selectedProvider !== 'zhipuai-coding-plan')
+    throw new Error('OpenCode 的 Host 智谱引用仅用于原生 CN Coding Plan 提供商')
+  const source = input.authDirectory ?? openCodeAuthDirectory()
+  const profile = input.managedCredentials ? undefined : await readOpenCodeProfile(source, input)
+  if (profile && !activeOpenCodeCredential(profile.auth[selectedProvider]))
+    throw new Error('OpenCode 所选提供商没有有效账号配置，请先登录')
+  const snapshot = profile ? await snapshotOpenCodeAuth(source, profile.auth, [selectedProvider]) : source
   const env = await openCodeEnvironment(
     stateDirectory,
     {
       model: preference.model,
       small_model: preference.model,
-      enabled_providers: [preference.model.split('/')[0]],
+      enabled_providers: [selectedProvider],
+      ...(profile?.providers[selectedProvider]
+        ? { provider: { [selectedProvider]: profile.providers[selectedProvider] } }
+        : {}),
       permission: {
         '*': 'ask',
         read: 'allow',
@@ -148,8 +173,9 @@ export async function prepareOpenCode(
         question: 'deny',
       },
     },
-    input.authDirectory,
+    snapshot,
     input.managedCredentials,
+    profile?.modelsPath,
   )
   return {
     argv: [
@@ -175,9 +201,9 @@ export async function prepareOpenCode(
 }
 
 /** Native models --verbose consists of provider/model lines and pretty JSON objects. */
-export function parseOpenCodeModels(output: string): ModelChoice[] {
+function parseOpenCodeRecords(output: string): { choice: ModelChoice; native: Record<string, any> }[] {
   if (Buffer.byteLength(output) > 4_194_304) throw new Error('OpenCode model catalogue exceeds limit')
-  const models: ModelChoice[] = [],
+  const models: { choice: ModelChoice; native: Record<string, any> }[] = [],
     ids = new Set<string>()
   let id = '',
     pending = ''
@@ -203,17 +229,24 @@ export function parseOpenCodeModels(output: string): ModelChoice[] {
       `${model.providerID}/${model.id}` !== id
     )
       throw new Error('OpenCode model identity does not match its catalogue entry')
-    if (ids.has(id)) throw new Error('Duplicate OpenCode model identity')
+    if (ids.has(id)) {
+      id = ''
+      pending = ''
+      continue
+    }
     if (model.variants !== undefined && !object(model.variants))
       throw new Error('Invalid OpenCode model variants')
     ids.add(id)
     models.push({
-      id,
-      label: typeof model.name === 'string' ? model.name : id,
-      efforts: [
-        'default',
-        ...EFFORTS.filter((effort) => effort !== 'default' && Object.hasOwn(model.variants ?? {}, effort)),
-      ],
+      native: model,
+      choice: {
+        id,
+        label: typeof model.name === 'string' ? model.name : id,
+        efforts: [
+          'default',
+          ...EFFORTS.filter((effort) => effort !== 'default' && Object.hasOwn(model.variants ?? {}, effort)),
+        ],
+      },
     })
     id = ''
     pending = ''
@@ -222,22 +255,204 @@ export function parseOpenCodeModels(output: string): ModelChoice[] {
   return models
 }
 
+/** CLI default zero prices are not affirmative price evidence. */
+export function parseOpenCodeModels(output: string): ModelChoice[] {
+  return parseOpenCodeRecords(output).map(({ choice }) => ({ ...choice, cost: 'unknown' }))
+}
+export interface OpenCodeDiscoveryOptions extends OpenCodeNativeOptions {
+  credentialEnv?: Record<string, string>
+  probeOptions?: Parameters<typeof probeAccountModels>[1]
+}
+function configuredCost(value: unknown): ModelChoice['cost'] {
+  if (!object(value)) return 'unknown'
+  const cost = value.cost ?? value.pricing
+  if (object(cost)) {
+    const number = (rate: unknown) =>
+      typeof rate === 'number'
+        ? rate
+        : typeof rate === 'string' && /^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(rate)
+          ? Number(rate)
+          : NaN
+    const input = number(cost.input),
+      output = number(cost.output)
+    const additional = Object.entries(cost)
+      .filter(([key]) => !['input', 'output', 'free'].includes(key))
+      .flatMap(([, rate]) => (object(rate) ? Object.values(rate).map(number) : [number(rate)]))
+    if (input > 0 || output > 0 || additional.some((rate) => rate > 0)) return 'paid'
+    if (
+      !Number.isFinite(input) ||
+      !Number.isFinite(output) ||
+      input < 0 ||
+      output < 0 ||
+      additional.some((rate) => !Number.isFinite(rate) || rate < 0)
+    )
+      return 'unknown'
+    return 'free'
+  }
+  return value.free === true || value.is_free === true ? 'free' : 'unknown'
+}
 export async function discoverOpenCode(
   executable: string,
   capture: Capture,
   stateDirectory: string,
   authDirectory?: string,
   managedCredentials = false,
+  options: OpenCodeDiscoveryOptions = {},
 ): Promise<ModelChoice[]> {
+  options.signal?.throwIfAborted()
+  const source = authDirectory ?? openCodeAuthDirectory()
+  const profile = await readOpenCodeProfile(source, options)
+  const cnKey = options.credentialEnv?.ZHIPU_API_KEY
+  const cn = managedCredentials && typeof cnKey === 'string' && !!cnKey.trim()
+  if (cn) profile.auth['zhipuai-coding-plan'] = { type: 'api', key: cnKey }
+  const providers = Object.keys(profile.auth).filter(
+    (id) =>
+      activeOpenCodeCredential(profile.auth[id]) &&
+      !profile.disabled.includes(id) &&
+      (!profile.enabled || profile.enabled.includes(id)) &&
+      !(id === 'opencode' && profile.auth[id].key === 'public'),
+  )
+  if (!providers.length) return []
+  const snapshot = await snapshotOpenCodeAuth(
+    source,
+    profile.auth,
+    providers.filter((id) => !(cn && id === 'zhipuai-coding-plan')),
+    options.signal,
+  )
+  const nativeProviderConfig = Object.fromEntries(
+    providers
+      .filter((id) => profile.providers[id] && !(cn && id === 'zhipuai-coding-plan'))
+      .map((id) => [id, profile.providers[id]]),
+  )
   const env = await openCodeEnvironment(
     stateDirectory,
-    { permission: { '*': 'deny' } },
-    authDirectory,
-    managedCredentials,
+    {
+      enabled_providers: providers,
+      provider: nativeProviderConfig,
+      permission: { '*': 'deny' },
+    },
+    snapshot,
+    false,
+    profile.modelsPath,
   )
-  const models = parseOpenCodeModels(await capture([executable, 'models', '--verbose'], env))
-  if (!models.length) throw new Error('OpenCode did not return any native models')
-  return models
+  const records = parseOpenCodeRecords(
+    await capture([executable, 'models', '--verbose'], { ...env, ...(cn ? { ZHIPU_API_KEY: cnKey! } : {}) }),
+  )
+  options.signal?.throwIfAborted()
+  const scoped = (native: Record<string, any>) => {
+    const provider = native.providerID,
+      config = profile.providers[provider] ?? {}
+    const managed = cn && provider === 'zhipuai-coding-plan'
+    const oauthCodex = profile.auth[provider]?.type === 'oauth' && provider === 'openai'
+    const baseUrl = oauthCodex
+      ? 'https://chatgpt.com/backend-api'
+      : managed
+        ? 'https://open.bigmodel.cn/api/coding/paas/v4'
+        : (config.options?.baseURL ?? native.api?.url ?? profile.catalog[provider]?.api)
+    const apiType = !managed && native.api?.npm === '@ai-sdk/anthropic' ? 'anthropic-messages' : undefined
+    const oauth = profile.auth[provider]?.type === 'oauth'
+    const key = JSON.stringify([provider, oauth ? 'oauth-account' : baseUrl, oauth ? '' : apiType])
+    const authHeader = (headers: unknown) =>
+      object(headers) &&
+      Object.keys(headers).some((name) =>
+        /authorization|api[-_]?key|token|cookie|openai-organization|openai-project/i.test(name),
+      )
+    const blocked =
+      !managed &&
+      (authHeader(native.headers) ||
+        authHeader(config.options?.headers) ||
+        (oauthCodex && native.api?.npm !== '@ai-sdk/openai'))
+    return { provider, baseUrl, apiType, key, blocked }
+  }
+  const groups = new Map<string, { route: ReturnType<typeof scoped>; entries: typeof records }>()
+  for (const entry of records) {
+    const route = scoped(entry.native)
+    if (route.blocked || !providers.includes(route.provider)) continue
+    const group = groups.get(route.key) ?? { route, entries: [] }
+    group.entries.push(entry)
+    groups.set(route.key, group)
+  }
+  const scopes = new Map<string, AccountModelScope>()
+  await Promise.all(
+    [...groups.values()].map(async ({ route, entries }) => {
+      const { provider, baseUrl, apiType, key } = route,
+        auth = profile.auth[provider],
+        config = profile.providers[provider] ?? {}
+      const explicit = entries
+        .filter(({ native }) => object(config.models?.[native.id]) || config.whitelist?.includes(native.id))
+        .map(({ native }) => native.api?.id ?? native.id)
+      const scope = await probeAccountModels(
+        {
+          provider,
+          credential:
+            auth.type === 'oauth'
+              ? { type: 'oauth', access: auth.access, expires: auth.expires, accountId: auth.accountId }
+              : { type: 'api', key: auth.key },
+          baseUrl,
+          apiType,
+          customModelIds: cn && provider === 'zhipuai-coding-plan' ? [] : [...new Set(explicit)],
+          verifiedModelIds: [],
+        },
+        { ...options.probeOptions, signal: options.signal ?? options.probeOptions?.signal },
+      )
+      scopes.set(key, scope)
+    }),
+  )
+  options.signal?.throwIfAborted()
+  const models: ModelChoice[] = []
+  for (const { choice, native } of records) {
+    const route = scoped(native)
+    if (route.blocked) continue
+    const scope = scopes.get(route.key)
+    if (scope?.state !== 'supported') continue
+    const apiId = native.api?.id ?? native.id
+    const supported = scope.models.find((model) => model.id === apiId || model.id === native.id)
+    if (!supported) continue
+    const secrets = [
+      profile.auth[native.providerID]?.key,
+      profile.auth[native.providerID]?.access,
+      profile.auth[native.providerID]?.refresh,
+      cnKey,
+    ].filter((value): value is string => typeof value === 'string' && !!value)
+    if (secrets.some((secret) => choice.id.includes(secret) || String(apiId).includes(secret))) continue
+    const explicit = profile.providers[native.providerID]?.models?.[native.id]
+    const declaredCost =
+      explicit === undefined
+        ? configuredCost(profile.catalog[native.providerID]?.models?.[apiId])
+        : configuredCost(explicit)
+    const subscription = native.providerID.includes('coding-plan') || native.providerID === 'opencode-go'
+    const cost =
+      subscription && profile.auth[native.providerID]?.type === 'api'
+        ? supported.cost === 'paid'
+          ? 'paid'
+          : 'unknown'
+        : supported.cost !== 'unknown'
+          ? supported.cost
+          : profile.auth[native.providerID]?.type === 'oauth' || subscription
+            ? 'unknown'
+            : declaredCost
+    // Zen's anonymous free loader is not an account. Even with a key, a zero-price
+    // public route has no affirmative headless compatibility evidence in 1.18.21.
+    const endpoint =
+      profile.providers[native.providerID]?.options?.baseURL ??
+      native.api?.url ??
+      profile.catalog[native.providerID]?.api
+    let zen = false
+    try {
+      zen = new URL(endpoint).hostname === 'opencode.ai'
+    } catch {
+      /* unknown endpoints are not proof of a Zen route */
+    }
+    if (native.providerID === 'opencode' && zen && (native.cost?.input === 0 || cost === 'free')) continue
+    models.push({
+      ...choice,
+      label: secrets.some((secret) => choice.label.includes(secret)) ? native.id : choice.label,
+      cost,
+    })
+  }
+  return models.sort(
+    (a, b) => Number(b.cost === 'free') - Number(a.cost === 'free') || a.id.localeCompare(b.id),
+  )
 }
 
 /** Native OpenCode JSONL; success needs clean EOF after stop, identity and no failed tool. */

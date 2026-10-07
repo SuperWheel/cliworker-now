@@ -14,6 +14,13 @@ export interface ProcessBackend {
   spawn(spec: SubprocessSpawnSpec): SubprocessHandle
   spawnTerminal?(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle>
 }
+/** A process range is still unconfirmed; callers must stop admitting work. */
+export class ProcessCleanupUnconfirmedError extends Error {
+  constructor() {
+    super('CLI catalog process cleanup did not reach quiescence')
+    this.name = 'ProcessCleanupUnconfirmedError'
+  }
+}
 export interface RuntimeConfig {
   executable: string
   codexExecutable?: string

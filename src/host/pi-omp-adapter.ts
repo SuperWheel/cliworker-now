@@ -4,10 +4,17 @@ import { createHash, randomUUID } from 'node:crypto'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { EFFORTS, type ModelChoice, type TaskMode } from '../shared/types.ts'
+import { ProcessCleanupUnconfirmedError } from './process.ts'
 
 import { snapshotPiOmpNative, safePiOmpAncestors, type PiOmpNativeOptions } from './pi-omp-native.ts'
 
 export type PiOmpCli = 'pi' | 'omp'
+export type PiOmpMetadataPhase = 'native-candidates' | 'account-scope'
+export type PiOmpMetadataCapture = (
+  argv: string[],
+  env?: Record<string, string>,
+  phase?: PiOmpMetadataPhase,
+) => Promise<string>
 export interface PiOmpInput extends PiOmpNativeOptions {
   managedCredentials?: boolean
   cli: PiOmpCli
@@ -41,7 +48,7 @@ async function privateDirectory(path: string) {
   }
   return realpath(path)
 }
-async function argumentsFor(
+async function contextFor(
   input:
     | PiOmpInput
     | ({ cli: PiOmpCli; executable: string; stateDirectory: string; discover: true } & PiOmpNativeOptions),
@@ -64,29 +71,60 @@ async function argumentsFor(
     nativeHome: input.nativeHome,
     preserveCredentials: 'conversationId' in input && !!input.conversationId,
   })
-  const requestDirectory = await mkdtemp(join(isolated, 'request-'))
-  const requestPath = join(requestDirectory, 'request.json')
-  const temporary = join(requestDirectory, `.request-${randomUUID()}.tmp`)
-  try {
-    await writeFile(
-      temporary,
-      JSON.stringify({
-        ...input,
-        stateDirectory: isolated,
-        ...('project' in input ? { project: await realpath(input.project) } : {}),
-      }),
-      { flag: 'wx', mode: 0o600 },
-    )
-    await rename(temporary, requestPath)
-  } finally {
-    await rm(temporary, { force: true })
+  const request = async (extra: Record<string, unknown> = {}) => {
+    const requestDirectory = await mkdtemp(join(isolated, 'request-'))
+    const requestPath = join(requestDirectory, 'request.json')
+    const temporary = join(requestDirectory, `.request-${randomUUID()}.tmp`)
+    try {
+      await writeFile(
+        temporary,
+        JSON.stringify({
+          ...input,
+          ...extra,
+          stateDirectory: isolated,
+          ...('project' in input ? { project: await realpath(input.project) } : {}),
+        }),
+        { flag: 'wx', mode: 0o600 },
+      )
+      await rename(temporary, requestPath)
+    } finally {
+      await rm(temporary, { force: true })
+    }
+    return { argv: [process.execPath, bridgePath(), requestPath], env: native.env }
   }
-  return { argv: [process.execPath, bridgePath(), requestPath], env: native.env }
+  return { request }
+}
+
+async function confirmedCatalog(
+  context: Awaited<ReturnType<typeof contextFor>>,
+  capture: PiOmpMetadataCapture,
+) {
+  for (const phase of ['native-candidates', 'account-scope'] as const) {
+    const launch = await context.request({ metadataPhase: phase })
+    let raw: unknown
+    try {
+      raw = JSON.parse(await capture(launch.argv, launch.env, phase))
+    } catch (error) {
+      if (error instanceof ProcessCleanupUnconfirmedError) throw error
+      throw new Error('无法读取 Pi/OMP 原生模型目录，请检查本机配置')
+    }
+    if (phase === 'account-scope') return parseCatalog(raw)
+    if (
+      !raw ||
+      typeof raw !== 'object' ||
+      (raw as any).phase !== phase ||
+      !Number.isSafeInteger((raw as any).count) ||
+      (raw as any).count < 0
+    )
+      throw new Error('Invalid Pi/OMP candidate phase result')
+  }
+  throw new Error('Missing Pi/OMP account scope')
 }
 
 /** The bridge validates exact native model capabilities before sending any prompt. */
 export async function preparePiOmp(
   input: PiOmpInput,
+  capture?: PiOmpMetadataCapture,
 ): Promise<{ argv: string[]; env?: Record<string, string> }> {
   if (input.cli !== 'pi' && input.cli !== 'omp') throw new Error('Unsupported Pi/OMP CLI')
   if (!/^[A-Za-z0-9_.:-]+\/[^\s\x00-\x1f]+$/.test(input.preference.model))
@@ -95,23 +133,24 @@ export async function preparePiOmp(
     throw new Error('Unsupported native model effort')
   if (!['plan', 'accept-edits'].includes(input.mode)) throw new Error('Unsupported task mode')
   if (!input.prompt.trim()) throw new Error('Prompt must not be empty')
-  return argumentsFor(input)
+  const context = await contextFor(input)
+  // Preparing a request is reversible. Execution requires the Host's two
+  // captures on this exact snapshot; an unconfirmed request cannot send prompts.
+  const catalog = capture ? await confirmedCatalog(context, capture) : undefined
+  return context.request(catalog ? { confirmedCatalog: catalog } : {})
 }
 export async function discoverPiOmp(
   cli: PiOmpCli,
   executable: string,
-  capture: (argv: string[], env?: Record<string, string>) => Promise<string>,
+  capture: PiOmpMetadataCapture,
   stateDirectory: string,
   options: PiOmpNativeOptions & { managedCredentials?: boolean } = {},
 ): Promise<ModelChoice[]> {
   if (cli !== 'pi' && cli !== 'omp') throw new Error('Unsupported Pi/OMP CLI')
-  const launch = await argumentsFor({ cli, executable, stateDirectory, discover: true, ...options })
-  let raw: unknown
-  try {
-    raw = JSON.parse(await capture(launch.argv, launch.env))
-  } catch {
-    throw new Error('无法读取 Pi/OMP 原生模型目录，请检查本机配置')
-  }
+  const context = await contextFor({ cli, executable, stateDirectory, discover: true, ...options })
+  return confirmedCatalog(context, capture)
+}
+function parseCatalog(raw: unknown): ModelChoice[] {
   if (!Array.isArray(raw)) throw new Error('Invalid Pi/OMP model catalog')
   const ids = new Set<string>()
   return raw.map((model): ModelChoice => {
@@ -132,6 +171,9 @@ export async function discoverPiOmp(
       id: model.id,
       label: model.label,
       efforts: [...new Set(model.efforts)] as ModelChoice['efforts'],
+      ...(model.cost === 'free' || model.cost === 'paid' || model.cost === 'unknown'
+        ? { cost: model.cost }
+        : {}),
     }
   })
 }

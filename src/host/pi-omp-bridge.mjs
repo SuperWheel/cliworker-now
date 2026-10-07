@@ -7,7 +7,11 @@ import { constants } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
 import { readFile } from 'node:fs/promises'
-import { queryNativeCatalog } from './pi-native-catalog.mjs'
+import {
+  queryNativeCandidates,
+  snapshotNativeCandidates,
+  accountSupportedChoices,
+} from './pi-native-catalog.mjs'
 
 process.umask(0o077)
 const output = (value) => process.stdout.write(JSON.stringify(value) + '\n')
@@ -39,14 +43,18 @@ async function privateDirectory(path) {
   }
   return realpath(path)
 }
-async function privateFile(path, read = false) {
+async function privateFile(path, read = false, limit = 1024 * 1024) {
   const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   try {
     const info = await handle.stat()
     if (!info.isFile() || info.nlink !== 1) throw new Error('Unsafe Pi/OMP state file or hard link')
     if (read) {
-      if (info.size > 1024 * 1024) throw new Error('Pi/OMP state JSON exceeds limit')
-      return await handle.readFile('utf8')
+      if (info.size > limit) throw new Error('Pi/OMP state JSON exceeds limit')
+      const contents = await handle.readFile('utf8')
+      const after = await handle.stat()
+      if (Buffer.byteLength(contents) > limit || info.size !== after.size || info.mtimeMs !== after.mtimeMs)
+        throw new Error('Pi/OMP state JSON changed while reading')
+      return contents
     }
   } finally {
     await handle.close()
@@ -72,6 +80,7 @@ let child,
   config,
   session,
   finalized = false
+const metadataController = new AbortController()
 const stop = (reason) => {
   failure ??= reason
   child?.stdin?.end()
@@ -80,10 +89,12 @@ const stop = (reason) => {
 }
 process.on('SIGTERM', () => {
   stopped = true
+  metadataController.abort()
   stop('任务已停止')
 })
 process.on('SIGINT', () => {
   stopped = true
+  metadataController.abort()
   stop('任务已停止')
 })
 const persist = async () => {
@@ -270,13 +281,81 @@ try {
       }),
     )
   }
+  if (
+    config.managedCredentials &&
+    env.ZAI_CODING_CN_API_KEY &&
+    (config.discover ||
+      (config.cli === 'pi'
+        ? config.preference?.model?.split('/')[0] === 'zai-coding-cn'
+        : ['cliworker-zai-cn', 'zhipu-coding-plan'].includes(config.preference?.model?.split('/')[0])))
+  ) {
+    if (config.cli === 'pi') {
+      const auth = JSON.parse(await privateFile(join(nativeRoot, 'auth.json'), true))
+      delete auth['zai-coding-cn']
+      await writePrivateFile(join(nativeRoot, 'auth.json'), JSON.stringify(auth))
+      const models = JSON.parse(await privateFile(join(nativeRoot, 'models.json'), true))
+      models.providers ??= {}
+      models.providers['zai-coding-cn'] = {
+        ...(models.providers['zai-coding-cn'] ?? {}),
+        api: 'openai-completions',
+        baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
+        apiKey: 'ZAI_CODING_CN_API_KEY',
+      }
+      await writePrivateFile(join(nativeRoot, 'models.json'), JSON.stringify(models))
+    } else {
+      const { DatabaseSync } = await import('node:sqlite')
+      const db = new DatabaseSync(join(nativeRoot, 'agent.db'))
+      try {
+        db.prepare('DELETE FROM auth_credentials WHERE provider IN (?,?)').run(
+          'cliworker-zai-cn',
+          'zhipu-coding-plan',
+        )
+      } finally {
+        db.close()
+      }
+      const models = JSON.parse(await privateFile(join(nativeRoot, 'models.yml'), true))
+      // This is a native builtin; auth-only config overlays are not portable
+      // across the bundled OMP registry. Remove a competing private override and
+      // bind the explicitly supplied source through its native ZHIPU env instead.
+      if (models.providers) delete models.providers['zhipu-coding-plan']
+      await writePrivateFile(join(nativeRoot, 'models.yml'), JSON.stringify(models))
+    }
+  }
   let resume
-  const catalog = await queryNativeCatalog(config.cli, config.executable, nativeRoot, env, (process) => {
-    child = process
-    if (stopped) stop('任务已停止')
-  })
+  let catalog
+  if (config.metadataPhase === 'native-candidates') {
+    const candidates = await queryNativeCandidates(
+      config.cli,
+      config.executable,
+      nativeRoot,
+      env,
+      (process) => {
+        child = process
+        if (stopped) stop('任务已停止')
+      },
+      { signal: metadataController.signal },
+    )
+    if (stopped || failure) throw new Error('任务已停止')
+    const snapshot = snapshotNativeCandidates(candidates, env)
+    await writePrivateFile(join(nativeRoot, 'catalog-candidates.json'), JSON.stringify(snapshot))
+    output({ phase: 'native-candidates', count: snapshot.length })
+    finalized = true
+  } else if (config.metadataPhase === 'account-scope') {
+    const candidates = JSON.parse(
+      await privateFile(join(nativeRoot, 'catalog-candidates.json'), true, 16 * 1024 * 1024),
+    )
+    if (!Array.isArray(candidates)) throw new Error('Invalid native candidate snapshot')
+    catalog = await accountSupportedChoices(config.cli, nativeRoot, candidates, env, {
+      signal: metadataController.signal,
+    })
+  } else {
+    catalog = config.confirmedCatalog
+    if (!Array.isArray(catalog)) throw new Error('Missing confirmed account model catalog')
+  }
   if (stopped || failure) throw new Error('任务已停止')
-  if (config.discover) {
+  if (finalized) {
+    // Candidate phase has no account networking or model execution.
+  } else if (config.discover || config.metadataPhase === 'account-scope') {
     output(catalog)
     finalized = true
   } else {

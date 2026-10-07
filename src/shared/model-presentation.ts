@@ -18,16 +18,15 @@ export function nativeModelName(id: string): string {
 }
 
 function withoutAnnotations(name: string): string {
-  let previous: string
-  do {
-    previous = name
-    name = name.replace(/[（(][^()（）]*[)）]/gu, '')
-  } while (previous !== name)
-  return name
-    .replace(/[（(].*$/u, '')
-    .replace(/[)）]/gu, '')
-    .replace(/\s+/gu, ' ')
-    .trim()
+  const visible: string[] = []
+  let depth = 0
+  for (const character of name) {
+    if (character === '(' || character === '（') depth++
+    else if (character === ')' || character === '）') {
+      if (depth) depth--
+    } else if (!depth) visible.push(character)
+  }
+  return visible.join('').replace(/\s+/gu, ' ').trim()
 }
 
 /** A presentation-only name. Never use the returned text as an execution/lookup ID. */

@@ -16,12 +16,18 @@ for (const name of [
   'terminal-bridge',
   'pi-omp-bridge',
   'pi-native-catalog',
+  'account-models',
   'zcode-resume',
   'pi-login',
   'grok-catalog',
 ]) {
   const source = `src/host/${name}.mjs`
   if (existsSync(source)) cpSync(source, `lib/${name}.mjs`)
+}
+// Native metadata helpers are also imported by the emitted adapter declarations/runtime.
+if (existsSync('src/host/account-models.mjs')) {
+  cpSync('src/host/account-models.mjs', 'lib/types/host/account-models.mjs')
+  cpSync('src/host/account-models.d.mts', 'lib/types/host/account-models.d.mts')
 }
 await build({
   entry: { index: 'lib/types/host/index.js' },

@@ -22,6 +22,46 @@ import {
 import { discoverOpenCode, openCodeAuthDirectory, prepareOpenCode } from '../src/host/opencode-adapter.ts'
 import { extendedLaunch, extendedCatalog } from '../src/host/extended-adapters.ts'
 
+// Every native source and network response in this suite is synthetic.
+vi.mock('../src/host/opencode-native.ts', async (load) => {
+  const original = await load<typeof import('../src/host/opencode-native.ts')>()
+  return {
+    ...original,
+    readOpenCodeProfile: (dir: string, options = {}) =>
+      original.readOpenCodeProfile(dir, { nativeHome: join(dir, 'test-native'), ...options }),
+    inspectOpenCodeProfile: (dir: string, options = {}) =>
+      original.inspectOpenCodeProfile(dir, { nativeHome: join(dir, 'test-native'), ...options }),
+  }
+})
+vi.mock('../src/host/account-models.mjs', async (load) => {
+  const original = await load<typeof import('../src/host/account-models.mjs')>()
+  return {
+    ...original,
+    probeAccountModels: (input: any, options: any) =>
+      original.probeAccountModels(input, {
+        ...options,
+        fetch: async () => new Response(JSON.stringify({ data: [{ id: 'model' }, { id: 'glm-5.3-flash' }] })),
+      }),
+  }
+})
+function seedAccount(config: ReturnType<typeof fixture>) {
+  const auth = openCodeAuthDirectory(config.stateDirectory),
+    home = join(auth, 'test-native')
+  mkdirSync(join(auth, 'opencode'), { recursive: true, mode: 0o700 })
+  mkdirSync(join(home, '.config/opencode'), { recursive: true, mode: 0o700 })
+  writeFileSync(
+    join(auth, 'opencode/auth.json'),
+    JSON.stringify({ fixture: { type: 'api', key: 'synthetic-key' } }),
+    { mode: 0o600 },
+  )
+  writeFileSync(
+    join(home, '.config/opencode/opencode.json'),
+    JSON.stringify({
+      provider: { fixture: { options: { baseURL: 'https://example.test' }, models: { model: {} } } },
+    }),
+    { mode: 0o600 },
+  )
+}
 const roots: string[] = []
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'cwn-account-fixture-'))
@@ -81,7 +121,7 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
           type: 'oauth',
           access: 'synthetic-access',
           refresh: 'synthetic-refresh',
-          expires: 1,
+          expires: Date.now() + 120000,
           accountId: 'private-id',
         },
       }),
@@ -90,7 +130,7 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
     expect(state).toMatchObject({ state: 'configured', authMethod: 'oauth', verification: 'local' })
     expect(state.accountLabel).toBeUndefined()
     expect(JSON.stringify(state)).not.toMatch(/synthetic|private-id/)
-    expect(JSON.parse(readFileSync(file, 'utf8')).fixture.expires).toBe(1)
+    expect(JSON.parse(readFileSync(file, 'utf8')).fixture.expires).toBeGreaterThan(Date.now())
     writeFileSync(file, '{}')
     expect(await readOpenCodeAccount(config, signal())).toMatchObject({ state: 'unconfigured' })
   })
@@ -133,6 +173,7 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
   it('shares native login auth with workers/catalogs while keeping DB and config independent', async () => {
     const config = fixture(),
       auth = openCodeAuthDirectory(config.stateDirectory)
+    seedAccount(config)
     const login = await prepareOpenCodeAccount('/bin/opencode', 'login', config, signal())
     expect(login.argv.slice(-3)).toEqual(['/bin/opencode', 'auth', 'login'])
     const worker = await prepareOpenCode({
@@ -155,7 +196,7 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
       auth,
     )
     for (const env of [login.env, worker.env, catalogEnv!]) {
-      expect(env.XDG_DATA_HOME).toBe(auth)
+      expect(env.XDG_DATA_HOME).toContain(auth)
       expect(env.OPENCODE_AUTH_CONTENT).toBe('')
       expect(env.OPENCODE_DISABLE_DEFAULT_PLUGINS).toBe('0')
       expect(env.OPENCODE_PURE).toBe('1')
@@ -188,7 +229,7 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
       'opencode',
       '/bin/opencode',
       config.stateDirectory,
-      { cli: 'opencode', model: 'fixture/model', effort: 'default' },
+      { cli: 'opencode', model: 'zhipuai-coding-plan/glm-5.3-flash', effort: 'default' },
       'plan',
       'synthetic task',
       join(config.stateDirectory, 'native', 'one'),
@@ -200,15 +241,28 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
       '/bin/opencode',
       async (_argv, env) => {
         catalogEnv = env
-        return catalog
+        return (
+          'zhipuai-coding-plan/glm-5.3-flash\n' +
+          JSON.stringify({
+            providerID: 'zhipuai-coding-plan',
+            id: 'glm-5.3-flash',
+            variants: {},
+            api: {
+              id: 'glm-5.3-flash',
+              url: 'https://open.bigmodel.cn/api/coding/paas/v4',
+              npm: '@ai-sdk/openai-compatible',
+            },
+          }) +
+          '\n'
+        )
       },
       config.stateDirectory,
       config,
     )
     for (const env of [terminal.env, worker.env, catalogEnv!]) {
       expect(env.ZHIPU_API_KEY).toBe('synthetic-key')
-      expect(env.OPENCODE_AUTH_CONTENT).toBe('{}')
-      expect(env.XDG_DATA_HOME).toBe(openCodeAuthDirectory(config.stateDirectory))
+      expect(env.OPENCODE_AUTH_CONTENT).toBe(env === catalogEnv ? '' : '{}')
+      expect(env.XDG_DATA_HOME).toContain(openCodeAuthDirectory(config.stateDirectory))
     }
     expect(JSON.parse(terminal.env.OPENCODE_CONFIG_CONTENT!)).toMatchObject({
       model: 'zhipuai-coding-plan/glm-5.3-flash',
@@ -315,6 +369,7 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
       const config = fixture(),
         project = join(config.stateDirectory, 'project')
       mkdirSync(project)
+      seedAccount(config)
       const launch = await extendedLaunch(
         'opencode',
         '/bin/opencode',
