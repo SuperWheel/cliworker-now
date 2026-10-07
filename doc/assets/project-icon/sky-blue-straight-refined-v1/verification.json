@@ -1,0 +1,64 @@
+{
+  "source": "/Users/leeyl/.codex/generated_images/01a1147f-7507-76a2-85ad-fcee121e4ac4/exec-8bed5635-3a74-42d7-8add-52bc0d8b6399.png",
+  "file": "logo-refined.png",
+  "size": [
+    1254,
+    1254
+  ],
+  "mode": "RGBA",
+  "alpha_extrema": [
+    0,
+    255
+  ],
+  "sha256": "5514075afd616d012a9e09b6b7d87de98134fb7b31ffedfdcdbab555f48f79ba",
+  "copy_matches_source": true,
+  "opaque_runs_alpha_threshold_128": {
+    "horizontal_y700": [
+      [
+        227,
+        454
+      ],
+      [
+        482,
+        723
+      ],
+      [
+        752,
+        1000
+      ]
+    ],
+    "vertical_x600": [
+      [
+        227,
+        357
+      ],
+      [
+        391,
+        897
+      ],
+      [
+        929,
+        1052
+      ]
+    ],
+    "vertical_x875": [
+      [
+        227,
+        357
+      ],
+      [
+        391,
+        562
+      ],
+      [
+        593,
+        897
+      ],
+      [
+        929,
+        1052
+      ]
+    ]
+  },
+  "note": "Generated raster refinement, optical comparison, not a mathematically identical-spacing vector master."
+}
