@@ -552,3 +552,18 @@
 - 安装包共 183 项，新增两个 runtime 脚本齐全，yaml 固定 2.9.1，无 `.test-data`、`.cache`、账号或运行数据。SHA-256：`06a90c50a8be869c6512d14ed6c43ba81bb5c3f95e2bb5e09d9ac8f108829eae`。交付摘要 `artifacts/dsh-cliworker-now-0.6.7-verification.json`。
 - 测试隔离事件：一项旧账号测试的失败断言意外把本机自定义 provider 的 API key 带入工具输出。已隔离临时 HOME、账号来源和子进程环境，观察文件仅记录合成值匹配／存在布尔，新增父环境凭据不导入回归；本轮验收及自建临时目录检查匹配文件为 0。未写入 Git，未修改或轮换用户凭据。该事件已经向用户说明，避免将测试成功描述成从未发生过暴露。
 - 未做：本轮未用主模型新对话验收自然语言服从，也未发起真实 CLI 模型任务或验证所有 provider 的订阅／远端凭据；已有 Kimi／Grok／Hermes 等历史未验证项继续保留，不能由目录／元数据／模拟回归推断成功。
+
+## 2026-10-07：v0.6.8 账号可用模型、简化名称与免费优先
+
+- 用户反馈后取回并重开 `fix-cli-routing-model-catalog-health`。上一版“原生 available 目录”不能代替当前账号权益，历史验证保留；本轮新增 5.1–5.8 单独记录。规划提交 `3accb39`，展示与 Host 选型提交 `83991ed`，账号筛选与两阶段查询提交 `42e296d`。
+- Pi／OMP／OpenCode 将原生候选与当前账号支持范围相交；过期 OAuth、未登录、范围未知、公共大全和仅在自定义配置中声明的模型隐藏。OAuth Codex 检查 supported_in_api 与当前额度允许，OpenRouter 使用账号模型端点；多账号池按共同权限和全部身份费用投影。配置本身与未绑定当前账号的旧成功记录不是权限证据。
+- 设置、首次询问、Worker 改选和卡片统一只显示模型名；去掉路由前缀及括号附注，按确切原生型号去重，原始完整 ID 和有效旧偏好保持精确。仅有明确免费价格或免费额度且可用的模型在新选择中优先；unknown、SDK 缺省零值、附加费用和付费订阅额度不当免费。不可用旧偏好要求重选，不自动改默认或转付费。
+- 原生账号与配置安全只读，发现与执行采用相同来源和原生认证优先级。Host CN 密钥只在对应子进程 env 使用；不写入请求文件、账号副本或报告。不执行 OAuth 刷新或 shell 密钥命令，不复制用户会话。账号 HTTP 查询限时、限响应体、只读 GET，错误固定去敏。
+- 本机真实只读范围核对：仅原生账号 OMP 筛后 5 项，当前免费额度证据为 free；Pi 原生来源没有确认范围，0 项。Desktop 的显式 Host CN 来源下 Pi 确认 GLM-5.3 与 GLM-5.3-Flash 两项。OpenCode 当前账号／原生 CN 交集 6 项：GLM-4.7、GLM-5-Turbo、GLM-5.1、GLM-5.2、GLM-5.3、GLM-5.3-Flash，成本均 unknown。原账号／配置文件哈希不变；0 模型生成、0 OAuth 刷新。证据 `.test-data/model-catalog-health/strict-account-metadata.json`、`.test-data/cli-fixes-068/opencode-metadata.json`。
+- 隔离 Harness 渲染已完成：每个 CLI 的 3 个明确模拟路由投影为 2 个模型名，已确认免费路由排前；历史卡片去前缀、括号和去重一致。截图 `.test-data/cli-fixes-068/ui-cards-simulation.png`、`ui-opencode-menu-simulation.png`，摘要 `ui-verification.json`。模拟 UI 不作为真实账号可用性证明；临时服务、页面及浏览器控制租约已结束。
+- 实际 Desktop 初次复核发现 OMP 目录失败：外层 Host Seatbelt 与新增内层 sandbox-exec 重复 sandbox_apply，被系统拒绝。独立 native 查询成功不能覆盖已安装路径；当前修复把断网原生候选读取和受控账号 GET 拆为两次单层沙箱查询，任务准备复用同一私有快照，执行继续原生 setModel＋observed 核验。准备元数据进程无法确认退出时使用固定类型清理错误，阻塞后续任务并保留状态目录，不报告停止成功。
+- 最终完整回归：39 文件／564 项通过，Host／Client 类型检查、严格规格校验、preview 构建、正式 build 与 pack 通过。源码 75 个文件与隔离 preview 逐个哈希相同；Gateway 合同重新生成。日志 `.test-data/cli-fixes-068/{full-tests-final-3,typecheck-final-3,spec-check-final-3,preview-build-final-3,production-build-final,package-final}.log`。初轮两项旧 OpenCode 集成夹具因未隔离全局大缓存失败，现已使用明确模拟账号和 nativeHome 修正，不把首次失败计为通过。
+- 真实 OMP＋合成 Host 引用的生产装配探针通过：候选外层断网、scope 阶段允许受控 GET、同一私有快照，5 个已确认原生账号模型；源账号／配置哈希不变，生成和 OAuth 刷新均 0。最终候选文件仅保留身份／路由／强度及 header 名称，0600，合成 Host key 扫描不匹配；准备阶段清理边界与队列回归通过。证据 `.test-data/model-catalog-health/managed-omp-two-phase.json`。
+- Desktop 在全部 7 个 Worker 已结束、账号终端 0 后重建并重启，原构建备份 `.cache/desktop-before-cli-fixes-068/lib` 保留。真实 Host 引用下设置菜单：OMP 14 个去重模型，已确认免费额度的 5 项排前；Pi 2 项；OpenCode 6 项。OMP／OpenCode 的实际 Worker 改选菜单分别与设置的 14／6 项一致，公共 Ling 已不在可选项中。原不可用 gpt-5／Ling 偏好提示重选，均未保存；卡片已显示 GLM-5.3-Flash／gpt-5／ling-3.0-flash-fin-free 等纯名称。CUA 原生截图保存在本次聊天工具记录，未冒充模型生成成功。
+- 正式包 `artifacts/dsh-cliworker-now-0.6.8.tgz` 共 192 项，账号查询 helper、类型配套与 OpenCode native 模块齐全；无测试数据、缓存、账号或运行文件。SHA256 `b0d6d94f4f8e37f72f55efc6e1aacddf5d86341189dbf2bef5ff364e4ad7ca2b`，生产链接指向当前仓库。14 份既有 Worker／偏好／角色／CLI 设置文件检查中均未改变；最终验收摘要见 `.test-data/cli-fixes-068/desktop-verification.json` 和 `artifacts/dsh-cliworker-now-0.6.8-verification.json`。
+- 未做：没有提交新默认选型、登录操作或真实模型请求；主模型自然语言服从、所有 provider 的远端任务成功及未来余额／服务状态仍无本轮验收证据。未知账号范围继续隐藏，不通过付费模型请求试探权限。
