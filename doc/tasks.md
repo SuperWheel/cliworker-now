@@ -568,3 +568,19 @@
 - 正式包 `artifacts/dsh-cliworker-now-0.6.8.tgz` 共 192 项，账号查询 helper、类型配套与 OpenCode native 模块齐全；无测试数据、缓存、账号或运行文件。SHA256 `b0d6d94f4f8e37f72f55efc6e1aacddf5d86341189dbf2bef5ff364e4ad7ca2b`，生产链接指向当前仓库。14 份既有 Worker／偏好／角色／CLI 设置文件检查中均未改变；最终验收摘要见 `.test-data/cli-fixes-068/desktop-verification.json` 和 `artifacts/dsh-cliworker-now-0.6.8-verification.json`。
 - OpenSpec 收尾：21／21 任务有对应实施与验收记录，三个能力域逐需求核对后同步主规格；重新归档至 `openspec/changes/archive/2026-10-07-fix-cli-routing-model-catalog-health/`。归档后严格主规格 4／4、归档变更 2／2 通过，活动变更为 0；本地分阶段提交，不推送，既有无关工作区改动保留。
 - 未做：没有提交新默认选型、登录操作或真实模型请求；主模型自然语言服从、所有 provider 的远端任务成功及未来余额／服务状态仍无本轮验收证据。未知账号范围继续隐藏，不通过付费模型请求试探权限。
+
+
+## 2026-10-08：v0.6.9 六款 CLI 设置加载、登录证据与独立身份
+
+- OpenSpec `repair-cli-settings-discovery`：规划提交 `026b7ad`，实现提交 `8a9f673`。统一账号先查、模型随后加载；刷新/失败清旧目录，跨 CLI 或过期响应拒绝，模型与强度按原生能力联动。仅原生认证成功证据显示绿色，本地凭据及 Host 引用保持待验证。导航与摘要一致，账号来源说明完整换行。
+- OMP/Pi 的工具指引、程序身份及入口分离；同模型不互换 CLI。Pi 原生 1.0.4 优先，1.0.2 兼容安装须核验；两个版本均完成离线 SDK/login API 与 RPC `get_state`/`get_available_models` 核对，fetch/prompt/login 均为 0，进程在有意 SIGTERM 后以 143 退出。错误身份、取消及清理未确认边界有回归。证据 `.test-data/cli-settings-069/pi-native-offline-results.jsonl`。
+- 六 CLI 本机只读检查：初轮 ZCode configured/local，Grok 明确失效，OMP configured/local，Pi/OpenCode 原生未配置但显式 Host 来源可发现模型，Hermes 真实入口失效。OMP 14、Pi 2、OpenCode 6 个筛后模型；42 份原始账号/配置/运行文件 hash 不变，0 生成、0 登录提交。证据 `native-check.json`，不把目录结果当真实模型成功。
+- ZCode 初轮因原生大写 canonical ID 与账号 API 小写 ID 的差异得到空目录。生产凭据 GET 的详细诊断曾被自动审批拒绝，随后用户明确授权一次只读查询；批准后仅对绑定 BigModel 原生 `/api/anthropic/v1/models` 发出 1 次 GET，HTTP 200、11 个小写模型，0 刷新/生成，4 份源文件 hash 不变。未再次发送真实请求。报告 `zcode-authorized-model-list.json`。
+- 修正仅限精确官方 individual provider/accountType/Anthropic endpoint，采用 installed ZCode 明确的有限官方 GLM 别名表；其他路由继续 exact 匹配，执行保留 canonical ID。原生目录与该次授权响应的完整离线重放得到 GLM-5.3、GLM-5.3-Flash，均 low/high/max；4 次本地 transport 中只有对应账号匹配，其他返回模拟 404，网络/意外出站/生成均 0，5 份源文件 hash 不变。证据 `zcode-recorded-models-replay.json`，重放不冒充第二次实时查询或生成。
+- ZCode 加密口令显式只传对应子进程；当前 identity 的 key、目录发现、login/manage/logout、headless/resume 一致，密钥不进入 argv、文件或响应。Anthropic 原生双认证头仅该路由启用。Hermes 账号范围按原生优先级与账号池交集，拒绝 disabled provider、外部 Codex app-server 身份、未知端点/secret 命令；Grok 公共 ACP 目录不冒充账号权限。
+- 最终 `pnpm test` 42 文件 / **631 项通过**，`pnpm typecheck`、严格规格校验、`pnpm build:preview`、正式 `pnpm build`、`pnpm pack --out artifacts/dsh-cliworker-now-0.6.9.tgz` 通过。pnpm 使用 `--config.verifyDepsBeforeRun=false`，完整测试在获准的本机沙箱环境执行；子任务一次误用测试参数导致全套嵌套沙箱失败已停止，不计为通过。日志 `.test-data/cli-settings-069/{full-tests-final-with-alias,typecheck-final,preview-final,production-build-final,package-final}.log`。
+- 隔离 Harness 实际渲染六款账号语义、加载/失败/重试、换模型后强度变化；Pi/OpenCode 有 Host 模型仍保持未原生登录灰点。说明区域 height 与 scrollHeight 均 36px，无截断。截图 `.test-data/cli-settings-069-ui/final-opencode-host-source-simulation.png` 明确标注模拟；只读 fixture 事件仅 account/catalog，账号动作、偏好写入、真实模型任务均 0；自有页面与18749服务已关闭。
+- 正式 Desktop 更新前9个worker全部结束、账号终端0；旧lib备份 `.cache/desktop-before-cli-settings-069/lib`。完整重启后原生设置确认账号/模型加载禁用状态、ZCode/OMP/Pi/OpenCode中性、Grok/Hermes错误状态及Hermes明确原因；没有保存偏好或提交登录。17份worker/preference/开关/角色文件集合和SHA256均不变。原生截图在本次CUA工具记录，摘要 `desktop-verification.json`。ZCode实时诊断仅使用上述一次用户授权GET，未为Desktop截图重复触发它。
+- 包共207项，81份源码与最终preview逐字节相同，正式入口与包内容相同，包含新增原生安装解析helper，无测试/缓存/账号数据。SHA256 `bbfa34a46e1e78bc56c4758a11e4b691e0d14172205997e6ed8fb1daeb549829`，交付摘要 `artifacts/dsh-cliworker-now-0.6.9-verification.json`。
+- 保留边界：未发起六CLI真实生成/续聊、未提交登录或刷新OAuth，主模型实际工具服从未新增生成验收。Grok 尚无可核验的当前账号 Worker 模型权益接口，故未确认候选不供选择；Hermes 未知provider/账号池仍不放行。本机Hermes原源码根已改名，旧shim失效；虽facts.json能定位完整构建环境，官方要求源码launcher优先，不能以snapshot替代其安装身份和生命周期，需另行恢复原生安装。本轮没有改全局launcher或恢复用户已改名目录。历史Kimi/订阅等缺口保持可见。
+- OpenSpec 主规格已逐条核对并同步，9/9实施与验收任务完成；归档 `openspec/changes/archive/2026-10-08-repair-cli-settings-discovery/`。归档前严格校验5项、归档后主规格4项与全部归档3项均通过，活动变更0；仅本地提交，不推送。
