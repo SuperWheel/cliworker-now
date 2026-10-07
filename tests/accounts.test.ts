@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PassThrough, Readable, Writable } from 'node:stream'
 import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type {
   SubprocessHandle,
@@ -18,11 +18,30 @@ import type { AccountIdentitySource } from '../src/host/account-identity.ts'
 vi.mock('../src/host/zcode-grok-accounts.ts', async (load) => ({
   ...(await load<typeof import('../src/host/zcode-grok-accounts.ts')>()),
   zcodeGrokAccountStatus: async () => ({
-    state: 'unauthenticated',
+    state: 'unconfigured',
     verification: 'local',
     summary: 'Synthetic fixture',
   }),
 }))
+
+// This suite exercises the account manager and simulated PTYs, never personal
+// global credentials. Native configuration parsing is covered by native fixtures.
+vi.mock('../src/host/pi-omp-native.ts', async (load) => {
+  const actual = await load<typeof import('../src/host/pi-omp-native.ts')>()
+  return {
+    ...actual,
+    snapshotPiOmpNative: (cli: 'pi' | 'omp', destination: string, options: { accountRoot?: string } = {}) =>
+      actual.snapshotPiOmpNative(cli, destination, {
+        ...options,
+        nativeHome: dirname(options.accountRoot ?? destination),
+      }),
+    inspectPiOmpNativeAccount: async () => ({
+      state: 'unconfigured',
+      verification: 'local',
+      summary: 'Synthetic native account fixture',
+    }),
+  }
+})
 
 // All subprocesses in this suite are synthetic. No real login/logout is run.
 const roots: string[] = []
@@ -165,7 +184,7 @@ describe('account status safety (synthetic CLI output)', () => {
     )
   })
 
-  it('distinguishes configured, unknown, and unauthenticated without guessing credentials', async () => {
+  it('distinguishes configured, unknown, unconfigured, and query failures without guessing credentials', async () => {
     const f = fixture()
     f.status('managed:kimi-code  type=kimi  models=4  source=oauth\n')
     expect(await f.manager.status('kimi', f.cwd, f.signal)).toMatchObject({ state: 'configured' })
@@ -177,9 +196,9 @@ describe('account status safety (synthetic CLI output)', () => {
     expect(mimo).toMatchObject({ state: 'authenticated', authMethod: 'api', verification: 'local' })
     expect(JSON.stringify(mimo)).not.toContain('private-uid')
     f.status('Transport error with SECRET', 1)
-    expect(await f.manager.status('codex', f.cwd, f.signal)).toMatchObject({ state: 'unknown' })
+    expect(await f.manager.status('codex', f.cwd, f.signal)).toMatchObject({ state: 'unavailable' })
     f.status('Not logged in', 1)
-    expect(await f.manager.status('codex', f.cwd, f.signal)).toMatchObject({ state: 'unauthenticated' })
+    expect(await f.manager.status('codex', f.cwd, f.signal)).toMatchObject({ state: 'unconfigured' })
     const count = vi.mocked(f.backend.spawn).mock.calls.length
     expect(await f.manager.status('antigravity', f.cwd, f.signal)).toMatchObject({
       state: 'unknown',
@@ -206,7 +225,7 @@ describe('account status safety (synthetic CLI output)', () => {
     })
     f.status('Not logged in', 1)
     const loggedOut = await f.manager.status('codex', f.cwd, f.signal)
-    expect(loggedOut.state).toBe('unauthenticated')
+    expect(loggedOut.state).toBe('unconfigured')
     expect(loggedOut.accountLabel).toBeUndefined()
     f.status('Logged in using an API key - sk-SECRET')
     const api = await f.manager.status('codex', f.cwd, f.signal)
@@ -277,7 +296,7 @@ describe('account status safety (synthetic CLI output)', () => {
     expect(JSON.stringify(result)).not.toContain('SECRET')
     vi.mocked(f.backend.resolveExecutable).mockRejectedValue(new Error('file contains SECRET'))
     const missing = await f.manager.status('codex', f.cwd, f.signal)
-    expect(missing).toMatchObject({ state: 'unavailable', installed: false, actions: [] })
+    expect(missing).toMatchObject({ state: 'unconfigured', installed: false, actions: [] })
     expect(JSON.stringify(missing)).not.toContain('SECRET')
   })
 
@@ -292,6 +311,52 @@ describe('account status safety (synthetic CLI output)', () => {
     resolution.resolve('/synthetic/codex')
     await tick()
     expect(f.backend.spawn).not.toHaveBeenCalled()
+    expect(f.backend.spawnTerminal).not.toHaveBeenCalled()
+  })
+
+  it('keeps absent default installations grey but reports explicit executable and read errors', async () => {
+    const missing = Object.assign(new Error('synthetic SECRET'), { code: 'ENOENT' })
+    const absent = fixture()
+    vi.mocked(absent.backend.resolveExecutable).mockRejectedValue(missing)
+    expect(await absent.manager.status('codex', absent.cwd, absent.signal)).toMatchObject({
+      state: 'unconfigured',
+      installed: false,
+      actions: [],
+    })
+    const custom = fixture({ codexExecutable: '/synthetic/missing-codex' })
+    vi.mocked(custom.backend.resolveExecutable).mockRejectedValue(missing)
+    const failed = await custom.manager.status('codex', custom.cwd, custom.signal)
+    expect(failed).toMatchObject({
+      state: 'unavailable',
+      installed: false,
+      summary: expect.stringContaining('执行路径配置失败'),
+    })
+    expect(JSON.stringify(failed)).not.toContain('SECRET')
+    vi.mocked(absent.backend.resolveExecutable).mockRejectedValue(
+      Object.assign(new Error('SECRET'), { code: 'EACCES' }),
+    )
+    expect(await absent.manager.status('codex', absent.cwd, absent.signal)).toMatchObject({
+      state: 'unavailable',
+      installed: false,
+    })
+    expect(absent.backend.spawn).not.toHaveBeenCalled()
+    expect(custom.backend.spawn).not.toHaveBeenCalled()
+  })
+
+  it('distinguishes fresh absence, malformed responses and explicit authentication rejection', async () => {
+    const f = fixture()
+    f.status('No providers configured.\n')
+    expect(await f.manager.status('kimi', f.cwd, f.signal)).toMatchObject({ state: 'unconfigured' })
+    f.status('Not logged in. Run `mimo auth login` to log in.')
+    expect(await f.manager.status('mimo', f.cwd, f.signal)).toMatchObject({ state: 'unconfigured' })
+    f.status('{SECRET malformed')
+    expect(await f.manager.status('claude', f.cwd, f.signal)).toMatchObject({ state: 'unavailable' })
+    f.status('Authentication failed: invalid token SECRET', 1)
+    const invalid = await f.manager.status('codex', f.cwd, f.signal)
+    expect(invalid).toMatchObject({ state: 'unauthenticated', summary: expect.stringContaining('认证失效') })
+    expect(JSON.stringify(invalid)).not.toContain('SECRET')
+    f.status('Logged in using an API key - SECRET')
+    expect(await f.manager.status('codex', f.cwd, f.signal)).toMatchObject({ state: 'authenticated' })
     expect(f.backend.spawnTerminal).not.toHaveBeenCalled()
   })
 

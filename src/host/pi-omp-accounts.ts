@@ -1,8 +1,9 @@
 import { constants } from 'node:fs'
-import { lstat, mkdir, mkdtemp, open, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, open, realpath, rename, rm, writeFile, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { snapshotPiOmpNative, safePiOmpAncestors } from './pi-omp-native.ts'
 import { credentialEnvironment } from './extended-adapters.ts'
 import type { AccountAction } from '../shared/accounts.ts'
 import type { PiOmpCli } from './pi-omp-adapter.ts'
@@ -14,6 +15,8 @@ export interface PiOmpAccountTerminalInput {
   executable: string
   project: string
   stateDirectory: string
+  /** Read-only native source override for isolated integrations/tests. */
+  nativeHome?: string
   config: RuntimeConfig
   signal?: AbortSignal
 }
@@ -27,6 +30,7 @@ export interface PiOmpAccountTerminalLaunch {
 }
 
 async function privateDirectory(path: string) {
+  await safePiOmpAncestors(path)
   await mkdir(path, { recursive: true, mode: 0o700 })
   const before = await lstat(path)
   if (before.isSymbolicLink() || !before.isDirectory()) throw new Error('Unsafe account directory symlink')
@@ -66,8 +70,8 @@ async function withCancellation<T>(pending: Promise<T>, signal?: AbortSignal): P
 }
 
 /**
- * User-operated native login UI, or a management TUI for the worker CN route.
- * Neither path sends a prompt. Login does not change the worker credential route.
+ * User-operated native account UI. No task prompt or automatic login is sent;
+ * original global sources remain unchanged and this plugin keeps its own account store.
  */
 export async function preparePiOmpAccountTerminal(
   input: PiOmpAccountTerminalInput,
@@ -85,8 +89,8 @@ export async function preparePiOmpAccountTerminal(
     throw new Error('无法读取智谱凭据，请在 Harness 模型设置中检查当前凭据引用')
   }
   signal?.throwIfAborted()
-  if (input.action !== 'login' && !credentials.ZAI_CODING_CN_API_KEY)
-    throw new Error('请先在 Harness 模型设置中配置当前智谱凭据；原生 OAuth 登录不能替代此 API 路由')
+  if (input.action !== 'login' && config.zaiCredentialRef && !credentials.ZAI_CODING_CN_API_KEY)
+    throw new Error('Harness 模型设置中的智谱凭据引用不可用，请先修复该引用或使用登录设置管理原生账号')
 
   const root = await privateDirectory(resolve(input.stateDirectory))
   const accountRoot = await privateDirectory(join(root, 'account-runtime'))
@@ -115,21 +119,12 @@ export async function preparePiOmpAccountTerminal(
     const accounts = await privateDirectory(join(root, 'accounts'))
     const account = await privateDirectory(join(accounts, cli))
     const agent = await privateDirectory(join(account, 'agent'))
+    const native = await snapshotPiOmpNative(cli, agent, { accountRoot: root, nativeHome: input.nativeHome })
     const temporary = await privateDirectory(join(runtime, 'tmp'))
     const provider = cli === 'pi' ? 'zai-coding-cn' : 'cliworker-zai-cn'
-    const nativeArgs = [
-      '--no-session',
-      '--no-tools',
-      '--no-extensions',
-      '--no-skills',
-      '--provider',
-      provider,
-      '--model',
-      'glm-5.3-flash',
-      '--thinking',
-      'low',
-    ]
+    const nativeArgs = ['--no-session', '--no-tools', '--no-extensions', '--no-skills']
     const env: Record<string, string> = {
+      ...native.env,
       ...credentials,
       PI_CODING_AGENT_DIR: agent,
       TMPDIR: temporary,
@@ -152,36 +147,39 @@ export async function preparePiOmpAccountTerminal(
     } else {
       // OMP accepts models.yml; JSON is a YAML subset. This is the exact custom
       // provider shape used by pi-omp-bridge.mjs, without writing the resolved key.
-      await writePrivateJSON(join(agent, 'models.yml'), {
-        providers: {
-          [provider]: {
-            api: 'openai-completions',
-            baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
-            apiKey: 'ZAI_CODING_CN_API_KEY',
-            models: [
-              {
-                id: 'glm-5.3-flash',
-                name: 'GLM-5.3-Flash',
-                reasoning: true,
-                input: ['text', 'image'],
-                contextWindow: 1000000,
-                maxTokens: 131072,
-                cost: { input: 0.15, output: 0.5, cacheRead: 0.03, cacheWrite: 0 },
-                thinking: { mode: 'effort', efforts: ['low', 'high', 'max'], defaultLevel: 'low' },
-                compat: {
-                  supportsStore: false,
-                  supportsDeveloperRole: false,
-                  supportsReasoningEffort: true,
-                  maxTokensField: 'max_tokens',
-                  thinkingFormat: 'zai',
-                  supportsStrictMode: true,
-                },
+      if (credentials.ZAI_CODING_CN_API_KEY) {
+        const models = JSON.parse(await readFile(join(agent, 'models.yml'), 'utf8'))
+        models.providers ??= {}
+        models.providers[provider] = {
+          api: 'openai-completions',
+          baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
+          apiKey: 'ZAI_CODING_CN_API_KEY',
+          models: [
+            {
+              id: 'glm-5.3-flash',
+              name: 'GLM-5.3-Flash',
+              reasoning: true,
+              input: ['text', 'image'],
+              contextWindow: 1000000,
+              maxTokens: 131072,
+              cost: { input: 0.15, output: 0.5, cacheRead: 0.03, cacheWrite: 0 },
+              thinking: { mode: 'effort', efforts: ['low', 'high', 'max'], defaultLevel: 'low' },
+              compat: {
+                supportsStore: false,
+                supportsDeveloperRole: false,
+                supportsReasoningEffort: true,
+                maxTokensField: 'max_tokens',
+                thinkingFormat: 'zai',
+                supportsStrictMode: true,
               },
-            ],
-          },
-        },
-      })
+            },
+          ],
+        }
+        await writePrivateJSON(join(agent, 'models.yml'), models)
+      }
+      const nativeAuth = JSON.parse(await readFile(join(agent, 'native-auth.json'), 'utf8'))
       await writePrivateJSON(join(agent, 'config.yml'), {
+        ...nativeAuth,
         // Native OMP 16.4.4 setup scene selection reads startup.setupWizard.
         // Each account runtime is fresh, but its API provider is already supplied
         // by Harness; do not show an unrelated OAuth onboarding wizard.

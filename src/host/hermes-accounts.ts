@@ -155,15 +155,19 @@ export async function readHermesAccount(
     return present
       ? configured('api')
       : {
-          state: 'unauthenticated',
+          state: 'unconfigured',
           verification: 'local',
           summary: '尚未配置 Hermes 登录，可打开登录设置',
         }
   } catch (error) {
     signal.throwIfAborted()
     return (error as NodeJS.ErrnoException).code === 'ENOENT'
-      ? { state: 'unauthenticated', verification: 'local', summary: '尚未配置 Hermes 登录，可打开登录设置' }
-      : { state: 'unknown', verification: 'local', summary: '暂时无法确认 Hermes 本地账号，请在账号终端检查' }
+      ? { state: 'unconfigured', verification: 'local', summary: '尚未配置 Hermes 登录，可打开登录设置' }
+      : {
+          state: 'unavailable',
+          verification: 'local',
+          summary: 'Hermes 本地账号配置读取失败，请在账号终端检查',
+        }
   } finally {
     buffer.fill(0)
     await file?.close()

@@ -5,7 +5,7 @@ import { GrokProtocol } from './grok-adapter.ts'
 import { OpenCodeProtocol } from './opencode-adapter.ts'
 import { BridgeProtocol } from './bridge-protocol.ts'
 import { groupAgyModels, resolveModel } from '../shared/models.ts'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, statSync, accessSync, constants } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -115,11 +115,11 @@ export async function catalogFor(
       models,
       notice:
         cli === 'zcode'
-          ? 'ZCode 使用配套本机内置目录（首版 GLM-5.3-Flash）；该目录不代表独立账号或额度可用。交互权限请求拒绝；原生允许的全局 MCP 仍可能执行。'
+          ? 'ZCode 使用原生可见服务商和模型目录；目录不证明账号或额度可用。交互权限请求拒绝；原生允许的全局 MCP 仍可能执行。'
           : cli === 'grok'
             ? 'Grok 仅完成离线协议验证；账号、真实任务和续聊尚未验收。模型来自原生目录，不代表订阅可用。'
             : cli === 'pi' || cli === 'omp'
-              ? '首版接入已验收的智谱 Coding Plan 路由；使用隔离账号目录与项目沙箱，额外执行工具暂未开放。'
+              ? '模型来自原生目录和已有账号配置；读取成功不证明远端订阅有效。使用隔离运行目录与项目沙箱，额外执行工具暂未开放。'
               : '模型来自原生 CLI；目录不代表账号额度。额外权限默认拒绝，失败时不切换 CLI 或模型。',
     }
   }
@@ -314,9 +314,10 @@ export function protocolFor(
   emit: (event: EventInput) => void,
   identify: (id: string) => void,
   maxLineBytes: number,
+  expectedModel?: string,
 ) {
   if (cli === 'harness') throw new Error('Harness CLI 已移除，历史记录仅供查看')
-  if (cli === 'zcode') return new ZCodeProtocol(emit, identify, maxLineBytes)
+  if (cli === 'zcode') return new ZCodeProtocol(emit, identify, maxLineBytes, expectedModel)
   if (cli === 'hermes') return new HermesProtocol(emit, identify, maxLineBytes)
   if (cli === 'grok') return new GrokProtocol(emit, identify, maxLineBytes)
   if (cli === 'opencode') return new OpenCodeProtocol(emit, identify, maxLineBytes)
@@ -332,6 +333,12 @@ export async function resolveCliExecutable(
   config: RuntimeConfig,
 ): Promise<string> {
   const executable = executableFor(cli, config)
-  if (isExtendedCli(cli) && /\.[cm]?js$/.test(executable) && existsSync(executable)) return executable
+  if (isExtendedCli(cli) && /\.[cm]?js$/.test(executable) && existsSync(executable)) {
+    // JavaScript launchers run through Node and need readability, not an executable bit.
+    // A directory ending in .js is a broken configuration, not an installed CLI.
+    if (!statSync(executable).isFile()) throw new Error('CLI 脚本路径不是普通文件')
+    accessSync(executable, constants.R_OK)
+    return executable
+  }
   return backend.resolveExecutable(executable)
 }

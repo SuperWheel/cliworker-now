@@ -29,6 +29,26 @@ import { WorkerStorage } from '../src/host/storage.ts'
 import { CLI_IDS } from '../src/shared/types.ts'
 
 const filesystemRace = vi.hoisted(() => ({ beforeOpen: undefined as ((path: unknown) => void) | undefined }))
+vi.mock('../src/host/pi-omp-adapter.ts', async (load) => {
+  const actual = await load<typeof import('../src/host/pi-omp-adapter.ts')>()
+  return {
+    ...actual,
+    preparePiOmp: (input: Parameters<typeof actual.preparePiOmp>[0]) =>
+      actual.preparePiOmp({ ...input, nativeHome: dirname(input.accountRoot ?? input.stateDirectory) }),
+  }
+})
+vi.mock('../src/host/zcode-adapter.ts', async (load) => {
+  const actual = await load<typeof import('../src/host/zcode-adapter.ts')>()
+  return {
+    ...actual,
+    prepareZCode: (input: Parameters<typeof actual.prepareZCode>[0]) =>
+      actual.prepareZCode({
+        ...input,
+        nativeHome: dirname(input.stateDirectory),
+        authDirectory: join(dirname(input.stateDirectory), 'synthetic-auth'),
+      }),
+  }
+})
 vi.mock('node:fs', async (original) => {
   const fs = await original<typeof import('node:fs')>()
   return {
@@ -40,8 +60,48 @@ vi.mock('node:fs', async (original) => {
   }
 })
 afterEach(() => {
+  vi.unstubAllEnvs()
   filesystemRace.beforeOpen = undefined
 })
+
+it.skipIf(process.platform !== 'darwin')(
+  'uses the profile account directory for a default-path worker launch without rewriting its native account',
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cwn-default-account-root-'))
+    try {
+      const home = join(root, 'home')
+      vi.stubEnv('DSH_HOME', home)
+      const account = join(home, 'cliworker-now/accounts/pi/agent')
+      mkdirSync(account, { recursive: true, mode: 0o700 })
+      const auth = join(account, 'auth.json')
+      const original = JSON.stringify({
+        'synthetic-provider': { type: 'api_key', key: 'SYNTHETIC_PLUGIN_ACCOUNT' },
+      })
+      writeFileSync(auth, original, { mode: 0o600 })
+      const project = join(root, 'project')
+      mkdirSync(project)
+      // Argument preparation only: no child process or model request is started.
+      const launch = await extendedLaunch(
+        'pi',
+        '/synthetic/pi/cli.js',
+        project,
+        { cli: 'pi', model: 'synthetic-provider/model', effort: 'default' },
+        'plan',
+        'synthetic task',
+        join(root, 'worker-run'),
+        DEFAULT_CONFIG,
+      )
+      const request = JSON.parse(readFileSync(launch.argv.at(-1)!, 'utf8'))
+      const privateAuth = JSON.parse(readFileSync(join(request.stateDirectory, 'agent/auth.json'), 'utf8'))
+      expect(privateAuth['synthetic-provider']?.key === 'SYNTHETIC_PLUGIN_ACCOUNT').toBe(true)
+      expect(readFileSync(auth, 'utf8') === original).toBe(true)
+      expect(request.accountRoot).toBe(join(home, 'cliworker-now'))
+      launch.cleanup()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  },
+)
 
 describe('extended worker boundaries (simulated protocol)', () => {
   it('keeps split UTF-8, identity and a real terminal receipt', () => {
@@ -223,7 +283,37 @@ describe('extended worker boundaries (simulated protocol)', () => {
           project = join(root, 'project'),
           builtin = join(root, 'builtin.json')
         mkdirSync(project)
-        writeFileSync(builtin, '{}')
+        writeFileSync(
+          builtin,
+          JSON.stringify({
+            schemaVersion: 1,
+            config: {
+              providerConfigRules: {
+                providerRules: [
+                  {
+                    providerId: 'account:bigmodel-individual-coding-plan',
+                    config: {
+                      builtinModelIds: ['GLM-5.3-Flash'],
+                      api: { type: 'openai-chat-completions', baseUrl: 'https://example.invalid' },
+                    },
+                  },
+                ],
+              },
+              modelConfigRules: {
+                modelRules: [
+                  {
+                    modelMatch: 'GLM-5.3-Flash',
+                    config: { enabled: true, optionSpecs: { reasoningLevel: { values: ['low'] } } },
+                  },
+                ],
+                modelApiRules: [],
+                providerSiteRules: [],
+                templateModelRules: [],
+                builtinProviderModelRules: [],
+              },
+            },
+          }),
+        )
         // Prepare arguments only: this synthetic fixture never starts ZCode.
         const launch = await extendedLaunch(
           'zcode',

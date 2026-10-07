@@ -384,6 +384,7 @@ export class WorkerRuntime {
         this.storage.save(worker)
       },
       this.config.maxLineBytes,
+      worker.preference.model,
     )
     let failure: unknown
     let release: (() => void) | undefined

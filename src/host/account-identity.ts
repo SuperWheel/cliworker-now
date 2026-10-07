@@ -1,4 +1,5 @@
 import { open } from 'node:fs/promises'
+import { constants } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { CliId } from '../shared/types.ts'
@@ -53,9 +54,9 @@ export function localAccountIdentity(
     let buffer: Buffer | undefined
     try {
       signal.throwIfAborted()
-      handle = await open(path, 'r')
+      handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
       const stat = await handle.stat()
-      if (!stat.isFile() || stat.size > LIMIT) throw new Error('Invalid account metadata')
+      if (!stat.isFile() || stat.nlink !== 1 || stat.size > LIMIT) throw new Error('Invalid account metadata')
       buffer = Buffer.alloc(LIMIT + 1)
       let offset = 0
       while (offset <= LIMIT) {
@@ -90,9 +91,9 @@ export function localAccountIdentity(
     } catch (error) {
       signal.throwIfAborted()
       if ((error as NodeJS.ErrnoException)?.code === 'ENOENT')
-        return { state: 'unauthenticated', verification: 'local', summary: '尚未登录 Antigravity' }
+        return { state: 'unconfigured', verification: 'local', summary: '尚未登录 Antigravity' }
       return {
-        state: 'unknown',
+        state: 'unavailable',
         verification: 'local',
         summary: '暂时无法读取本地登录状态，可在账号终端查看',
       }

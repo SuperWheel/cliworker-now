@@ -38,6 +38,7 @@ async function fixture(cli: 'pi' | 'omp') {
       executable: cli === 'pi' ? '/fixture/pi/cli.js' : '/fixture/omp',
       project,
       stateDirectory: join(root, 'state'),
+      nativeHome: root,
       config: { ...DEFAULT_CONFIG, zaiCredentialRef: 'fixture:zai-cn', resolveCredential },
     },
     resolveCredential,
@@ -83,7 +84,7 @@ it.each(['pi', 'omp'] as const)(
   },
 )
 
-it('starts managed Pi through Node with only its exact CN model and native isolation flags', async () => {
+it('opens native Pi through Node without imposing a model or sending a prompt', async () => {
   const { input } = await fixture('pi')
   const launch = await preparePiOmpAccountTerminal(input)
   expect(launch.argv.slice(0, 4)).toEqual([
@@ -92,9 +93,8 @@ it('starts managed Pi through Node with only its exact CN model and native isola
     process.execPath,
     input.executable,
   ])
-  expect(launch.argv.slice(launch.argv.indexOf('--provider'), launch.argv.indexOf('--provider') + 4)).toEqual(
-    ['--provider', 'zai-coding-cn', '--model', 'glm-5.3-flash'],
-  )
+  expect(launch.argv).not.toContain('--provider')
+  expect(launch.argv).not.toContain('--model')
   for (const flag of [
     '--no-prompt-templates',
     '--no-themes',
@@ -150,9 +150,8 @@ it('registers the same OMP custom CN route and disables automatic fallback befor
   })
   expect(launch.argv).toContain('--no-rules')
   expect(launch.argv).toContain('--no-pty')
-  expect(launch.argv.slice(launch.argv.indexOf('--provider'), launch.argv.indexOf('--provider') + 4)).toEqual(
-    ['--provider', 'cliworker-zai-cn', '--model', 'glm-5.3-flash'],
-  )
+  expect(launch.argv).not.toContain('--provider')
+  expect(launch.argv).not.toContain('--model')
 })
 
 it.each(['pi', 'omp'] as const)(
@@ -167,9 +166,13 @@ it.each(['pi', 'omp'] as const)(
 
 it('does not look up a guessed credential reference', async () => {
   const { input, resolveCredential } = await fixture('pi')
-  await expect(
-    preparePiOmpAccountTerminal({ ...input, config: { ...input.config, zaiCredentialRef: undefined } }),
-  ).rejects.toThrow('Harness 模型设置')
+  const launch = await preparePiOmpAccountTerminal({
+    ...input,
+    config: { ...input.config, zaiCredentialRef: undefined },
+  })
+  expect(launch.env.ZAI_CODING_CN_API_KEY).toBeUndefined()
+  expect(launch.argv).not.toContain('--model')
+  await launch.cleanup()
   expect(resolveCredential).not.toHaveBeenCalled()
 })
 
@@ -254,7 +257,14 @@ it('passes the prepared OMP settings file to the native overlay flag without fak
   expect(launch.argv).not.toContain('setup')
   expect(launch.argv).not.toContain('login')
   expect(launch.argv).not.toContain('--api-key')
-  expect(await readdir(launch.env.PI_CODING_AGENT_DIR!)).toEqual(['config.yml', 'models.yml'])
+  expect(await readdir(launch.env.PI_CODING_AGENT_DIR!)).toEqual([
+    'agent.db',
+    'config.yml',
+    'models.db',
+    'models.yml',
+    'native-auth.json',
+    'native-env.json',
+  ])
 })
 
 it('disables verified OMP MCP discovery sources without disabling its selected API provider', async () => {

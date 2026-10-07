@@ -9,7 +9,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 /** Allowlisted projection of the installed Codex app-server account/read response. */
 function projectAccount(value: unknown): AccountIdentity | undefined {
   if (!isRecord(value)) return undefined
-  if (value.account === null) return { state: 'unauthenticated', summary: '尚未登录', verification: 'cli' }
+  if (value.account === null) return { state: 'unconfigured', summary: '尚未登录', verification: 'cli' }
   if (!isRecord(value.account)) return undefined
   if (value.account.type === 'apiKey')
     return { state: 'authenticated', summary: 'API 登录', authMethod: 'api', verification: 'cli' }

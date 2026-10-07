@@ -11,6 +11,7 @@ import {
   openCodeEnvironment,
 } from './opencode-adapter.ts'
 import { confineExtended, privateDirectory } from './extended-adapters.ts'
+import { inspectPiOmpNativeAccount } from './pi-omp-native.ts'
 
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -18,13 +19,13 @@ const record = (value: unknown): value is Record<string, unknown> =>
 async function managedIdentity(config: RuntimeConfig, signal: AbortSignal): Promise<AccountIdentity> {
   signal.throwIfAborted()
   if (!config.zaiCredentialRef)
-    return { state: 'unauthenticated', summary: '请在 Harness 原生模型设置中配置提供商凭据' }
+    return { state: 'unconfigured', summary: '请在 Harness 原生模型设置中配置提供商凭据' }
   let key: string | undefined
   try {
     key = await config.resolveCredential?.(config.zaiCredentialRef)
   } catch {
     signal.throwIfAborted()
-    return { state: 'unknown', summary: '暂时无法读取 Harness 凭据引用' }
+    return { state: 'unavailable', summary: 'Harness 凭据引用读取失败，请检查原生模型设置' }
   }
   signal.throwIfAborted()
   return key
@@ -34,10 +35,19 @@ async function managedIdentity(config: RuntimeConfig, signal: AbortSignal): Prom
         verification: 'local',
         summary: 'API 凭据由 Harness 原生模型设置管理；未进行远程验证',
       }
-    : { state: 'unauthenticated', summary: 'Harness 凭据引用尚未配置，请打开原生模型设置' }
+    : { state: 'unavailable', summary: 'Harness 凭据引用无法解析，请检查原生模型设置' }
 }
 
-export const readPiOmpAccount = managedIdentity
+export async function readPiOmpAccount(
+  cli: 'pi' | 'omp',
+  config: RuntimeConfig,
+  signal: AbortSignal,
+): Promise<AccountIdentity> {
+  // An explicit broken reference is a configuration error, never silently replaced.
+  return config.zaiCredentialRef
+    ? managedIdentity(config, signal)
+    : inspectPiOmpNativeAccount(cli, config.stateDirectory, signal)
+}
 
 /** Project only capability metadata, never keys, arbitrary provider metadata or token claims. */
 export async function readOpenCodeAccount(
@@ -75,19 +85,16 @@ export async function readOpenCodeAccount(
     signal.throwIfAborted()
     if (!record(raw)) throw new Error('Invalid auth data')
     const kinds = new Set<'api' | 'oauth'>()
+    let expired = false
     for (const value of Object.values(raw)) {
       if (!record(value)) continue
       if (value.type === 'api' && typeof value.key === 'string' && value.key.trim()) kinds.add('api')
-      if (
-        value.type === 'oauth' &&
-        typeof value.access === 'string' &&
-        value.access &&
-        typeof value.refresh === 'string' &&
-        value.refresh &&
-        typeof value.expires === 'number' &&
-        Number.isFinite(value.expires)
-      )
-        kinds.add('oauth')
+      if (value.type === 'oauth' && typeof value.expires === 'number' && Number.isFinite(value.expires)) {
+        const refreshable = typeof value.refresh === 'string' && !!value.refresh.trim()
+        const access = typeof value.access === 'string' && !!value.access.trim()
+        if (refreshable || (access && value.expires > Date.now())) kinds.add('oauth')
+        else if (access && value.expires <= Date.now()) expired = true
+      }
     }
     if (kinds.size)
       return {
@@ -96,14 +103,20 @@ export async function readOpenCodeAccount(
         ...(kinds.size === 1 ? { authMethod: [...kinds][0]! } : {}),
         summary: '已配置 OpenCode 原生凭据；未进行远程验证',
       }
+    if (expired)
+      return {
+        state: 'unauthenticated',
+        verification: 'local',
+        summary: 'OpenCode 本地登录已过期，请重新登录',
+      }
     return Object.keys(raw).length
       ? { state: 'unknown', summary: '原生凭据格式无法确认，请在账号终端检查', verification: 'local' }
-      : { state: 'unauthenticated', summary: '尚未配置 OpenCode 原生凭据' }
+      : { state: 'unconfigured', summary: '尚未配置 OpenCode 原生凭据' }
   } catch (error) {
     signal.throwIfAborted()
     if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-      return { state: 'unauthenticated', summary: '尚未配置 OpenCode 原生凭据' }
-    return { state: 'unknown', summary: '暂时无法确认 OpenCode 本地凭据，请在账号终端检查' }
+      return { state: 'unconfigured', summary: '尚未配置 OpenCode 原生凭据' }
+    return { state: 'unavailable', summary: 'OpenCode 本地凭据配置读取失败，请在账号终端检查' }
   } finally {
     await file?.close()
   }

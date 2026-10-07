@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { accountEmail, localAccountIdentity } from '../src/host/account-identity.ts'
@@ -56,7 +56,7 @@ describe('bounded account identity projection', () => {
     expect((await f.source('antigravity', f.signal))?.accountLabel).toBe('other@example.com')
     rmSync(f.agyPath)
     const removed = await f.source('antigravity', f.signal)
-    expect(removed?.state).toBe('unauthenticated')
+    expect(removed?.state).toBe('unconfigured')
     expect(removed?.accountLabel).toBeUndefined()
   })
 
@@ -82,7 +82,7 @@ describe('bounded account identity projection', () => {
       const f = fixture()
       writeFileSync(f.agyPath, input)
       const result = await f.source('antigravity', f.signal)
-      expect(result?.state).toBe('unknown')
+      expect(result?.state).toBe('unavailable')
       expect(JSON.stringify(result)).not.toContain('SECRET')
     },
   )
@@ -102,6 +102,19 @@ describe('bounded account identity projection', () => {
       expect(result?.accountLabel).toBeUndefined()
       expect(JSON.stringify(result)).not.toContain('SECRET')
     }
+  })
+
+  it('preserves unknown native shapes but reports unsafe linked metadata as a read error', async () => {
+    const f = fixture()
+    writeFileSync(f.agyPath, JSON.stringify({ auth_method: 'future', secret: 'SECRET' }))
+    expect(await f.source('antigravity', f.signal)).toMatchObject({ state: 'unknown' })
+    const target = join(f.home, 'synthetic-secret')
+    writeFileSync(target, JSON.stringify(agy()))
+    rmSync(f.agyPath)
+    symlinkSync(target, f.agyPath)
+    const linked = await f.source('antigravity', f.signal)
+    expect(linked).toMatchObject({ state: 'unavailable' })
+    expect(JSON.stringify(linked)).not.toContain('SECRET')
   })
 
   it('never uses a stale Codex auth.json as the effective keyring/auto identity', async () => {

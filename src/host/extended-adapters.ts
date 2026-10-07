@@ -15,6 +15,7 @@ import {
   type Stats,
 } from 'node:fs'
 import { join } from 'node:path'
+import { homedir } from 'node:os'
 import type { CliId, Preference, TaskMode, ModelChoice } from '../shared/types.ts'
 import type { RuntimeConfig } from './process.ts'
 import { prepareZCode, discoverZCode, zcodeAuthDirectory } from './zcode-adapter.ts'
@@ -92,11 +93,19 @@ export function sealPrivateTree(root: string): void {
 export async function credentialEnvironment(
   cli: CliId,
   config: RuntimeConfig,
+  selectedModel?: string,
 ): Promise<Record<string, string>> {
   if (cli === 'opencode') return openCodeCredentialEnvironment(config)
   if (!['pi', 'omp'].includes(cli) || !config.zaiCredentialRef) return {}
-  const key = await config.resolveCredential?.(config.zaiCredentialRef)
-  if (!key) return {}
+  const provider = selectedModel?.slice(0, selectedModel.indexOf('/'))
+  if (provider && !['zai-coding-cn', 'cliworker-zai-cn', 'zhipu-coding-plan'].includes(provider)) return {}
+  let key: string | undefined
+  try {
+    key = await config.resolveCredential?.(config.zaiCredentialRef)
+  } catch {
+    throw new Error('Pi/OMP 的 Harness 智谱凭据引用不可用，请检查原生模型设置')
+  }
+  if (!key) throw new Error('Pi/OMP 的 Harness 智谱凭据引用不可用，请检查原生模型设置')
   return { ZAI_CODING_CN_API_KEY: key }
 }
 /** The new adapters need writable private state even for a read-only project. */
@@ -139,7 +148,13 @@ export async function extendedLaunch(
           builtinConfig: config.zcodeBuiltinConfig,
         })
       : cli === 'pi' || cli === 'omp'
-        ? await preparePiOmp({ ...input, cli })
+        ? await preparePiOmp({
+            ...input,
+            cli,
+            accountRoot:
+              config.stateDirectory ?? join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'cliworker-now'),
+            managedCredentials: !!config.zaiCredentialRef,
+          })
         : cli === 'opencode'
           ? await prepareOpenCode({
               ...input,
@@ -152,7 +167,7 @@ export async function extendedLaunch(
               ? await prepareGrok(input)
               : undefined
   if (!launch) throw new Error('未知 CLI')
-  const creds = await credentialEnvironment(cli, config)
+  const creds = await credentialEnvironment(cli, config, preference.model)
   const temporary = cli === 'zcode' ? mkdtempSync('/private/tmp/cwn-') : undefined
   if (temporary) chmodSync(temporary, 0o700)
   const env = {
@@ -208,7 +223,7 @@ export async function extendedCatalog(
     const temporary = cli === 'zcode' ? mkdtempSync('/private/tmp/cwn-') : undefined
     if (temporary) chmodSync(temporary, 0o700)
     try {
-      return await capture(
+      const confined =
         cli === 'hermes'
           ? hermesSandbox(privateArgv(argv), state, state, 'plan', hermesHomeDirectory(config.hermesHome))
           : confineExtended(
@@ -218,9 +233,16 @@ export async function extendedCatalog(
               'plan',
               temporary,
               cli === 'opencode' ? openCodeAuthDirectory(config.stateDirectory ?? stateDirectory) : undefined,
-            ),
-        { ...env, ...creds, ...(temporary ? { TMPDIR: temporary } : {}), ELECTRON_RUN_AS_NODE: '1' },
-      )
+            )
+      // Metadata queries use the native local cache; never renew OAuth or fetch
+      // remote model endpoints while listing models in settings.
+      if (cli === 'pi' || cli === 'omp') confined[2] += '\n(deny network*)\n'
+      return await capture(confined, {
+        ...env,
+        ...creds,
+        ...(temporary ? { TMPDIR: temporary } : {}),
+        ELECTRON_RUN_AS_NODE: '1',
+      })
     } finally {
       if (temporary) rmSync(temporary, { recursive: true, force: true })
     }
@@ -235,7 +257,10 @@ export async function extendedCatalog(
           config.zcodeBuiltinConfig,
         )
       : cli === 'pi' || cli === 'omp'
-        ? await discoverPiOmp(cli, executable, run, state)
+        ? await discoverPiOmp(cli, executable, run, state, {
+            accountRoot: config.stateDirectory ?? stateDirectory,
+            managedCredentials: !!config.zaiCredentialRef,
+          })
         : cli === 'opencode'
           ? await discoverOpenCode(
               executable,

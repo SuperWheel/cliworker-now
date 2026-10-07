@@ -3,10 +3,13 @@ import { constants, existsSync } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { ModelChoice, TaskMode } from '../shared/types.ts'
+import { EFFORTS, type ModelChoice, type TaskMode } from '../shared/types.ts'
+
+import { snapshotPiOmpNative, safePiOmpAncestors, type PiOmpNativeOptions } from './pi-omp-native.ts'
 
 export type PiOmpCli = 'pi' | 'omp'
-export interface PiOmpInput {
+export interface PiOmpInput extends PiOmpNativeOptions {
+  managedCredentials?: boolean
   cli: PiOmpCli
   executable: string
   project: string
@@ -16,7 +19,6 @@ export interface PiOmpInput {
   conversationId?: string
   stateDirectory: string
 }
-const modelFor = (cli: PiOmpCli) => `${cli === 'pi' ? 'zai-coding-cn' : 'cliworker-zai-cn'}/glm-5.3-flash`
 const bridgePath = () => {
   const here = dirname(fileURLToPath(import.meta.url))
   for (const candidate of [join(here, 'pi-omp-bridge.mjs'), resolve(here, '../../pi-omp-bridge.mjs')])
@@ -24,6 +26,7 @@ const bridgePath = () => {
   throw new Error('Pi/OMP bridge 未安装，请重新构建插件')
 }
 async function privateDirectory(path: string) {
+  await safePiOmpAncestors(path)
   await mkdir(path, { recursive: true, mode: 0o700 })
   const info = await lstat(path)
   if (info.isSymbolicLink() || !info.isDirectory()) throw new Error('Unsafe Pi/OMP state directory symlink')
@@ -39,7 +42,9 @@ async function privateDirectory(path: string) {
   return realpath(path)
 }
 async function argumentsFor(
-  input: PiOmpInput | { cli: PiOmpCli; executable: string; stateDirectory: string; discover: true },
+  input:
+    | PiOmpInput
+    | ({ cli: PiOmpCli; executable: string; stateDirectory: string; discover: true } & PiOmpNativeOptions),
 ) {
   const stateDirectory = resolve(input.stateDirectory)
   const root = await privateDirectory(stateDirectory)
@@ -51,6 +56,14 @@ async function argumentsFor(
           .digest('hex')
   const cliDirectory = await privateDirectory(join(root, input.cli))
   const isolated = await privateDirectory(join(cliDirectory, identity))
+  const agent = await privateDirectory(join(isolated, 'agent'))
+  // Refresh native model/config sources for every request. On continuation this
+  // worker's refreshed OAuth takes precedence over old source credentials.
+  const native = await snapshotPiOmpNative(input.cli, agent, {
+    accountRoot: input.accountRoot ?? stateDirectory,
+    nativeHome: input.nativeHome,
+    preserveCredentials: 'conversationId' in input && !!input.conversationId,
+  })
   const requestDirectory = await mkdtemp(join(isolated, 'request-'))
   const requestPath = join(requestDirectory, 'request.json')
   const temporary = join(requestDirectory, `.request-${randomUUID()}.tmp`)
@@ -68,40 +81,57 @@ async function argumentsFor(
   } finally {
     await rm(temporary, { force: true })
   }
-  return { argv: [process.execPath, bridgePath(), requestPath] }
+  return { argv: [process.execPath, bridgePath(), requestPath], env: native.env }
 }
 
-/** Only the previously verified CN route is enabled. Credentials are supplied by Host at spawn. */
+/** The bridge validates exact native model capabilities before sending any prompt. */
 export async function preparePiOmp(
   input: PiOmpInput,
 ): Promise<{ argv: string[]; env?: Record<string, string> }> {
   if (input.cli !== 'pi' && input.cli !== 'omp') throw new Error('Unsupported Pi/OMP CLI')
-  if (input.preference.model !== modelFor(input.cli))
-    throw new Error('Pi/OMP 首版仅支持已验证的智谱 GLM-5.3-Flash 路由')
-  if (!['low', 'high', 'max'].includes(input.preference.effort))
-    throw new Error('GLM-5.3-Flash 强度必须明确选择 low/high/max')
+  if (!/^[A-Za-z0-9_.:-]+\/[^\s\x00-\x1f]+$/.test(input.preference.model))
+    throw new Error('Pi/OMP 需要原生 provider/model 选型')
+  if (!(EFFORTS as readonly string[]).includes(input.preference.effort))
+    throw new Error('Unsupported native model effort')
   if (!['plan', 'accept-edits'].includes(input.mode)) throw new Error('Unsupported task mode')
   if (!input.prompt.trim()) throw new Error('Prompt must not be empty')
   return argumentsFor(input)
 }
-
 export async function discoverPiOmp(
   cli: PiOmpCli,
   executable: string,
   capture: (argv: string[], env?: Record<string, string>) => Promise<string>,
   stateDirectory: string,
+  options: PiOmpNativeOptions & { managedCredentials?: boolean } = {},
 ): Promise<ModelChoice[]> {
   if (cli !== 'pi' && cli !== 'omp') throw new Error('Unsupported Pi/OMP CLI')
-  const launch = await argumentsFor({ cli, executable, stateDirectory, discover: true })
-  const raw: unknown = JSON.parse(await capture(launch.argv))
+  const launch = await argumentsFor({ cli, executable, stateDirectory, discover: true, ...options })
+  let raw: unknown
+  try {
+    raw = JSON.parse(await capture(launch.argv, launch.env))
+  } catch {
+    throw new Error('无法读取 Pi/OMP 原生模型目录，请检查本机配置')
+  }
   if (!Array.isArray(raw)) throw new Error('Invalid Pi/OMP model catalog')
-  return raw.flatMap((model): ModelChoice[] => {
-    if (!model || typeof model !== 'object' || model.id !== modelFor(cli) || !Array.isArray(model.efforts))
-      return []
-    const efforts = model.efforts.filter(
-      (effort: unknown): effort is 'low' | 'high' | 'max' =>
-        effort === 'low' || effort === 'high' || effort === 'max',
+  const ids = new Set<string>()
+  return raw.map((model): ModelChoice => {
+    if (
+      !model ||
+      typeof model !== 'object' ||
+      typeof model.id !== 'string' ||
+      !/^[A-Za-z0-9_.:-]+\/[^\s\x00-\x1f]+$/.test(model.id) ||
+      typeof model.label !== 'string' ||
+      !Array.isArray(model.efforts) ||
+      !model.efforts.length ||
+      model.efforts.some((effort: unknown) => !(EFFORTS as readonly unknown[]).includes(effort)) ||
+      ids.has(model.id)
     )
-    return efforts.length ? [{ id: model.id, label: 'GLM-5.3-Flash（智谱 Coding CN）', efforts }] : []
+      throw new Error('Invalid Pi/OMP native model entry')
+    ids.add(model.id)
+    return {
+      id: model.id,
+      label: model.label,
+      efforts: [...new Set(model.efforts)] as ModelChoice['efforts'],
+    }
   })
 }

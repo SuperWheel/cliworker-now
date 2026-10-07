@@ -6,14 +6,24 @@ import { mkdir, writeFile, rename, realpath, unlink, rmdir, lstat, open, rm } fr
 import { constants } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
+import { readFile } from 'node:fs/promises'
+import { queryNativeCatalog } from './pi-native-catalog.mjs'
 
 process.umask(0o077)
 const output = (value) => process.stdout.write(JSON.stringify(value) + '\n')
 const event = (value) => output({ type: 'event', event: value })
-const errorMessage = (error) => (error instanceof Error ? error.message : 'Pi/OMP bridge failed')
+const safeErrors = new Set([
+  '任务已停止',
+  '所选模型或强度不在原生可用目录中',
+  '无法读取 Pi/OMP 原生模型目录，请检查本机配置',
+])
+const errorMessage = (error) =>
+  error instanceof Error && safeErrors.has(error.message)
+    ? error.message
+    : 'Pi/OMP 原生配置、模型或协议校验失败'
 const inside = (root, path) => path.startsWith(root + sep)
-const providerFor = (cli) => (cli === 'pi' ? 'zai-coding-cn' : 'cliworker-zai-cn')
-const modelId = 'glm-5.3-flash'
+const cnProvider = (cli) => (cli === 'pi' ? 'zai-coding-cn' : 'cliworker-zai-cn')
+let selectedProvider, selectedModel
 async function privateDirectory(path) {
   await mkdir(path, { recursive: true, mode: 0o700 })
   const info = await lstat(path)
@@ -64,7 +74,7 @@ let child,
   finalized = false
 const stop = (reason) => {
   failure ??= reason
-  child?.stdin.end()
+  child?.stdin?.end()
   child?.kill('SIGTERM')
   forceTimer ??= setTimeout(() => child?.kill('SIGKILL'), 5000)
 }
@@ -108,8 +118,6 @@ try {
     !isAbsolute(config.stateDirectory)
   )
     throw new Error('Invalid bridge request')
-  if (!process.env.ZAI_CODING_CN_API_KEY)
-    throw new Error('Pi/OMP 智谱路由需要 Host 提供 ZAI_CODING_CN_API_KEY；不会读取或切换其他账号')
   config.stateDirectory = await privateDirectory(config.stateDirectory)
   const nativeRoot = await privateDirectory(join(config.stateDirectory, 'agent'))
   const temporaryDirectory = await privateDirectory(join(config.stateDirectory, 't'))
@@ -136,10 +144,51 @@ try {
   Object.assign(env, {
     PI_CODING_AGENT_DIR: nativeRoot,
     TMPDIR: temporaryDirectory,
-    ZAI_CODING_CN_API_KEY: process.env.ZAI_CODING_CN_API_KEY,
+    // Native source env was projected by Host. Runtime path overrides never enter here.
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => /_(?:API_KEY|TOKEN|SECRET)$/.test(key)),
+    ),
+    PI_OFFLINE: '1',
+    PI_TELEMETRY: '0',
     ELECTRON_RUN_AS_NODE: '1',
     NO_COLOR: '1',
   })
+  const nativeEnvironment = JSON.parse(await privateFile(join(nativeRoot, 'native-env.json'), true))
+  if (
+    !nativeEnvironment ||
+    typeof nativeEnvironment !== 'object' ||
+    Array.isArray(nativeEnvironment) ||
+    Object.entries(nativeEnvironment).some(
+      ([key, value]) =>
+        !/^[A-Z][A-Z0-9_]*$/.test(key) ||
+        /^(?:PATH|HOME|SHELL|TMPDIR|NODE_OPTIONS|NODE_PATH|ELECTRON_RUN_AS_NODE|OMP_PROFILE|PI_PROFILE|PI_CONFIG_DIR|PI_CODING_AGENT_DIR|LD_.*|DYLD_.*)$/.test(
+          key,
+        ) ||
+        typeof value !== 'string',
+    )
+  )
+    throw new Error('Invalid native environment snapshot')
+  Object.assign(env, nativeEnvironment)
+  // The explicitly supplied Host reference wins only for its own CN route;
+  // native env remains the source for every other provider.
+  if (
+    config.managedCredentials &&
+    (config.discover ||
+      ['zai-coding-cn', 'cliworker-zai-cn', 'zhipu-coding-plan'].includes(
+        config.preference?.model?.split('/')[0],
+      ))
+  ) {
+    if (process.env.ZAI_CODING_CN_API_KEY) env.ZAI_CODING_CN_API_KEY = process.env.ZAI_CODING_CN_API_KEY
+  }
+  if (config.managedCredentials && !config.discover) {
+    const provider = config.preference?.model?.split('/')[0]
+    if (provider !== cnProvider(config.cli) && !(config.cli === 'omp' && provider === 'zhipu-coding-plan')) {
+      for (const key of ['ZAI_CODING_CN_API_KEY', 'ZHIPU_API_KEY']) {
+        if (nativeEnvironment[key] !== undefined) env[key] = nativeEnvironment[key]
+        else delete env[key]
+      }
+    }
+  }
   const isolated =
     config.cli === 'pi'
       ? [
@@ -164,8 +213,10 @@ try {
         ]
   if (config.cli === 'omp') {
     env.PI_CONFIG_DIR = relative(homedir(), config.stateDirectory)
+    const native = JSON.parse(await readFile(join(nativeRoot, 'models.yml'), 'utf8'))
+    // Legacy CN alias remains available alongside the installed native CN catalog.
     const model = {
-      id: modelId,
+      id: 'glm-5.3-flash',
       name: 'GLM-5.3-Flash',
       reasoning: true,
       input: ['text', 'image'],
@@ -182,22 +233,37 @@ try {
         supportsStrictMode: true,
       },
     }
-    await writePrivateFile(
-      join(nativeRoot, 'models.yml'),
-      JSON.stringify({
-        providers: {
-          'cliworker-zai-cn': {
-            api: 'openai-completions',
-            baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
-            apiKey: 'ZAI_CODING_CN_API_KEY',
-            models: [model],
-          },
-        },
-      }),
-    )
+    if (env.ZAI_CODING_CN_API_KEY) {
+      env.ZHIPU_API_KEY = env.ZAI_CODING_CN_API_KEY
+      native.providers ??= {}
+      native.providers['cliworker-zai-cn'] = {
+        api: 'openai-completions',
+        baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
+        apiKey: 'ZAI_CODING_CN_API_KEY',
+        models: [model],
+      }
+    }
+    await writePrivateFile(join(nativeRoot, 'models.yml'), JSON.stringify(native))
+    const nativeAuth = JSON.parse(await readFile(join(nativeRoot, 'native-auth.json'), 'utf8'))
     await writePrivateFile(
       join(nativeRoot, 'config.yml'),
       JSON.stringify({
+        ...nativeAuth,
+        startup: { setupWizard: false, checkUpdate: false, showSplash: false },
+        disabledProviders: [
+          'native',
+          'claude',
+          'claude-plugins',
+          'codex',
+          'cursor',
+          'gemini',
+          'opencode',
+          'mcp-json',
+          'vscode',
+          'windsurf',
+          'omp-plugins',
+        ],
+        mcp: { enableProjectConfig: false },
         retry: { modelFallback: false },
         memory: { backend: 'off' },
         tools: { approvalMode: 'write' },
@@ -205,15 +271,35 @@ try {
     )
   }
   let resume
-  if (!config.discover) {
+  const catalog = await queryNativeCatalog(config.cli, config.executable, nativeRoot, env, (process) => {
+    child = process
+    if (stopped) stop('任务已停止')
+  })
+  if (stopped || failure) throw new Error('任务已停止')
+  if (config.discover) {
+    output(catalog)
+    finalized = true
+  } else {
     if (
-      config.preference?.model !== `${providerFor(config.cli)}/${modelId}` ||
-      !['low', 'high', 'max'].includes(config.preference?.effort) ||
+      typeof config.preference?.model !== 'string' ||
+      !/^[A-Za-z0-9_.:-]+\/[^\s\x00-\x1f]+$/.test(config.preference.model)
+    )
+      throw new Error('Invalid selected native provider/model')
+    const slash = config.preference.model.indexOf('/')
+    selectedProvider = config.preference.model.slice(0, slash)
+    selectedModel = config.preference.model.slice(slash + 1)
+    const selected = catalog.find((model) => model.id === config.preference.model)
+    if (
+      !selected ||
+      (config.preference.effort !== 'default' && !selected.efforts.includes(config.preference.effort))
+    )
+      throw new Error('所选模型或强度不在原生可用目录中')
+    if (
       !['plan', 'accept-edits'].includes(config.mode) ||
       typeof config.prompt !== 'string' ||
       !config.prompt.trim()
     )
-      throw new Error('Invalid selected model, effort, mode, or prompt')
+      throw new Error('Invalid task mode or prompt')
     config.project = await realpath(config.project)
     if (config.conversationId) {
       await privateDirectory(join(config.stateDirectory, 'sessions'))
@@ -226,8 +312,7 @@ try {
       if (
         mapped.cli !== config.cli ||
         mapped.project !== config.project ||
-        mapped.id !== config.conversationId ||
-        mapped.model !== config.preference.model
+        mapped.id !== config.conversationId
       )
         throw new Error('Saved session identity does not match this request')
       resume = await realpath(mapped.path)
@@ -235,231 +320,252 @@ try {
         throw new Error('Saved session path escaped its private directory or used a symlink')
       await privateFile(resume)
     }
-  }
-  const tools = config.cli === 'pi' ? ['read', 'grep', 'find', 'ls'] : ['read', 'grep', 'glob']
-  if (config.mode === 'accept-edits') tools.push('write', 'edit')
-  const nativeArgs = [
-    '--mode',
-    'rpc',
-    ...isolated,
-    ...(config.discover
-      ? ['--no-tools']
-      : [
-          '--provider',
-          providerFor(config.cli),
-          '--model',
-          modelId,
-          '--thinking',
-          config.preference.effort,
-          '--tools',
-          tools.join(','),
-        ]),
-    ...(resume ? [config.cli === 'pi' ? '--session' : '--resume', resume] : []),
-  ]
-  const jsEntry = /\.[cm]?js$/.test(config.executable)
-  if (stopped) throw new Error('任务已停止')
-  child = spawn(
-    jsEntry ? process.execPath : config.executable,
-    jsEntry ? [config.executable, ...nativeArgs] : nativeArgs,
-    {
-      cwd: config.discover ? config.stateDirectory : config.project,
-      env,
-      detached: false,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    },
-  )
-  let pending = '',
-    bytes = 0,
-    stderrBytes = 0,
-    settled = false,
-    finalState = false,
-    sent = false,
-    response = '',
-    currentText = '',
-    assistantStep = 0,
-    catalog
-  const toolSteps = new Map()
-  const send = (value) => {
-    if (!child.stdin.destroyed) child.stdin.write(JSON.stringify(value) + '\n')
-  }
-  const validateState = (state) => {
-    if (
-      !state ||
-      typeof state.sessionId !== 'string' ||
-      !state.sessionId ||
-      typeof state.sessionFile !== 'string' ||
-      !inside(nativeRoot, resolve(state.sessionFile))
+    const tools = config.cli === 'pi' ? ['read', 'grep', 'find', 'ls'] : ['read', 'grep', 'glob']
+    if (config.mode === 'accept-edits') tools.push('write', 'edit')
+    const nativeArgs = [
+      '--mode',
+      'rpc',
+      ...isolated,
+      '--provider',
+      selectedProvider,
+      '--model',
+      selectedModel,
+      ...(config.preference.effort === 'default'
+        ? []
+        : ['--thinking', config.preference.effort === 'none' ? 'off' : config.preference.effort]),
+      '--tools',
+      tools.join(','),
+      ...(resume ? [config.cli === 'pi' ? '--session' : '--resume', resume] : []),
+    ]
+    const jsEntry = /\.[cm]?js$/.test(config.executable)
+    if (stopped) throw new Error('任务已停止')
+    child = spawn(
+      jsEntry ? process.execPath : config.executable,
+      jsEntry ? [config.executable, ...nativeArgs] : nativeArgs,
+      {
+        cwd: config.project,
+        env,
+        detached: false,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
     )
-      throw new Error('CLI did not return a private session identity')
-    if (
-      state.model?.provider !== providerFor(config.cli) ||
-      state.model?.id !== modelId ||
-      state.thinkingLevel !== config.preference.effort
-    )
-      throw new Error('CLI model or effort differs from the selected preference')
-    if (
-      (session && session.id !== state.sessionId) ||
-      (config.conversationId && config.conversationId !== state.sessionId)
-    )
-      throw new Error('CLI changed the conversation identity')
-    if (
-      (resume && resume !== resolve(state.sessionFile)) ||
-      (session && session.path !== resolve(state.sessionFile))
-    )
-      throw new Error('CLI changed the saved session file')
-    session = { id: state.sessionId, path: resolve(state.sessionFile) }
-  }
-  const consume = (value) => {
-    if (!value || typeof value !== 'object' || typeof value.type !== 'string')
-      throw new Error('Invalid native RPC record')
-    if (value.type === 'response') {
-      if (!value.success) throw new Error(`CLI rejected ${String(value.command ?? 'RPC request')}`)
-      if (value.id === 'catalog') {
-        clearTimeout(startupTimer)
-        if (!Array.isArray(value.data?.models)) throw new Error('Invalid native model catalog')
-        catalog = value.data.models
-          .filter((model) => model.provider === providerFor(config.cli) && model.id === modelId)
-          .map((model) => ({
-            id: `${model.provider}/${model.id}`,
-            label: String(model.name ?? model.id),
-            efforts:
-              config.cli === 'pi'
-                ? ['low', 'high', 'max'].filter((e) => model.thinkingLevelMap?.[e] != null)
-                : ['low', 'high', 'max'].filter((e) => model.thinking?.efforts?.includes(e)),
-          }))
-          .filter((model) => model.efforts.length)
-        child.stdin.end()
-      } else if (value.id === 'initial') {
-        clearTimeout(startupTimer)
-        validateState(value.data)
-        if (value.data.isStreaming) throw new Error('Native session is already streaming')
-        output({ type: 'session', id: session.id, model: config.preference.model })
-        if (!stopped && !failure) {
-          sent = true
-          send({ id: 'prompt', type: 'prompt', message: config.prompt })
+    let pending = '',
+      bytes = 0,
+      stderrBytes = 0,
+      settled = false,
+      finalState = false,
+      sent = false,
+      response = '',
+      currentText = '',
+      assistantStep = 0
+    const toolSteps = new Map()
+    const send = (value) => {
+      if (!child.stdin.destroyed) child.stdin.write(JSON.stringify(value) + '\n')
+    }
+    const validateState = (state, validateModel = true) => {
+      if (
+        !state ||
+        typeof state.sessionId !== 'string' ||
+        !state.sessionId ||
+        typeof state.sessionFile !== 'string' ||
+        !inside(nativeRoot, resolve(state.sessionFile))
+      )
+        throw new Error('CLI did not return a private session identity')
+      if (
+        validateModel &&
+        (state.model?.provider !== selectedProvider ||
+          state.model?.id !== selectedModel ||
+          (config.preference.effort !== 'default' &&
+            state.thinkingLevel !== (config.preference.effort === 'none' ? 'off' : config.preference.effort)))
+      )
+        throw new Error('CLI model or effort differs from the selected preference')
+      if (
+        (session && session.id !== state.sessionId) ||
+        (config.conversationId && config.conversationId !== state.sessionId)
+      )
+        throw new Error('CLI changed the conversation identity')
+      if (
+        (resume && resume !== resolve(state.sessionFile)) ||
+        (session && session.path !== resolve(state.sessionFile))
+      )
+        throw new Error('CLI changed the saved session file')
+      session = { id: state.sessionId, path: resolve(state.sessionFile) }
+    }
+    const consume = (value) => {
+      if (!value || typeof value !== 'object' || typeof value.type !== 'string')
+        throw new Error('Invalid native RPC record')
+      if (value.type === 'response') {
+        if (!value.success) throw new Error('Native CLI rejected an RPC request')
+        if (value.id === 'select-model') {
+          if (config.preference.effort !== 'default')
+            send({
+              id: 'select-effort',
+              type: 'set_thinking_level',
+              level: config.preference.effort === 'none' ? 'off' : config.preference.effort,
+            })
+          else send({ id: 'selected', type: 'get_state' })
+        } else if (value.id === 'select-effort') send({ id: 'selected', type: 'get_state' })
+        else if (value.id === 'initial' || value.id === 'selected') {
+          validateState(value.data, value.id === 'selected')
+          if (value.data.isStreaming) throw new Error('Native session is already streaming')
+          if (
+            value.id === 'initial' &&
+            (value.data.model?.provider !== selectedProvider || value.data.model?.id !== selectedModel)
+          ) {
+            send({
+              id: 'select-model',
+              type: 'set_model',
+              provider: selectedProvider,
+              modelId: selectedModel,
+            })
+            return
+          }
+          if (
+            value.id === 'initial' &&
+            config.preference.effort !== 'default' &&
+            value.data.thinkingLevel !==
+              (config.preference.effort === 'none' ? 'off' : config.preference.effort)
+          ) {
+            send({
+              id: 'select-effort',
+              type: 'set_thinking_level',
+              level: config.preference.effort === 'none' ? 'off' : config.preference.effort,
+            })
+            return
+          }
+          validateState(value.data)
+          clearTimeout(startupTimer)
+          output({
+            type: 'session',
+            id: session.id,
+            model: `${value.data.model.provider}/${value.data.model.id}`,
+          })
+          event({
+            kind: 'status',
+            text: `${config.cli === 'pi' ? 'Pi' : 'OMP'} 原生模型已确认`,
+            observedModel: `${value.data.model.provider}/${value.data.model.id}`,
+          })
+          if (!stopped && !failure) {
+            sent = true
+            send({ id: 'prompt', type: 'prompt', message: config.prompt })
+          }
+        } else if (value.id === 'final') {
+          validateState(value.data)
+          if (value.data.isStreaming || value.data.isCompacting || (value.data.pendingMessageCount ?? 0) > 0)
+            throw new Error('Native agent is still active after its terminal event')
+          finalState = true
+          child.stdin.end()
+          closeTimer ??= setTimeout(() => stop('CLI did not exit after completion'), 5000)
         }
-      } else if (value.id === 'final') {
-        validateState(value.data)
-        if (value.data.isStreaming || value.data.isCompacting || (value.data.pendingMessageCount ?? 0) > 0)
-          throw new Error('Native agent is still active after its terminal event')
-        finalState = true
-        child.stdin.end()
-        closeTimer ??= setTimeout(() => stop('CLI did not exit after completion'), 5000)
+        return
       }
-      return
-    }
-    if (config.discover) return
-    if (value.type === 'extension_ui_request') {
-      // Notifications carry no obligation. Interactive requests are denied.
-      if (['confirm', 'select', 'input', 'editor'].includes(value.method)) {
-        failure ??= 'CLI 需要额外原生交互授权'
-        send({ type: 'extension_ui_response', id: value.id, cancelled: true, confirmed: false })
+      if (config.discover) return
+      if (value.type === 'extension_ui_request') {
+        // Notifications carry no obligation. Interactive requests are denied.
+        if (['confirm', 'select', 'input', 'editor'].includes(value.method)) {
+          failure ??= 'CLI 需要额外原生交互授权'
+          send({ type: 'extension_ui_response', id: value.id, cancelled: true, confirmed: false })
+        }
+        return
       }
-      return
-    }
-    if (value.type === 'message_start' && value.message?.role === 'assistant') {
-      currentText = ''
-      assistantStep++
-      return
-    }
-    if (value.type === 'message_update' && value.assistantMessageEvent?.type === 'text_delta') {
-      const text = value.assistantMessageEvent.delta
-      if (typeof text !== 'string') throw new Error('Invalid text delta')
-      currentText += text
-      response += text
-      event({ kind: 'assistant', step: assistantStep, text })
-      return
-    }
-    if (value.type === 'message_end' && value.message?.role === 'assistant') {
-      if (['error', 'aborted'].includes(value.message.stopReason)) failure ??= '模型请求失败或被中止'
-      if (value.message.model && value.message.model !== modelId) failure ??= '模型响应与所选型号不一致'
-      if (value.message.provider && value.message.provider !== providerFor(config.cli))
-        failure ??= '模型响应与所选提供商不一致'
-      if (!currentText) {
-        const text = (value.message.content ?? [])
+      if (value.type === 'message_start' && value.message?.role === 'assistant') {
+        currentText = ''
+        assistantStep++
+        return
+      }
+      if (value.type === 'message_update' && value.assistantMessageEvent?.type === 'text_delta') {
+        const text = value.assistantMessageEvent.delta
+        if (typeof text !== 'string') throw new Error('Invalid text delta')
+        currentText += text
+        response += text
+        event({ kind: 'assistant', step: assistantStep, text })
+        return
+      }
+      if (value.type === 'message_end' && value.message?.role === 'assistant') {
+        if (['error', 'aborted'].includes(value.message.stopReason)) failure ??= '模型请求失败或被中止'
+        if (value.message.model && value.message.model !== selectedModel)
+          failure ??= '模型响应与所选型号不一致'
+        if (value.message.provider && value.message.provider !== selectedProvider)
+          failure ??= '模型响应与所选提供商不一致'
+        if (!currentText) {
+          const text = (value.message.content ?? [])
+            .filter((c) => c.type === 'text')
+            .map((c) => c.text ?? '')
+            .join('')
+          if (text) {
+            response += text
+            event({ kind: 'assistant', step: assistantStep, text })
+          }
+        }
+        return
+      }
+      if (value.type === 'tool_execution_start') {
+        const step = 100000 + toolSteps.size
+        toolSteps.set(value.toolCallId, step)
+        event({ kind: 'tool', step, text: String(value.toolName ?? '工具'), state: 'RUNNING' })
+        return
+      }
+      if (value.type === 'tool_execution_end') {
+        if (value.isError) failure ??= '至少一个 CLI 工具执行失败'
+        const detail = (value.result?.content ?? [])
           .filter((c) => c.type === 'text')
           .map((c) => c.text ?? '')
-          .join('')
-        if (text) {
-          response += text
-          event({ kind: 'assistant', step: assistantStep, text })
+          .join('\n')
+          .slice(0, 32768)
+        event({
+          kind: 'tool',
+          step: toolSteps.get(value.toolCallId),
+          text: String(value.toolName ?? '工具'),
+          state: value.isError ? 'FAILED' : 'COMPLETED',
+          detail,
+        })
+        return
+      }
+      if (
+        (config.cli === 'pi' && value.type === 'agent_settled') ||
+        (config.cli === 'omp' && value.type === 'agent_end' && value.isTerminal !== false)
+      ) {
+        if (!sent) throw new Error('Unexpected native terminal event')
+        settled = true
+        send({ id: 'final', type: 'get_state' })
+      }
+    }
+    child.stdin.on('error', () => {})
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => {
+      try {
+        bytes += Buffer.byteLength(chunk)
+        if (bytes > 16 * 1024 * 1024) throw new Error('Native RPC output exceeds run limit')
+        pending += chunk
+        let end
+        while ((end = pending.indexOf('\n')) >= 0) {
+          const line = pending.slice(0, end)
+          pending = pending.slice(end + 1)
+          if (Buffer.byteLength(line) > 1024 * 1024) throw new Error('Native RPC line exceeds limit')
+          if (line.trim()) consume(JSON.parse(line))
         }
+        if (Buffer.byteLength(pending) > 1024 * 1024) throw new Error('Native RPC line exceeds limit')
+      } catch (error) {
+        stop(errorMessage(error))
       }
-      return
-    }
-    if (value.type === 'tool_execution_start') {
-      const step = 100000 + toolSteps.size
-      toolSteps.set(value.toolCallId, step)
-      event({ kind: 'tool', step, text: String(value.toolName ?? '工具'), state: 'RUNNING' })
-      return
-    }
-    if (value.type === 'tool_execution_end') {
-      if (value.isError) failure ??= '至少一个 CLI 工具执行失败'
-      const detail = (value.result?.content ?? [])
-        .filter((c) => c.type === 'text')
-        .map((c) => c.text ?? '')
-        .join('\n')
-        .slice(0, 32768)
-      event({
-        kind: 'tool',
-        step: toolSteps.get(value.toolCallId),
-        text: String(value.toolName ?? '工具'),
-        state: value.isError ? 'FAILED' : 'COMPLETED',
-        detail,
-      })
-      return
-    }
-    if (
-      (config.cli === 'pi' && value.type === 'agent_settled') ||
-      (config.cli === 'omp' && value.type === 'agent_end' && value.isTerminal !== false)
-    ) {
-      if (!sent) throw new Error('Unexpected native terminal event')
-      settled = true
-      send({ id: 'final', type: 'get_state' })
-    }
-  }
-  child.stdin.on('error', () => {})
-  child.stdout.setEncoding('utf8')
-  child.stdout.on('data', (chunk) => {
-    try {
-      bytes += Buffer.byteLength(chunk)
-      if (bytes > 16 * 1024 * 1024) throw new Error('Native RPC output exceeds run limit')
-      pending += chunk
-      let end
-      while ((end = pending.indexOf('\n')) >= 0) {
-        const line = pending.slice(0, end)
-        pending = pending.slice(end + 1)
-        if (Buffer.byteLength(line) > 1024 * 1024) throw new Error('Native RPC line exceeds limit')
-        if (line.trim()) consume(JSON.parse(line))
-      }
-      if (Buffer.byteLength(pending) > 1024 * 1024) throw new Error('Native RPC line exceeds limit')
-    } catch (error) {
-      stop(errorMessage(error))
-    }
-  })
-  child.stderr.on('data', (chunk) => {
-    stderrBytes += chunk.length
-    if (stderrBytes > 2 * 1024 * 1024) stop('Native stderr exceeds limit')
-  })
-  startupTimer = setTimeout(() => stop('Native RPC startup timed out'), 20000)
-  send(
-    config.discover ? { id: 'catalog', type: 'get_available_models' } : { id: 'initial', type: 'get_state' },
-  )
-  const outcome = await new Promise((resolve) => {
-    child.once('error', () => {
-      failure ??= '无法启动原生 CLI'
     })
-    child.once('close', (code, signal) => resolve({ code, signal }))
-  })
-  clearTimeout(startupTimer)
-  clearTimeout(closeTimer)
-  clearTimeout(forceTimer)
-  if (pending.trim()) failure ??= 'Truncated native RPC frame'
-  if (outcome.code !== 0) failure ??= '原生 CLI 异常退出'
-  if (config.discover) {
-    if (failure || !catalog) throw new Error(failure ?? 'Missing native catalog')
-    output(catalog)
-  } else {
+    child.stderr.on('data', (chunk) => {
+      stderrBytes += chunk.length
+      if (stderrBytes > 2 * 1024 * 1024) stop('Native stderr exceeds limit')
+    })
+    startupTimer = setTimeout(() => stop('Native RPC startup timed out'), 20000)
+    send({ id: 'initial', type: 'get_state' })
+    const outcome = await new Promise((resolve) => {
+      child.once('error', () => {
+        failure ??= '无法启动原生 CLI'
+      })
+      child.once('close', (code, signal) => resolve({ code, signal }))
+    })
+    clearTimeout(startupTimer)
+    clearTimeout(closeTimer)
+    clearTimeout(forceTimer)
+    if (pending.trim()) failure ??= 'Truncated native RPC frame'
+    if (outcome.code !== 0) failure ??= '原生 CLI 异常退出'
     if (!settled || !finalState || !sent) failure ??= '原生 CLI 未确认任务完成'
     try {
       await persist()
@@ -467,9 +573,9 @@ try {
       failure ??= errorMessage(error)
     }
     output({ type: 'result', status: failure || stopped ? 'ERROR' : 'SUCCESS', response, error: failure })
+    finalized = true
+    if (failure || stopped) process.exitCode = 1
   }
-  finalized = true
-  if (failure || stopped) process.exitCode = 1
 } catch (error) {
   clearTimeout(startupTimer)
   clearTimeout(closeTimer)

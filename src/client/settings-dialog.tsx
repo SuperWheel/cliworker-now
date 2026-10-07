@@ -60,23 +60,21 @@ function connectionStatus(
   enabled: boolean | undefined,
   account?: AccountEntry,
   catalogConnection: CatalogConnection = 'unknown',
-  liveCatalog = false,
+  settingsError = '',
 ) {
   if (enabled === false) return { state: 'disabled', label: '已关闭' }
+  if (settingsError) return { state: 'failed', label: 'CLI 开关配置读取失败，请重新打开设置' }
   if (enabled === undefined || !account || account.loading) return { state: 'pending', label: '正在检查连接' }
-  if (
-    account.error ||
-    !account.data?.installed ||
-    ['unavailable', 'unauthenticated'].includes(account.data.state)
-  ) {
+  if (!account.error && account.data?.state === 'unconfigured')
+    return { state: 'unconfigured', label: account.data.summary || '尚未配置 CLI' }
+  if (account.error || !account.data || ['unavailable', 'unauthenticated'].includes(account.data.state)) {
     return { state: 'failed', label: account.error || account.data?.summary || '连接失败' }
   }
   if (catalogConnection === 'failed') return { state: 'failed', label: '模型目录读取失败，请刷新模型重试' }
-  if (account.data.state !== 'authenticated' && !(catalogConnection === 'success' && liveCatalog)) {
+  if (!['authenticated', 'configured'].includes(account.data.state)) {
     return {
       state: 'unknown',
-      label:
-        account.data.state === 'configured' ? '已配置凭据，连接状态待验证' : 'CLI 已安装，连接状态待验证',
+      label: 'CLI 已安装，连接状态待验证',
     }
   }
   return {
@@ -85,8 +83,8 @@ function connectionStatus(
       account.data.state === 'authenticated'
         ? account.data.verification === 'local'
           ? '已保存登录信息，未进行远程验证'
-          : '已连接，账号已登录'
-        : '模型目录已连接；账号未验证',
+          : 'CLI 报告账号已登录，未进行远程验证'
+        : '已读取本地凭据配置，未进行远程验证',
   }
 }
 
@@ -263,9 +261,12 @@ function OpenSettingsDialog({
           >
             <div className="cwn-settings-cli-group-inner">
               {order.map((id) => {
-                const connection = settingsError
-                  ? { state: 'disabled', label: '无法读取 CLI 开关状态' }
-                  : connectionStatus(enabled?.[id], accounts[id], verifiedCatalogs[id], id === 'antigravity')
+                const connection = connectionStatus(
+                  enabled?.[id],
+                  accounts[id],
+                  verifiedCatalogs[id],
+                  settingsError,
+                )
                 return (
                   <Button
                     key={id}
@@ -310,6 +311,7 @@ function OpenSettingsDialog({
             cli={cli}
             enabled={enabled?.[cli]}
             account={accounts[cli]}
+            connection={connectionStatus(enabled?.[cli], accounts[cli], verifiedCatalogs[cli], settingsError)}
             onRefreshAccount={() => refreshAccount(cli)}
             onCatalogResult={catalogResult}
             onToggle={(next) => void toggleCli(cli, next)}
@@ -392,25 +394,20 @@ function AccountSummary({
   loading,
   settingsError,
   logout,
+  connection,
 }: {
   logout?: ReactNode
   account?: AccountEntry
   enabled?: boolean
   loading: boolean
   settingsError: string
+  connection: ReturnType<typeof connectionStatus>
 }) {
   const data = account?.data
   const current = enabled === true && !loading && !settingsError && !account?.error
   const authenticated = current && data?.state === 'authenticated'
   const apiLogin = authenticated && data.authMethod === 'api'
-  const state =
-    enabled === false
-      ? 'disabled'
-      : authenticated
-        ? 'connected'
-        : (current && ['unavailable', 'unauthenticated'].includes(data?.state ?? '')) || !!account?.error
-          ? 'failed'
-          : 'unknown'
+  const state = connection.state
   const label =
     enabled === false
       ? '已关闭'
@@ -420,15 +417,23 @@ function AccountSummary({
           ? '正在读取登录信息…'
           : account?.error
             ? '状态暂不可用'
-            : authenticated
-              ? apiLogin
-                ? 'API 登录'
-                : '已登录'
-              : data?.state === 'unauthenticated'
-                ? '未登录'
-                : data?.state === 'configured'
-                  ? '已配置'
-                  : '状态待确认'
+            : connection.state === 'failed'
+              ? data?.state === 'unauthenticated'
+                ? '登录失效'
+                : '配置或连接失败'
+              : authenticated
+                ? apiLogin
+                  ? 'API 登录'
+                  : '已登录'
+                : data?.state === 'unconfigured'
+                  ? data.installed
+                    ? '未配置'
+                    : '未安装'
+                  : data?.state === 'configured'
+                    ? '已配置'
+                    : connection.state === 'connected'
+                      ? '模型目录已连接'
+                      : '状态待确认'
   const detail =
     enabled === false
       ? '开启后即可管理账号与模型。'
@@ -438,13 +443,19 @@ function AccountSummary({
           ? ''
           : account?.error
             ? account.error
-            : authenticated
-              ? data.verification === 'local'
-                ? '本地登录信息，未进行远程验证'
-                : apiLogin
-                  ? '使用 CLI 当前配置的 API 凭据'
-                  : '登录状态由 CLI 提供'
-              : (data?.summary ?? '')
+            : connection.state === 'failed'
+              ? connection.label
+              : authenticated
+                ? data.verification === 'local'
+                  ? '本地登录信息，未进行远程验证'
+                  : apiLogin
+                    ? '使用 CLI 当前配置的 API 凭据，未进行远程验证'
+                    : '登录状态由 CLI 提供，未进行远程验证'
+                : data?.state === 'configured'
+                  ? '已读取本地凭据配置，未进行远程验证'
+                  : connection.state === 'connected'
+                    ? [data?.summary, connection.label].filter(Boolean).join('；')
+                    : (data?.summary ?? '')
   return (
     <div className="cwn-account-summary" data-account-state={current ? data?.state : undefined} role="status">
       <div className="cwn-account-status-line">
@@ -461,7 +472,7 @@ function AccountSummary({
         )}
         {authenticated && logout}
       </div>
-      {!authenticated && detail && (
+      {(!authenticated || connection.state === 'failed') && detail && (
         <div className="cwn-account-detail" role="status">
           {detail}
         </div>
@@ -476,6 +487,7 @@ function CliSettings({
   cli,
   enabled,
   account,
+  connection,
   onRefreshAccount,
   onCatalogResult,
   onToggle,
@@ -490,6 +502,7 @@ function CliSettings({
   cli: CliId
   enabled?: boolean
   account?: AccountEntry
+  connection: ReturnType<typeof connectionStatus>
   onRefreshAccount: () => void
   onCatalogResult: (cli: CliId, verified: CatalogConnection) => void
   onToggle: (enabled: boolean) => void
@@ -714,6 +727,7 @@ function CliSettings({
         <div className="cwn-account-row">
           <AccountSummary
             account={account}
+            connection={connection}
             enabled={enabled}
             loading={accountLoading}
             settingsError={settingsError}
@@ -782,7 +796,7 @@ function CliSettings({
             <NativeChoice
               label="默认模型"
               selected={model}
-              choices={(catalog?.models ?? []).map((item) => ({ id: item.id, label: item.id }))}
+              choices={(catalog?.models ?? []).map((item) => ({ id: item.id, label: item.label || item.id }))}
               disabled={inactive || modelLoading || saving || !catalog}
               onChange={changeModel}
             />

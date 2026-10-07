@@ -56,16 +56,16 @@ afterEach(() => roots.splice(0).forEach((path) => rmSync(path, { recursive: true
 describe('Hermes native accounts (explicit synthetic fixtures)', () => {
   it('does not treat a file or configuration as a logged-in account', async () => {
     const { config } = fixture()
-    expect((await readHermesAccount(config, signal())).state).toBe('unauthenticated')
+    expect((await readHermesAccount(config, signal())).state).toBe('unconfigured')
     save(config.hermesHome, 'auth.json', { providers: {} })
-    expect((await readHermesAccount(config, signal())).state).toBe('unauthenticated')
+    expect((await readHermesAccount(config, signal())).state).toBe('unconfigured')
     save(config.hermesHome, 'config.yaml', 'model:\n  default: fixture-model\n')
     expect(await readHermesAccount(config, signal())).toMatchObject({
-      state: 'unauthenticated',
+      state: 'unconfigured',
       verification: 'local',
     })
     save(config.hermesHome, '.env', '# OPENAI_API_KEY=\nOPENAI_API_KEY=your_api_key_here\n')
-    expect((await readHermesAccount(config, signal())).state).toBe('unauthenticated')
+    expect((await readHermesAccount(config, signal())).state).toBe('unconfigured')
     save(config.hermesHome, '.env', 'OPENAI_API_KEY=synthetic-secret')
     const result = await readHermesAccount(config, signal())
     expect(result.state).toBe('configured')
@@ -133,7 +133,7 @@ describe('Hermes native accounts (explicit synthetic fixtures)', () => {
         else linkSync(outside, path)
       } else writeFileSync(path, kind === 'invalid-json' ? 'secret invalid {' : 'x'.repeat(65537))
       const result = await readHermesAccount(config, signal())
-      expect(result.state).toBe('unknown')
+      expect(result.state).toBe('unavailable')
       expect(JSON.stringify(result)).not.toMatch(/secret|fixture@/)
     },
   )
@@ -142,7 +142,7 @@ describe('Hermes native accounts (explicit synthetic fixtures)', () => {
     const { root, config } = fixture()
     mkdirSync(join(root, 'other'))
     symlinkSync(join(root, 'other'), config.hermesHome)
-    expect((await readHermesAccount(config, signal())).state).toBe('unknown')
+    expect((await readHermesAccount(config, signal())).state).toBe('unavailable')
     const abort = new AbortController()
     abort.abort(new Error('cancelled'))
     await expect(readHermesAccount(config, abort.signal)).rejects.toThrow('cancelled')

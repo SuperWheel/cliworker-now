@@ -11,7 +11,15 @@ rmSync(join(root, '.cache/typert'), { recursive: true, force: true })
 const tsc = (project) =>
   execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '-p', project], { stdio: 'inherit' })
 tsc('tsconfig.host-build.json')
-for (const name of ['private-launch', 'terminal-bridge', 'pi-omp-bridge', 'pi-login', 'grok-catalog']) {
+for (const name of [
+  'private-launch',
+  'terminal-bridge',
+  'pi-omp-bridge',
+  'pi-native-catalog',
+  'zcode-resume',
+  'pi-login',
+  'grok-catalog',
+]) {
   const source = `src/host/${name}.mjs`
   if (existsSync(source)) cpSync(source, `lib/${name}.mjs`)
 }

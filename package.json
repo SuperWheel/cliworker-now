@@ -1,6 +1,6 @@
 {
   "name": "dsh-cliworker-now",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "private": true,
   "description": "Multiple agent CLI conversations in the DeepSeek Harness sidebar",
   "type": "module",
@@ -80,6 +80,7 @@
     "@deepseek-ai/dsh-client-ui-primitives": "0.2.0-rc.2",
     "@deepseek-ai/dsh-client-ui-renderer": "0.2.0-rc.2",
     "@deepseek-ai/dsh-client-ui-session": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings": "0.2.0-rc.2",
     "@deepseek-ai/dsh-client-ui-sidebar-right": "0.2.0-rc.2",
     "@deepseek-ai/dsh-client-ui-slots": "0.2.0-rc.2",
     "@deepseek-ai/dsh-client-ui-theme": "0.2.0-rc.2",
@@ -100,13 +101,13 @@
     "@deepseek-ai/dsh-util-values": "0.2.0-rc.2",
     "@deepseek-ai/dsh-workspace": "0.2.0-rc.2",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "@deepseek-ai/dsh-client-ui-settings": "0.2.0-rc.2"
+    "react-dom": "^18.2.0"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "3.18.4",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
+    "yaml": "2.9.1",
     "zod": "4.4.3"
   },
   "devDependencies": {

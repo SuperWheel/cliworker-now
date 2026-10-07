@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import type { AccountAction } from '../shared/accounts.ts'
 import { accountEmail, type AccountIdentity } from './account-identity.ts'
 import type { ProcessBackend, RuntimeConfig } from './process.ts'
-import { zcodeAuthDirectory, zcodeEnvironment } from './zcode-adapter.ts'
+import { readZCodePersonalIdentity, zcodeAuthDirectory, zcodeEnvironment } from './zcode-adapter.ts'
 
 export type ZCodeGrokCli = 'zcode' | 'grok'
 export interface ZCodeGrokAccountLaunch {
@@ -72,7 +72,9 @@ export function projectZCodeIdentity(raw: unknown, secret: string): AccountIdent
   try {
     const provider = decode(raw['oauth:active_provider'])
     if (provider !== 'bigmodel' && provider !== 'zai')
-      return { state: 'unauthenticated', verification: 'local', summary: '尚未登录 ZCode' }
+      return provider
+        ? { state: 'unknown', verification: 'local', summary: '暂时无法识别 ZCode 登录服务商' }
+        : { state: 'unconfigured', verification: 'local', summary: '尚未登录 ZCode' }
     if (!decode(raw[`oauth:${provider}:access_token`]) && !decode(raw[`oauth:${provider}:refresh_token`]))
       return { state: 'unauthenticated', verification: 'local', summary: '本地登录凭据已清除' }
     let info: unknown
@@ -122,7 +124,7 @@ export function projectGrokIdentity(raw: unknown, now = Date.now()): AccountIden
     }
   }
   return {
-    state: Object.keys(raw).length && !accounts.length ? 'unknown' : 'unauthenticated',
+    state: accounts.length ? 'unauthenticated' : Object.keys(raw).length ? 'unknown' : 'unconfigured',
     verification: 'local',
     summary: accounts.length ? '本地登录已过期，请重新登录' : '尚未发现可识别的 Grok 登录会话',
   }
@@ -167,18 +169,30 @@ export async function zcodeGrokAccountStatus(
     } catch {
       /* native fallback */
     }
-    return cli === 'grok'
-      ? projectGrokIdentity(raw)
-      : projectZCodeIdentity(
-          raw,
-          (options.credentialSecret ?? process.env.ZCODE_CREDENTIAL_SECRET?.trim()) ||
-            `zcode-credential-fallback:${platform()}:${homedir()}:${username}`,
+    const identity =
+      cli === 'grok'
+        ? projectGrokIdentity(raw)
+        : projectZCodeIdentity(
+            raw,
+            (options.credentialSecret ?? process.env.ZCODE_CREDENTIAL_SECRET?.trim()) ||
+              `zcode-credential-fallback:${platform()}:${homedir()}:${username}`,
+          )
+    return cli === 'zcode' && identity.state === 'unconfigured'
+      ? readZCodePersonalIdentity(
+          zcodeAuthDirectory(config.zcodeAuthDirectory, storageRoot(config, home)),
+          options.home ? { nativeHome: home } : {},
         )
+      : identity
   } catch (error) {
     signal.throwIfAborted()
     return (error as NodeJS.ErrnoException).code === 'ENOENT'
-      ? { state: 'unauthenticated', verification: 'local', summary: '尚未登录，可打开账号终端登录' }
-      : { state: 'unknown', verification: 'local', summary: '暂时无法读取本地登录状态，可打开账号终端检查' }
+      ? cli === 'zcode'
+        ? readZCodePersonalIdentity(
+            zcodeAuthDirectory(config.zcodeAuthDirectory, storageRoot(config, home)),
+            options.home ? { nativeHome: home } : {},
+          )
+        : { state: 'unconfigured', verification: 'local', summary: '尚未登录，可打开账号终端登录' }
+      : { state: 'unavailable', verification: 'local', summary: '本地登录配置读取失败，可打开账号终端检查' }
   } finally {
     buffer.fill(0)
     await file?.close()

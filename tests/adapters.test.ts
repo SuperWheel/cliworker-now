@@ -1,12 +1,36 @@
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { CliProtocol } from '../src/host/cli-protocol.ts'
-import { workerArguments, validatePreference } from '../src/host/adapters.ts'
+import { workerArguments, validatePreference, resolveCliExecutable } from '../src/host/adapters.ts'
+import { DEFAULT_CONFIG, type ProcessBackend } from '../src/host/process.ts'
 import { WorkerStorage } from '../src/host/storage.ts'
 import { cliOf, foldEvents, type CliId, type Worker, type WorkerEvent } from '../src/shared/types.ts'
+
+it('checks script installation as a readable file without requiring a shell executable bit', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'cli-script-install-'))
+  const script = join(root, 'fixture.mjs')
+  const backend = {
+    resolveExecutable: async () => {
+      throw new Error('unexpected PATH lookup')
+    },
+  } as unknown as ProcessBackend
+  try {
+    mkdirSync(script)
+    await expect(
+      resolveCliExecutable('pi', backend, { ...DEFAULT_CONFIG, piExecutable: script }),
+    ).rejects.toThrow('普通文件')
+    rmSync(script, { recursive: true })
+    writeFileSync(script, '// Explicit simulation: no CLI runs.\n', { mode: 0o600 })
+    await expect(
+      resolveCliExecutable('pi', backend, { ...DEFAULT_CONFIG, piExecutable: script }),
+    ).resolves.toBe(script)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
 function harness(cli: 'codex' | 'claude' | 'kimi') {
   const events: WorkerEvent[] = [],
     ids: string[] = []

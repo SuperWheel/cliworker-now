@@ -83,6 +83,13 @@ const argumentsFor = (cli: CliId, action: AccountAction): string[] => {
 /** No raw command output, exception text, account tokens, or key prefixes cross this boundary. */
 function summarize(cli: CliId, raw: string, exitCode: number | null): AccountIdentity {
   const text = stripVTControlCharacters(raw)
+  if (
+    exitCode !== 0 &&
+    /\b(?:authentication failed|invalid (?:api key|credentials|token)|(?:credentials|token) (?:have |has )?expired|401\s+Unauthorized)\b/i.test(
+      text,
+    )
+  )
+    return { state: 'unauthenticated', summary: 'CLI 报告认证失效，请重新登录或检查凭据' }
   if (cli === 'codex') {
     if (exitCode === 0 && /\bLogged in using ChatGPT\b/.test(text))
       return {
@@ -93,11 +100,11 @@ function summarize(cli: CliId, raw: string, exitCode: number | null): AccountIde
       }
     if (exitCode === 0 && /\bLogged in using (?:an )?API key\b/i.test(text))
       return { state: 'authenticated', summary: 'API 登录', authMethod: 'api', verification: 'cli' }
-    if (/^Not logged in\s*$/m.test(text)) return { state: 'unauthenticated', summary: '尚未登录' }
+    if (/^Not logged in\s*$/m.test(text)) return { state: 'unconfigured', summary: '尚未登录' }
   } else if (cli === 'claude') {
     try {
       const value = JSON.parse(text)
-      if (value.loggedIn === false) return { state: 'unauthenticated', summary: '尚未登录' }
+      if (value.loggedIn === false) return { state: 'unconfigured', summary: '尚未登录' }
       if (exitCode === 0 && value.loggedIn === true) {
         // Claude's installed auth/status implementation only returns email for
         // claude.ai sessions. Environment OAuth tokens do not identify an account.
@@ -112,7 +119,7 @@ function summarize(cli: CliId, raw: string, exitCode: number | null): AccountIde
         }
       }
     } catch {
-      /* Unknown output is not evidence of logout. */
+      return { state: 'unavailable', summary: '账号状态响应无法解析，请在账号终端检查' }
     }
   } else if (cli === 'kimi') {
     // The non-JSON command prints only IDs/type/model counts/source. Configuration
@@ -127,7 +134,7 @@ function summarize(cli: CliId, raw: string, exitCode: number | null): AccountIde
     if (exitCode === 0 && /^\S+\s+type=\S+\s+models=\d+\s+source=\S+\s*$/m.test(text))
       return { state: 'configured', summary: '已配置提供商；可在账号终端管理' }
     if (exitCode === 0 && /^No providers configured\.\s*$/m.test(text))
-      return { state: 'unauthenticated', summary: '尚未配置提供商' }
+      return { state: 'unconfigured', summary: '尚未配置提供商' }
   } else if (cli === 'mimo') {
     if (exitCode === 0 && /Provider: MiMo\b/.test(text)) {
       // Installed whoami source emits User ID only in the type === 'api'
@@ -142,8 +149,9 @@ function summarize(cli: CliId, raw: string, exitCode: number | null): AccountIde
       return { state: 'configured', summary: '已配置 MiMo 凭据；CLI 未提供可显示的账号', verification: 'cli' }
     }
     if (/Not logged in\. Run `mimo auth login` to log in\./.test(text))
-      return { state: 'unauthenticated', summary: '尚未登录 MiMo' }
+      return { state: 'unconfigured', summary: '尚未登录 MiMo' }
   }
+  if (exitCode !== 0) return { state: 'unavailable', summary: 'CLI 账号状态查询失败，请在账号终端检查' }
   return { state: 'unknown', summary: '暂时无法确认登录状态，可打开账号终端检查' }
 }
 
@@ -226,7 +234,7 @@ export class AccountManager {
               ? readOpenCodeAccount(this.config, control)
               : cli === 'hermes'
                 ? readHermesAccount(this.config, control)
-                : readPiOmpAccount(this.config, control),
+                : readPiOmpAccount(cli, this.config, control),
           control,
         )
         return {
@@ -300,20 +308,39 @@ export class AccountManager {
         await Promise.allSettled([child.done, ...readers])
         raw = ''
       }
-    } catch {
+    } catch (error) {
       if (signal.aborted || this.controller.signal.aborted) throw new Error('账号状态查询已取消')
+      const code = (error as NodeJS.ErrnoException)?.code
+      const failed =
+        installed ||
+        this.hasCustomExecutable(cli) ||
+        timer.signal.aborted ||
+        (!!code && code !== 'ENOENT' && code !== 'ENOTDIR')
       return {
         cli,
         installed,
-        state: 'unavailable',
+        state: failed ? 'unavailable' : 'unconfigured',
         summary: installed
           ? '账号状态暂不可用，可打开账号终端检查'
-          : '无法找到或读取 CLI，请检查安装和可执行路径',
+          : this.hasCustomExecutable(cli)
+            ? 'CLI 执行路径配置失败，请检查可执行路径'
+            : timer.signal.aborted
+              ? 'CLI 安装探测超时，请刷新重试'
+              : failed
+                ? 'CLI 安装状态读取失败，请检查安装'
+                : '尚未安装 CLI，请检查安装',
         actions: installed && this.backend.spawnTerminal ? actionsFor(cli, this.config) : [],
       }
     } finally {
       clearTimeout(timeout)
     }
+  }
+
+  private hasCustomExecutable(cli: CliId): boolean {
+    if (cli === 'antigravity') return this.config.executable !== 'agy'
+    if (cli === 'harness') return false
+    const configured = this.config[`${cli}Executable`]
+    return !!configured && configured !== cli
   }
 
   start(

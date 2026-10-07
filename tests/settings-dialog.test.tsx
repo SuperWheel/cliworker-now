@@ -308,7 +308,7 @@ it.each(['关闭账号操作', 'Codex 设置'])(
   },
 )
 
-it.each<AccountStatus['state']>(['unknown', 'configured', 'unauthenticated', 'unavailable'])(
+it.each<AccountStatus['state']>(['unknown', 'configured', 'unconfigured', 'unauthenticated', 'unavailable'])(
   'does not offer logout for %s status even if the CLI declares that capability',
   async (state) => {
     const t = await setup({ accountStatus: accountFixture({ state, actions: accountActions }) })
@@ -345,6 +345,20 @@ it('offers logout alongside an authenticated account and dispatches only logout 
   await t.click('关闭账号操作')
   expect(terminal.stopped).toHaveBeenCalledExactlyOnceWith('antigravity', 'logout')
   expect(terminal.started).toHaveBeenCalledTimes(1)
+})
+
+it('displays native model labels while saving the exact provider/model identifier', async () => {
+  const id = 'account:bigmodel-individual-coding-plan/GLM-5.3'
+  const label = 'GLM-5.3（BigModel · 模拟）'
+  const t = await setup({
+    catalogForCli: vi.fn(async (_parent, cli: CliId) =>
+      cli === 'zcode' ? remote({ cli, models: [{ id, label, efforts: ['default'] }] }) : catalog(cli),
+    ),
+  })
+  await t.click('ZCode 设置')
+  expect(visibleText(t.button('默认模型'))).toContain(label)
+  await t.submit()
+  expect(JSON.parse(t.configure.mock.calls[0]![1])).toEqual({ cli: 'zcode', model: id, effort: 'default' })
 })
 
 it('uses Kimi supported default effort without a saved preference and can persist it', async () => {
@@ -518,7 +532,7 @@ it('shows truthful connection dots and distinguishes CLI availability from verif
     t.button('Claude Code 设置').findByProps({ className: 'cwn-connection-dot' }).props['data-state'],
   ).toBe('failed')
   expect(t.button('Antigravity 设置').findByProps({ role: 'img' }).props['aria-label']).toBe(
-    '模型目录已连接；账号未验证',
+    'CLI 已安装，连接状态待验证',
   )
 })
 it('keeps a rejected enablement change scoped to its CLI and preserves the saved state', async () => {
@@ -578,7 +592,7 @@ it('stops loading indicators after an enablement query failure without dispatchi
   expect(t.button('关闭设置').props.disabled).not.toBe(true)
 })
 
-it('does not equate an installed CLI with a verified connection and only verifies Antigravity after reading its models', async () => {
+it('keeps unknown accounts grey even after reading models and shows configured credentials with their evidence scope', async () => {
   const models = deferred()
   const t = await setup({
     catalogForCli: vi.fn((_parent, cli: CliId) =>
@@ -598,17 +612,17 @@ it('does not equate an installed CLI with a verified connection and only verifie
     'unknown',
   )
   expect(t.button('Kimi 设置').findByProps({ className: 'cwn-connection-dot' }).props['data-state']).toBe(
-    'unknown',
+    'connected',
   )
   expect(t.button('Kimi 设置').findByProps({ role: 'img' }).props['aria-label']).toBe(
-    '已配置凭据，连接状态待验证',
+    '已读取本地凭据配置，未进行远程验证',
   )
   await act(async () => models.resolve(catalog('antigravity')))
   expect(
     t.button('Antigravity 设置').findByProps({ className: 'cwn-connection-dot' }).props['data-state'],
-  ).toBe('connected')
+  ).toBe('unknown')
   expect(t.button('Antigravity 设置').findByProps({ role: 'img' }).props['aria-label']).toBe(
-    '模型目录已连接；账号未验证',
+    'CLI 已安装，连接状态待验证',
   )
 })
 
@@ -623,7 +637,7 @@ it('dismisses an open model menu when its CLI is disabled and does not reopen it
   expect(t.button('默认模型').props['aria-expanded']).toBe(false)
 })
 
-it('updates Antigravity connection from successful live catalog to failed and back after an explicit retry', async () => {
+it('updates an unknown Antigravity account from grey to catalog failure and back after an explicit retry', async () => {
   const catalogForCli = vi
     .fn()
     .mockResolvedValueOnce(catalog('antigravity'))
@@ -632,16 +646,16 @@ it('updates Antigravity connection from successful live catalog to failed and ba
   const t = await setup({ catalogForCli })
   const dot = () =>
     t.button('Antigravity 设置').findByProps({ className: 'cwn-connection-dot' }).props['data-state']
-  expect(dot()).toBe('connected')
+  expect(dot()).toBe('unknown')
   await t.click('刷新模型')
   expect(dot()).toBe('failed')
   expect(t.button('Antigravity 设置').findByProps({ role: 'img' }).props['aria-label']).toBe(
     '模型目录读取失败，请刷新模型重试',
   )
   await t.click('刷新模型')
-  expect(dot()).toBe('connected')
+  expect(dot()).toBe('unknown')
 })
-it('treats an empty catalog as failed while an unqueried CLI remains unknown and local catalogs do not verify credentials', async () => {
+it('treats an empty catalog as failed while readable local credentials retain their evidence boundary', async () => {
   const t = await setup({
     catalogForCli: vi.fn(async (_parent, cli: CliId) =>
       cli === 'antigravity' ? remote({ cli, models: [] }) : catalog(cli),
@@ -651,10 +665,10 @@ it('treats an empty catalog as failed while an unqueried CLI remains unknown and
   const dot = (label: string) =>
     t.button(label).findByProps({ className: 'cwn-connection-dot' }).props['data-state']
   expect(dot('Antigravity 设置')).toBe('failed')
-  expect(dot('Codex 设置')).toBe('unknown')
+  expect(dot('Codex 设置')).toBe('connected')
   await t.click('Codex 设置')
   expect(t.text()).toContain('codex-fixture')
-  expect(dot('Codex 设置')).toBe('unknown')
+  expect(dot('Codex 设置')).toBe('connected')
 })
 it('never upgrades an explicit unauthenticated account to connected after a model catalog succeeds', async () => {
   const t = await setup({
@@ -681,6 +695,95 @@ function visibleText(node: ReturnType<typeof accountSummary>): string {
 function accountFixture(changes: Partial<AccountStatus>) {
   return vi.fn(async (_parent, cli: CliId) => status(cli, cli === 'antigravity' ? changes : {}))
 }
+
+it.each(['unconfigured', 'unauthenticated', 'unavailable', 'unknown', 'configured'] as const)(
+  'keeps both health indicators consistent for %s while preserving model error evidence',
+  async (state) => {
+    const t = await setup({
+      accountStatus: accountFixture({ state, summary: `模拟：${state}` }),
+      catalogForCli: vi.fn(async (_parent, cli: CliId) =>
+        cli === 'antigravity' ? remote({ cli, models: [] }) : catalog(cli),
+      ),
+    })
+    const nav = t.button('Antigravity 设置').findByProps({ className: 'cwn-connection-dot' }).props[
+      'data-state'
+    ]
+    const summary = accountSummary(t.r).findByProps({ className: 'cwn-account-status-dot' }).props[
+      'data-state'
+    ]
+    expect(nav).toBe(state === 'unconfigured' ? 'unconfigured' : 'failed')
+    expect(summary).toBe(nav)
+    expect(t.text()).toContain('此 CLI 未返回可用模型')
+    if (state === 'unconfigured') expect(visibleText(accountSummary(t.r))).toContain('未配置')
+    if (state === 'unauthenticated') expect(visibleText(accountSummary(t.r))).toContain('登录失效')
+  },
+)
+
+it('recovers both indicators after a failed catalog without restarting account actions or altering preferences', async () => {
+  const read = vi
+    .fn()
+    .mockRejectedValueOnce(new Error('模拟：目录损坏'))
+    .mockResolvedValue(catalog('antigravity'))
+  const t = await setup({
+    catalogForCli: read,
+    accountStatus: accountFixture({ state: 'configured', verification: 'local' }),
+  })
+  const dots = () => [
+    t.button('Antigravity 设置').findByProps({ className: 'cwn-connection-dot' }).props['data-state'],
+    accountSummary(t.r).findByProps({ className: 'cwn-account-status-dot' }).props['data-state'],
+  ]
+  expect(dots()).toEqual(['failed', 'failed'])
+  await t.click('刷新模型')
+  expect(dots()).toEqual(['connected', 'connected'])
+  expect(visibleText(accountSummary(t.r))).toContain('未进行远程验证')
+  expect(terminal.started).not.toHaveBeenCalled()
+})
+
+it('keeps an absent default installation grey in both indicators despite model lookup failure', async () => {
+  const t = await setup({
+    accountStatus: accountFixture({ state: 'unconfigured', installed: false, summary: '模拟：尚未安装 CLI' }),
+    catalogForCli: vi.fn().mockRejectedValue(new Error('模拟：CLI 不存在')),
+  })
+  expect(
+    t.button('Antigravity 设置').findByProps({ className: 'cwn-connection-dot' }).props['data-state'],
+  ).toBe('unconfigured')
+  expect(accountSummary(t.r).findByProps({ className: 'cwn-account-status-dot' }).props['data-state']).toBe(
+    'unconfigured',
+  )
+  expect(visibleText(accountSummary(t.r))).toContain('未安装')
+})
+
+it('refreshes an invalid login to a readable configuration without writing preferences or starting a terminal', async () => {
+  const accountStatus = accountFixture({ state: 'unauthenticated', summary: '模拟：登录已过期' })
+  const t = await setup({
+    accountStatus,
+    catalogForCli: vi.fn(async (_parent, cli: CliId) =>
+      remote({
+        cli,
+        models: [
+          { id: 'simulation-first', efforts: ['low'] },
+          { id: 'simulation-saved', efforts: ['high'] },
+        ],
+        preference: { cli, model: 'simulation-saved', effort: 'high' },
+      }),
+    ),
+  })
+  const dots = () => [
+    t.button('Antigravity 设置').findByProps({ className: 'cwn-connection-dot' }).props['data-state'],
+    accountSummary(t.r).findByProps({ className: 'cwn-account-status-dot' }).props['data-state'],
+  ]
+  expect(dots()).toEqual(['failed', 'failed'])
+  expect(t.button('默认模型').findAllByType('span')[0].children).toContain('simulation-saved')
+  accountStatus.mockImplementation((_parent, cli: CliId) =>
+    Promise.resolve(status(cli, { state: 'configured', verification: 'local' })),
+  )
+  await t.click('刷新状态')
+  expect(dots()).toEqual(['connected', 'connected'])
+  expect(visibleText(accountSummary(t.r))).toContain('未进行远程验证')
+  expect(t.button('默认模型').findAllByType('span')[0].children).toContain('simulation-saved')
+  expect(t.configure).not.toHaveBeenCalled()
+  expect(terminal.started).not.toHaveBeenCalled()
+})
 
 it('shows the authenticated OAuth account with its login indicator in the persistent account summary', async () => {
   const t = await setup({
@@ -740,8 +843,8 @@ it('discloses when an account identity comes from local login information rather
   expect(accountSummary(t.r).findAllByProps({ label: '本地登录信息，未进行远程验证' })).toHaveLength(1)
 })
 it.each([
-  { authMethod: 'oauth', verification: 'cli', source: '登录状态由 CLI 提供' },
-  { authMethod: 'api', verification: 'cli', source: '使用 CLI 当前配置的 API 凭据' },
+  { authMethod: 'oauth', verification: 'cli', source: '登录状态由 CLI 提供，未进行远程验证' },
+  { authMethod: 'api', verification: 'cli', source: '使用 CLI 当前配置的 API 凭据，未进行远程验证' },
   { authMethod: 'api', verification: 'local', source: '本地登录信息，未进行远程验证' },
 ] as const)(
   'keeps $authMethod/$verification provenance in its tooltip without adding static form notes',

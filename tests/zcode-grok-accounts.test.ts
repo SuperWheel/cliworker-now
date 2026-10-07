@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -172,7 +172,7 @@ describe('ZCode/Grok user-operated account helpers', () => {
     expect(f.children[0]?.waitForExit).toHaveBeenCalledOnce()
   })
 
-  it('malformed credentials remain unknown and never leak content', async () => {
+  it('malformed credentials report read errors and never leak content', async () => {
     const f = fixture()
     for (const cli of ['zcode', 'grok'] as const) {
       const directory =
@@ -181,12 +181,12 @@ describe('ZCode/Grok user-operated account helpers', () => {
       const path = join(directory, cli === 'zcode' ? 'credentials.json' : 'auth.json')
       writeFileSync(path, 'SECRET-CREDENTIAL-CONTENTS', { mode: 0o600 })
       const status = await zcodeGrokAccountStatus(cli, f.config, f.signal, f)
-      expect(status).toMatchObject({ state: 'unknown', verification: 'local' })
+      expect(status).toMatchObject({ state: 'unavailable', verification: 'local' })
       expect(status.accountLabel).toBeUndefined()
       expect(status.authMethod).toBeUndefined()
       expect(JSON.stringify(status)).not.toContain('SECRET')
       rmSync(path)
-      expect((await zcodeGrokAccountStatus(cli, f.config, f.signal, f)).state).toBe('unauthenticated')
+      expect((await zcodeGrokAccountStatus(cli, f.config, f.signal, f)).state).toBe('unconfigured')
     }
   })
 
@@ -197,12 +197,54 @@ describe('ZCode/Grok user-operated account helpers', () => {
       target = join(f.home, 'SECRET-target')
     writeFileSync(target, 'SECRET')
     symlinkSync(target, path)
-    expect((await zcodeGrokAccountStatus('grok', f.config, f.signal, f)).state).toBe('unknown')
+    expect((await zcodeGrokAccountStatus('grok', f.config, f.signal, f)).state).toBe('unavailable')
     rmSync(path)
     writeFileSync(path, '')
     const status = await zcodeGrokAccountStatus('grok', f.config, f.signal, f)
-    expect(status.state).toBe('unknown')
+    expect(status.state).toBe('unavailable')
     expect(JSON.stringify(status)).not.toContain('SECRET')
+  })
+  it('projects native personal API configuration only when the OAuth account is absent', async () => {
+    const f = fixture(),
+      native = join(f.home, '.zcode/v2')
+    mkdirSync(native, { recursive: true })
+    const path = join(native, 'provider_config.json')
+    const config: any = {
+      schemaVersion: 1,
+      config: {
+        providerConfigRules: {
+          providerRules: [
+            {
+              providerId: 'synthetic-api',
+              config: { access: { type: 'api-key', apiKey: 'SYNTHETIC_SECRET' } },
+            },
+          ],
+        },
+        modelConfigRules: { providerModelRules: [], manualProviderModelRules: [] },
+      },
+    }
+    writeFileSync(path, JSON.stringify(config), { mode: 0o600 })
+    const before = readFileSync(path, 'utf8')
+    const status = await zcodeGrokAccountStatus('zcode', f.config, f.signal, f)
+    expect(status).toMatchObject({
+      state: 'configured',
+      authMethod: 'api',
+      verification: 'local',
+      summary: expect.stringContaining('未进行远程验证'),
+    })
+    expect(status.accountLabel).toBeUndefined()
+    expect(JSON.stringify(status)).not.toContain('SYNTHETIC_SECRET')
+    expect(readFileSync(path, 'utf8')).toBe(before)
+    config.config.providerConfigRules.providerRules[0].config.access.apiKey = ''
+    writeFileSync(path, JSON.stringify(config))
+    expect((await zcodeGrokAccountStatus('zcode', f.config, f.signal, f)).state).toBe('unconfigured')
+    config.config.providerConfigRules.providerRules[0].config.access.type = 'future'
+    writeFileSync(path, JSON.stringify(config))
+    expect((await zcodeGrokAccountStatus('zcode', f.config, f.signal, f)).state).toBe('unknown')
+    writeFileSync(path, 'SYNTHETIC_SECRET invalid {')
+    const failed = await zcodeGrokAccountStatus('zcode', f.config, f.signal, f)
+    expect(failed.state).toBe('unavailable')
+    expect(JSON.stringify(failed)).not.toContain('SYNTHETIC_SECRET')
   })
 
   it('cancellation prevents both auth file checks and CLI capability spawn', async () => {

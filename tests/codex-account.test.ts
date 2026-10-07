@@ -90,7 +90,7 @@ describe('Codex effective-account read-only handshake', () => {
   })
 
   it('reports logout from the effective store rather than any stale local identity', async () => {
-    expect(await fixture(null).run()).toMatchObject({ state: 'unauthenticated', verification: 'cli' })
+    expect(await fixture(null).run()).toMatchObject({ state: 'unconfigured', verification: 'cli' })
   })
 
   it.each([{ error: true }, { oversized: true }])(

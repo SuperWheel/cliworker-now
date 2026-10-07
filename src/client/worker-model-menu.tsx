@@ -191,7 +191,7 @@ export function WorkerModelMenu({
                 }}
               >
                 <span className="cwn-model-cell">
-                  <span>{m.id}</span>
+                  <span title={m.id}>{m.label || m.id}</span>
                   {m.id === chosen?.id && <IconCheckOutlineRegular size={14} />}
                 </span>
               </MenuItemButton>

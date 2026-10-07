@@ -4,7 +4,8 @@ export type AccountAction = 'login' | 'logout' | 'manage'
 export interface AccountStatus {
   cli: CliId
   installed: boolean
-  state: 'authenticated' | 'unauthenticated' | 'configured' | 'unknown' | 'unavailable'
+  /** unconfigured is absence; unauthenticated is known invalid/expired auth; unavailable is a read/config error. */
+  state: 'authenticated' | 'unconfigured' | 'unauthenticated' | 'configured' | 'unknown' | 'unavailable'
   summary: string
   /** Display-only identity; never a token, API key, or key prefix. */
   authMethod?: 'oauth' | 'api'

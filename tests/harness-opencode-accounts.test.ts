@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   existsSync,
   mkdtempSync,
@@ -40,7 +40,7 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
       zaiCredentialRef: 'synthetic-ref',
       resolveCredential: async () => 'synthetic-secret',
     }
-    const state = await readPiOmpAccount(config, signal())
+    const state = await readPiOmpAccount('pi', config, signal())
     expect(state).toEqual({
       state: 'configured',
       authMethod: 'api',
@@ -53,9 +53,10 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
     })
     expect(JSON.stringify(state)).not.toContain('synthetic-')
     expect(
-      await readPiOmpAccount({ ...config, resolveCredential: async () => undefined }, signal()),
-    ).toMatchObject({ state: 'unauthenticated' })
+      await readPiOmpAccount('pi', { ...config, resolveCredential: async () => undefined }, signal()),
+    ).toMatchObject({ state: 'unavailable' })
     const failed = await readPiOmpAccount(
+      'pi',
       {
         ...config,
         resolveCredential: async () => {
@@ -64,13 +65,13 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
       },
       signal(),
     )
-    expect(failed.state).toBe('unknown')
+    expect(failed.state).toBe('unavailable')
     expect(JSON.stringify(failed)).not.toContain('synthetic-secret')
   })
   it('reads native credentials only from the same stable profile data root and never projects OAuth tokens', async () => {
     const config = fixture(),
       path = join(openCodeAuthDirectory(config.stateDirectory), 'opencode')
-    expect(await readOpenCodeAccount(config, signal())).toMatchObject({ state: 'unauthenticated' })
+    expect(await readOpenCodeAccount(config, signal())).toMatchObject({ state: 'unconfigured' })
     mkdirSync(path, { recursive: true })
     const file = join(path, 'auth.json')
     writeFileSync(
@@ -91,7 +92,7 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
     expect(JSON.stringify(state)).not.toMatch(/synthetic|private-id/)
     expect(JSON.parse(readFileSync(file, 'utf8')).fixture.expires).toBe(1)
     writeFileSync(file, '{}')
-    expect(await readOpenCodeAccount(config, signal())).toMatchObject({ state: 'unauthenticated' })
+    expect(await readOpenCodeAccount(config, signal())).toMatchObject({ state: 'unconfigured' })
   })
   it('sanitizes malformed auth data and refuses to follow a planted auth link', async () => {
     const config = fixture(),
@@ -101,8 +102,33 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
     writeFileSync(outside, '{"provider":{"type":"api","key":"synthetic-secret"}}')
     symlinkSync(outside, join(path, 'auth.json'))
     const state = await readOpenCodeAccount(config, signal())
-    expect(state.state).toBe('unknown')
+    expect(state.state).toBe('unavailable')
     expect(JSON.stringify(state)).not.toContain('synthetic-secret')
+  })
+  it('keeps unsupported metadata unknown but reports expired non-refreshable OAuth separately', async () => {
+    const config = fixture(),
+      path = join(openCodeAuthDirectory(config.stateDirectory), 'opencode')
+    mkdirSync(path, { recursive: true })
+    const file = join(path, 'auth.json')
+    writeFileSync(file, JSON.stringify({ fixture: { type: 'future', secret: 'synthetic-secret' } }))
+    expect(await readOpenCodeAccount(config, signal())).toMatchObject({ state: 'unknown' })
+    writeFileSync(
+      file,
+      JSON.stringify({ fixture: { type: 'oauth', access: 'synthetic-secret', refresh: '', expires: 1 } }),
+    )
+    const expired = await readOpenCodeAccount(config, signal())
+    expect(expired).toMatchObject({ state: 'unauthenticated', summary: expect.stringContaining('已过期') })
+    expect(JSON.stringify(expired)).not.toContain('synthetic-secret')
+    writeFileSync(
+      file,
+      JSON.stringify({
+        fixture: { type: 'oauth', access: 'synthetic-secret', refresh: '', expires: Date.now() + 60000 },
+      }),
+    )
+    expect(await readOpenCodeAccount(config, signal())).toMatchObject({
+      state: 'configured',
+      verification: 'local',
+    })
   })
   it('shares native login auth with workers/catalogs while keeping DB and config independent', async () => {
     const config = fixture(),
@@ -211,19 +237,22 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
       prepareOpenCodeAccount('/bin/opencode', 'login', config, controller.signal),
     ).rejects.toThrow()
     const next = new AbortController()
+    const resolveCredential = vi.fn(async () => {
+      next.abort(new Error('Synthetic credential lookup cancelled'))
+      return 'synthetic-key'
+    })
     await expect(
       readPiOmpAccount(
+        'pi',
         {
           ...config,
           zaiCredentialRef: 'fixture',
-          resolveCredential: async () => {
-            next.abort()
-            return 'synthetic-key'
-          },
+          resolveCredential,
         },
         next.signal,
       ),
-    ).rejects.toThrow()
+    ).rejects.toThrow('Synthetic credential lookup cancelled')
+    expect(resolveCredential).toHaveBeenCalledExactlyOnceWith('fixture')
   })
   it('removes only private terminal runtime data after exit, leaving shared auth and worker data intact', async () => {
     const config = fixture()
