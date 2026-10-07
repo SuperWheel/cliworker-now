@@ -1,0 +1,39 @@
+{
+  "generation": "built-in image_gen",
+  "runtime_brand_replaced": false,
+  "note": "Raster variants; not pixel-identical copies of the protected source regions.",
+  "files": [
+    {
+      "version": "A",
+      "file": "logo-a-straight.png",
+      "source": "/Users/leeyl/.codex/generated_images/01a1147f-7507-76a2-85ad-fcee121e4ac4/exec-df753df6-95eb-4b29-8788-3ccf8211d0c9.png",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "7eed700fb6c6e19b4affa47b8ca8aaa43b64ed8bf0d018086d64b44cfdb9d1a1",
+      "source_copy_identical": true
+    },
+    {
+      "version": "B",
+      "file": "logo-b-shallow-arc.png",
+      "source": "/Users/leeyl/.codex/generated_images/01a1147f-7507-76a2-85ad-fcee121e4ac4/exec-286d0306-094a-4811-b3dd-635755d92597.png",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGBA",
+      "alpha_extrema": [
+        0,
+        255
+      ],
+      "sha256": "5a6c5c9857da9c204b5a87c33c2150b6b51f0e21aa6f1de6f9c9c2a3b68e107b",
+      "source_copy_identical": true
+    }
+  ]
+}
