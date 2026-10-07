@@ -48,6 +48,8 @@ CLI Worker Now 是 **DeepSeek Harness 的独立多 CLI 智能体插件**。它�
 
 以下效果图均直接拍摄于 **DeepSeek Harness Desktop 0.2.0-rc.2 + CLI Worker Now v0.6.5**。为公开展示新建了独立演示会话，使用 Antigravity 的 `gemini-3.8-flash / low` 真实执行一条欢迎语任务；不使用私人历史对话，设置截图避开邮箱、账号标识和密钥。截图中的时间、状态和用量为本次演示的实际显示，不作为性能基准。
 
+当前源码 v0.6.6 更新为用户选定的[天蓝平切 Logo](doc/assets/project-icon/official-v4/README.md)：入口使用原彩色图，标题随浅色／深色主题显示相同轮廓的黑／白版。下面的历史截图仍为 v0.6.5。
+
 ### 3.1 任务总览与独立对话
 
 按 CLI 分组查看智能体，筛选进行中、已完成和异常任务。进入某个智能体后，可以查看独立对话、公开执行记录和用量，在本轮结束后继续交流。

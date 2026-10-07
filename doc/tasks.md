@@ -517,3 +517,12 @@
 - [x] 2026-10-06 晚在真实 DeepSeek Harness Desktop 新建干净演示会话。用户批准 Antigravity / gemini-3.8-flash / low / 无角色预设的单次欢迎语任务；完成原生三项选型，worker 为 completed，结果事件 SUCCESS，无工具事件，回复符合要求。
 - [x] 直接拍摄原生任务总览、子对话、角色预设与 OMP 设置四张截图。收起私人会话列表，避开含邮箱的账号页，逐图检查无账号标识、密钥、本机路径或私人内容；来源说明见 `doc/assets/readme/README.md`。未发布独立 React 演示页。
 - [x] 相对链接与图片文件检查、公开文本敏感信息扫描、`git diff --check` 通过；核对 GitHub Release 附件和宿主安装入口。此轮仅文档与截图，未重跑业务构建或测试，未变更运行版本。
+
+
+### 2026-10-07：v0.6.6 天蓝平切 Logo 与同轮廓三色
+
+- [x] 用户选定 `exec-1f96a1dc-5099-4e6e-949c-6b37a295db1d.png` 原图进入运行时；源码、归档、隔离包、正式构建与安装包内 PNG 均逐字节一致。蓝色直接显示原图，黑白共用 alpha 蒙版。
+- [x] 面板/客户端注册定向测试 27 项、Host/Client 类型检查、隔离构建、正式构建和打包通过；日志 `.test-data/logo066-*.log`。本轮无业务逻辑改动，未新建镜像式测试或执行模型任务。
+- [x] 三色原生 CSS 预览检查 24/32/48px，保存 `doc/assets/project-icon/official-v4/preview.png`；隔离 Harness 深色界面显示白色标题及蓝色入口，正式 Desktop 重启后显示黑色标题及蓝色入口。截图在 `.test-data/evidence/logo066-isolated-dark.png`、`logo066-desktop-light.png`。临时预览页和服务器均已关闭。
+- [x] 更新前 3 个 worker 均 completed、账号终端数 0；备份 `.cache/desktop-before-ui-066`。重启后 7 份 worker/偏好/角色/CLI 设置文件 SHA256 未变。未更改其他配置。
+- [x] 安装包 `artifacts/dsh-cliworker-now-0.6.6.tgz` 共 175 项，包含选定 PNG；无旧黑色 PNG、测试数据或缓存目录。只本地提交，不推送或发布远程。

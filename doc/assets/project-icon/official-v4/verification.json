@@ -1,0 +1,17 @@
+{
+  "source_sha256": "71ffbdd03379b81b81879fd5d627abab4b500d08e838dade8d846d42ea453b46",
+  "runtime_version": "0.6.6",
+  "checks": {
+    "targeted_tests_passed": 27,
+    "typecheck": true,
+    "isolated_build": true,
+    "production_build": true,
+    "package_selected_png_byte_identical": true,
+    "three_color_preview": true,
+    "isolated_dark_ui": true,
+    "desktop_light_ui_after_restart": true,
+    "persistent_files_hash_unchanged": 7
+  },
+  "package_sha256": "194f583abcaba9448b8e7fc02af93457ae1edd9cef1c8cc7c008548c7f5c6025",
+  "method": "Existing native CSS alpha mask for black/white; original user-selected PNG for color."
+}

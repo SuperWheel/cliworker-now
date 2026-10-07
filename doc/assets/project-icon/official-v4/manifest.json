@@ -1,0 +1,11 @@
+{
+  "version": "official-v4",
+  "source": "exec-1f96a1dc-5099-4e6e-949c-6b37a295db1d.png",
+  "sha256": "71ffbdd03379b81b81879fd5d627abab4b500d08e838dade8d846d42ea453b46",
+  "runtime_method": {
+    "color": "original PNG unchanged",
+    "light_title": "black fill through same PNG alpha mask",
+    "dark_title": "white fill through same PNG alpha mask"
+  },
+  "source_pixel_edits": false
+}

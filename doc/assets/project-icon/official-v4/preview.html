@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CLI Worker · 三色 Logo</title>
+<style>
+body{margin:0;padding:36px;background:#eee;font:16px system-ui;color:#222}h1{font-size:24px}main{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}.card{padding:28px;background:#fff;border-radius:18px}.dark{background:#191919;color:#eee}.large{width:240px;height:240px;max-width:100%;object-fit:contain}.mask{display:block;mask:url(cliworker-now.png) center/contain no-repeat;mask-mode:alpha;-webkit-mask:url(cliworker-now.png) center/contain no-repeat;background:#000}.white{background:#fff}.sizes{display:flex;gap:20px;align-items:center;height:64px}.sizes img{object-fit:contain}.sizes span{display:block}p{line-height:1.6}.caption{color:#666;font-size:14px}.dark .caption{color:#aaa}
+</style>
+<h1>CLI Worker · 三色 Logo</h1><p>同一张用户选定原图，蓝色保持原色；黑白通过原图透明轮廓显示。</p>
+<main>
+<section class="card"><h2>蓝色 · 入口</h2><img class="large" src="cliworker-now.png" alt="彩色 Logo"><div class="sizes"><img src="cliworker-now.png" width="24" height="24" alt="24px"><img src="cliworker-now.png" width="32" height="32" alt="32px"><img src="cliworker-now.png" width="48" height="48" alt="48px"></div><p class="caption">24 / 32 / 48 px</p></section>
+<section class="card"><h2>黑色 · 浅色主题</h2><span class="large mask" role="img" aria-label="黑色 Logo"></span><div class="sizes"><span class="mask" style="width:24px;height:24px"></span><span class="mask" style="width:32px;height:32px"></span><span class="mask" style="width:48px;height:48px"></span></div><p class="caption">24 / 32 / 48 px</p></section>
+<section class="card dark"><h2>白色 · 深色主题</h2><span class="large mask white" role="img" aria-label="白色 Logo"></span><div class="sizes"><span class="mask white" style="width:24px;height:24px"></span><span class="mask white" style="width:32px;height:32px"></span><span class="mask white" style="width:48px;height:48px"></span></div><p class="caption">24 / 32 / 48 px</p></section>
+</main></html>
