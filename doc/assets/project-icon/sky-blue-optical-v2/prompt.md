@@ -1,0 +1,10 @@
+# 最终提示词
+
+生成方式：内置 imagegen。输入为用户本轮指定图片，输出透明背景。
+
+Use case: precise-object-edit. Edit the attached logo, keeping its colors, composition and distinctive exterior silhouette including the left-projecting round bottom foot.
+Apply ONE clear geometric design principle: surround the middle upright capsule on its top, left and bottom with an optically even-width transparent channel. At the upper-left and lower-left bends, the surrounding blue frame must follow the capsule's curvature, like a parallel contour. Enlarge the frame's two INNER concave corner curves substantially to match the capsule's opposing convex curves; these concave bends need a bigger radius than the convex bends they surround. In the supplied image the frame's inner curves are much too tight and square while the capsule curves are broad; FIX this mismatch visibly. Keep the outer frame boundary unchanged. The resulting curved channel must have the same apparent thickness as its straight vertical segment, with no widened crescent pockets.
+Now match every other internal gap to that visual channel thickness. Increase the top, bottom and right-column horizontal gaps, and the center-to-right vertical gap, until all feel equally open. Preserve the tall middle piece, the short sky-blue piece above the taller blue piece at right. Adjust sizes only enough to obtain the breathing space.
+Refine all three pieces into the SAME original softly rounded capsule design family: equal perceived roundness and equal gentleness where straight sides flow into curves, with optical compensation for their different proportions. No new flat-topped box styling, no widening the right column, no turning the lower-right tall piece into a square. The eye, not identical radius values, judges success.
+Preserve the original blue-violet primary color, sky-blue accent, flat fill style, canvas scale and layout. No text, no shadows, no added elements, no decorative effects. Remove edge debris. Genuine transparent background and transparent gaps. One clean PNG logo.
+
