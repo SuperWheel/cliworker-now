@@ -584,3 +584,15 @@
 - 包共207项，81份源码与最终preview逐字节相同，正式入口与包内容相同，包含新增原生安装解析helper，无测试/缓存/账号数据。SHA256 `bbfa34a46e1e78bc56c4758a11e4b691e0d14172205997e6ed8fb1daeb549829`，交付摘要 `artifacts/dsh-cliworker-now-0.6.9-verification.json`。
 - 保留边界：未发起六CLI真实生成/续聊、未提交登录或刷新OAuth，主模型实际工具服从未新增生成验收。Grok 尚无可核验的当前账号 Worker 模型权益接口，故未确认候选不供选择；Hermes 未知provider/账号池仍不放行。本机Hermes原源码根已改名，旧shim失效；虽facts.json能定位完整构建环境，官方要求源码launcher优先，不能以snapshot替代其安装身份和生命周期，需另行恢复原生安装。本轮没有改全局launcher或恢复用户已改名目录。历史Kimi/订阅等缺口保持可见。
 - OpenSpec 主规格已逐条核对并同步，9/9实施与验收任务完成；归档 `openspec/changes/archive/2026-10-08-repair-cli-settings-discovery/`。归档前严格校验5项、归档后主规格4项与全部归档3项均通过，活动变更0；仅本地提交，不推送。
+
+
+## v0.6.10 — 原生登录识别与简洁账号文案（2026-10-08）
+
+- [x] 按用户新截图修正 Antigravity/ZCode 的已登录误判，并统一各 CLI 设置的一行账号信息。OpenSpec `correct-login-status-and-settings-copy` 的提案、增量规格、设计及任务先行；实现提交 `e4e5167`，不推送远端。
+- 根因：v0.6.9 客户端把 `verification=local` 当成未验证身份，将 Antigravity 的原生可续用会话降级。ZCode 则仅将当前原生账号绑定标为配置。当前按原生状态显示登录，ZCode 还核对受支持 active provider、当前 identity、原生用户记录及该 identity 的绑定 key；普通 API fingerprint、旧/孤立 key、身份不符及未知 provider 不升为已登录。未改变模型权限筛选或执行参数。
+- 设置移除正常账号的长 detail、重复 tooltip 和远端验证/隐私声明，只显示短状态、必要身份及操作；真实错误保留短原因。Hermes 启动入口错误统一为“启动入口不可用，请修复安装”；终端关闭失败仍阻止提前重启。
+- [x] `pnpm typecheck`、42 文件／656 项完整模拟测试及严格规格检查通过。最后仅精简 Hermes 两条安装错误文案，相应15项回归再次通过；最终 preview/build 均含 Host/Client 编译，81个源码文件与 preview 完全一致。日志 `.test-data/cli-settings-0610/{typecheck,full-test,hermes-copy-test,spec-check-final,preview-build-final,production-build,package}.log`。
+- [x] 本机原生账号离线检查：Antigravity 和 ZCode 均为 `authenticated / oauth / local`，3份原文件哈希不变；网络、刷新、登录、生成和子进程均为0。脱敏证据 `.test-data/cli-settings-0610/native-login-check.json`。本轮未重复前次已授权的 ZCode 模型 GET，也未重新执行模型任务。
+- [x] 隔离 Harness 以明确模拟数据覆盖6种账号界面，AGY/ZCode绿色、OMP已配置、Pi/OpenCode未登录、Hermes错误；账号文本高度均22px，detail为0，错误与按钮不重叠，不通过省略长段落伪装单行。刷新后旧成功消失、模型禁用，失败重试和模型强度联动通过。证据 `.test-data/cli-settings-0610-ui/ui-verification.json` 及3张 `*-simulation.png`；自有页面0、服务正常退出、18750端口无监听。
+- [x] 正式更新前9个worker均已结束、账号终端0，旧lib备份 `.cache/desktop-before-cli-settings-0610/lib`；重启 Desktop 后实看 Antigravity/ZCode 绿色、Hermes短错误单行。打开 AGY 时正常模型查询仍加载，切换 Hermes 后取消，未作为新模型验收。17份既有worker/偏好/开关/角色文件集合与SHA256均不变，未保存偏好或提交账号操作。CUA原生截图在本次工具记录，摘要 `.test-data/cli-settings-0610/desktop-verification.json`。
+- [x] 正式包 `artifacts/dsh-cliworker-now-0.6.10.tgz` 共207项，与本机构建逐项一致，无凭据、测试或运行文件；SHA256 `933283004984885e4495c5a57ca70ade8c6c4e52a6753536e586d61326c4de96`。Desktop链接仍指向本仓库。验收摘要 `artifacts/dsh-cliworker-now-0.6.10-verification.json`。
