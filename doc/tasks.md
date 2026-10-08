@@ -635,3 +635,16 @@
 - 未验证/保留事项：未提交任何 CLI 登录、未执行 Kimi Trust 后的切换、未新建真实模型任务；Grok 的 Build 许可及目录不等于额度或生成成功。OMP 关闭菜单后的瞬态状态失败仍按上述现象记录。本轮私有证据位于 `.test-data/native-login-0612/` 和 `.test-data/grok-account-probe-0612/`，不提交 Git；用户原有图标整理及既有文档改动不纳入本轮提交，不推送远程。
 - 归档前严格校验：`pnpm spec:check` 的 5 个主规格和本变更共 6 项全部通过。实现、自动检查、隔离/原生菜单、Desktop 与交付文档共 7 项任务均有上述对应证据；模型生成、登录提交及 OMP 瞬态读取的边界保持可见。
 - 最终规格复核将新增的“退出不回退全局账号”明确限定为 Hermes 独立来源；Pi/OMP 原有全局与插件自身来源合并未被文档误写成已改造。三个新增要求已同步至主规格且逐块核对，使用 `--skip-specs` 避免归档时重复合并；变更归档于 `openspec/changes/archive/2026-10-08-repair-native-cli-login-entrypoints/`，7/7 任务，归档后 `pnpm spec:check` 的 5 个主规格通过，活动变更为 0。
+
+## 2026-10-08：v0.6.13 服务商登录与 Hermes Nous 修复交付
+
+- OpenSpec：`fix-provider-login-status-and-hermes-catalog`；计划提交 `b1487be`，实现提交 `7a7005c`。原因已确认：四个 CLI 的自身认证投影固定返回 configured，Client 因而正确显示灰点；Hermes 的 Nous 扁平 OAuth、账号绑定和目录实现缺失，已授权账号无法进入模型查询。
+- Pi/OMP/OpenCode：79 项专项及类型检查通过；只读本机状态为 authenticated。Pi、OpenCode 均显示 zai.cn API 登录；OMP 分别显示 OpenAI 账号登录及其独立 API 服务商，不混淆认证方式。66 项来源存在性/哈希检查中 24 个现存文件均不变；该探针 0 网络、0 原生登录、0 续期、0 生成。
+- Hermes：7 文件 147 项专项通过；最后统一 TTL、恢复非 Nous 查询顺序及原生强度交集后，Nous/集成 2 文件 45 项通过。覆盖匿名/过期/退出/换号、pool 不一致或未初始化、原生路由与自身环境配置、无付费过滤、未知/额外费用、无 tools/图像模型、取消/超时/重定向/体积限制、途中源及冷却改变、同源并发旧取消和有效期跨门槛。原生证据版本 `6c80c3273468`；真实查询不调用原生命令或刷新器。
+- 用户明确授权 Hermes 自身 Nous 凭据访问两个官方只读 GET 后，诊断读取到账户无付费访问权和 430 条模型元数据；最终 Host 验证 `/api/oauth/account` HTTP 200（606ms）、`/v1/models` HTTP 200（468ms），过滤为 10 个明确免费模型，其中 3 个提供显式强度，其余仅 default。绑定稳定，auth/config/来源标记 3 项哈希不变，临时运行目录已清理；无生成、无续期。约 1.1 秒仅为此次两请求耗时，不是启动总耗时承诺。
+- 自动验证：最终 `pnpm typecheck`、`pnpm test`、`pnpm build:preview`、`git diff --check` 通过；全量 58 文件 1014 项。首轮全量仅失败于非 Nous 原生 scalar 查询顺序，恢复原顺序后全量重跑通过。未以修改测试期待掩盖回归。
+- 隔离 UI：Tabbit 本地独立 profile 使用明确模拟账号和目录，四个 CLI 显示绿点与服务商登录类型，登录文字高度 22px；混合/长服务商单行省略且不遮按钮。API 身份标记不渲染，稳定目录失败仍保留有效登录，缺账号灰点且禁用模型。浏览器实际返回的 Client 与最终 preview 逐字核对，仅 Gateway 分隔符/source map 注释不同；关闭自建页、释放任务、停止模拟服务器。模拟未读真实凭据、未生成、未保存偏好。
+- Desktop：确认 10 个历史 Worker 中 0 活动、0 账号/任务桥接进程，备份旧 lib 后退出并正式构建更新。实际安装仍链接当前仓库；重启后四个 CLI 侧栏绿点，Hermes 显示 Nous 账号登录及自身身份，模型下拉顶部/底部可见的 10 项与 Host 实测一致。其余三个服务商细项由本地 Host 与隔离渲染核验，本次未打开它们的远端目录。未点保存、未退出/切换账号、未生成；59 份基线账号/配置/Worker/偏好文件前后哈希完全不变。
+- 包：`artifacts/dsh-cliworker-now-0.6.13.tgz`，257 文件、100 源文件与最终 preview 对应，Host 相同、Client 可执行内容相同，包内逐文件匹配，pnpm 只移除 packageManager 元数据；无账号、测试或私有日志入包。SHA-256 `7eb2b43abd94cdf6f063c428e7fce7780ac7155a816fc06c935a6f09882e1939`。验收摘要 `artifacts/dsh-cliworker-now-0.6.13-verification.json`，私有证据 `.test-data/provider-login-0613/` 不提交 Git。
+- 边界：未执行真实模型生成或续聊，元数据成功不写作推理成功；既有 OMP 原生菜单关闭后偶发状态失败、本轮范围外订阅/权限限制不宣称已根治。保留用户既有图标及文档改动，只提交本次范围，不推送。
+- 规格交付：三个能力域新增 3 条要求并修改 1 条既有状态要求，原 Purpose 与既有场景保留；同步前后严格校验共 6 项通过。6/6 任务均有上述证据，归档于 `openspec/changes/archive/2026-10-08-fix-provider-login-status-and-hermes-catalog/`；使用 `--skip-specs` 避免重复同步，归档后 5 个主规格通过、活动变更为 0。
