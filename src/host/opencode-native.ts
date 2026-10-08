@@ -1,8 +1,9 @@
 import { constants } from 'node:fs'
-import { lstat, mkdir, open, link, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, open, rename, rm, writeFile } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve, relative, isAbsolute } from 'node:path'
+import { safePiOmpAncestors } from './pi-omp-native.ts'
 import type { AccountIdentity } from './account-identity.ts'
 
 const object = (value: unknown): value is Record<string, any> =>
@@ -14,6 +15,7 @@ export interface OpenCodeNativeOptions {
   signal?: AbortSignal
 }
 export interface OpenCodeNativeProfile {
+  sourceIds: string[]
   auth: Record<string, any>
   providers: Record<string, any>
   catalog: Record<string, any>
@@ -77,26 +79,86 @@ function jsonc(raw: string): unknown {
   }
   return JSON.parse(result)
 }
-async function resolveReferences(value: unknown, options: OpenCodeNativeOptions, depth = 0): Promise<any> {
+interface ReferenceScope {
+  roots: string[]
+  env: Record<string, string>
+}
+async function ownEnvironment(roots: string[], options: OpenCodeNativeOptions, sourceIds: Set<string>) {
+  const result: Record<string, string> = {}
+  for (const root of roots) {
+    let handle
+    try {
+      options.signal?.throwIfAborted()
+      await safePiOmpAncestors(root)
+      handle = await open(
+        join(root, '.env'),
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      )
+      const info = await handle.stat()
+      if (!info.isFile() || info.nlink !== 1 || info.size > 65536) throw new Error()
+      const bytes = Buffer.alloc(65537)
+      try {
+        const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0)
+        if (bytesRead > 65536) throw new Error()
+        for (const line of bytes.subarray(0, bytesRead).toString('utf8').split(/\r?\n/)) {
+          if (!line.trim() || line.trimStart().startsWith('#')) continue
+          const match = /^(?:export\s+)?([A-Z][A-Z0-9_]*)\s*=\s*(.*)$/.exec(line.trim())
+          if (!match) throw new Error()
+          let value = match[2]!
+          if (
+            (value.startsWith('"') && value.endsWith('"')) ||
+            (value.startsWith("'") && value.endsWith("'"))
+          )
+            value = value.slice(1, -1)
+          if (/`|\$\(|\x00/.test(value)) throw new Error()
+          result[match[1]!] = value
+          sourceIds.add(resolve(root))
+        }
+      } finally {
+        bytes.fill(0)
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+        throw new Error('OpenCode 自身环境配置无法安全读取')
+    } finally {
+      await handle?.close()
+    }
+  }
+  return result
+}
+async function resolveReferences(
+  value: unknown,
+  options: OpenCodeNativeOptions,
+  scope: ReferenceScope,
+  depth = 0,
+): Promise<any> {
   if (depth > 48) throw new Error('OpenCode 原生配置过深')
   if (Array.isArray(value))
-    return Promise.all(value.map((entry) => resolveReferences(entry, options, depth + 1)))
+    return Promise.all(value.map((entry) => resolveReferences(entry, options, scope, depth + 1)))
   if (object(value))
     return Object.fromEntries(
       await Promise.all(
         Object.entries(value).map(async ([key, entry]) => [
           key,
-          await resolveReferences(entry, options, depth + 1),
+          await resolveReferences(entry, options, scope, depth + 1),
         ]),
       ),
     )
   if (typeof value !== 'string') return value
-  let result = value.replace(/\{env:([^}]+)\}/g, (_, name) => process.env[name] ?? '')
+  let result = value.replace(/\{env:([^}]+)\}/g, (_, name) => scope.env[name] ?? '')
   for (const match of [...result.matchAll(/\{file:([^}]+)\}/g)]) {
     const path = match[1]!.startsWith('~/')
       ? join(options.nativeHome ?? homedir(), match[1]!.slice(2))
       : match[1]!
-    if (!path.startsWith('/')) throw new Error('OpenCode 凭据文件引用必须为绝对路径')
+    if (
+      !isAbsolute(path) ||
+      !scope.roots.some((root) => {
+        const rel = relative(resolve(root), resolve(path))
+        return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
+      })
+    )
+      throw new Error('OpenCode 只允许引用自身账号目录中的凭据文件')
+    await safePiOmpAncestors(dirname(path))
     let file: Awaited<ReturnType<typeof open>> | undefined
     const bytes = Buffer.alloc(65537)
     try {
@@ -192,28 +254,34 @@ export async function readOpenCodeProfile(
   const config = options.nativeHome
     ? join(home, '.config')
     : process.env.XDG_CONFIG_HOME || join(home, '.config')
+  const ownRoots = [
+    join(config, 'opencode'),
+    join(data, 'opencode'),
+    join(dirname(authDirectory), 'config', 'opencode'),
+    join(authDirectory, 'opencode'),
+  ]
+  const sourceIds = new Set<string>()
+  const ownEnv = await ownEnvironment(ownRoots, options, sourceIds)
   const globalAuth = (await readDocument(join(data, 'opencode/auth.json'), true, options)) ?? {}
   const localAuth = (await readDocument(join(authDirectory, 'opencode/auth.json'), true, options)) ?? {}
+  if (Object.keys(globalAuth).length) sourceIds.add(resolve(data, 'opencode'))
+  if (Object.keys(localAuth).length) sourceIds.add(resolve(authDirectory, 'opencode'))
   let settings: Record<string, any> = {}
   const paths = [
     ...['config.json', 'opencode.json', 'opencode.jsonc'].map((name) => join(config, 'opencode', name)),
     ...['opencode.json', 'opencode.jsonc'].map((name) =>
       join(dirname(authDirectory), 'config', 'opencode', name),
     ),
-    ...(options.nativeHome === undefined && process.env.OPENCODE_CONFIG ? [process.env.OPENCODE_CONFIG] : []),
   ]
-  for (const path of new Set(paths))
-    settings = merge(settings, (await readDocument(path, true, options, true)) ?? {})
-  if (options.nativeHome === undefined && process.env.OPENCODE_CONFIG_CONTENT) {
-    try {
-      const inline = jsonc(process.env.OPENCODE_CONFIG_CONTENT)
-      if (!object(inline)) throw new Error()
-      settings = merge(settings, inline)
-    } catch {
-      throw new Error('OpenCode 原生内联配置无法解析')
-    }
+  for (const path of new Set(paths)) {
+    const document = (await readDocument(path, true, options, true)) ?? {}
+    settings = merge(settings, document)
+    if (Object.keys(document.provider ?? {}).length) sourceIds.add(resolve(dirname(path)))
   }
-  const providers = await resolveReferences(settings.provider ?? {}, options)
+  const providers = await resolveReferences(settings.provider ?? {}, options, {
+    roots: ownRoots,
+    env: ownEnv,
+  })
   if (!object(providers)) throw new Error('OpenCode 原生提供商配置无效')
   const auth = { ...globalAuth, ...localAuth }
   for (const [id, provider] of Object.entries(providers)) {
@@ -239,6 +307,7 @@ export async function readOpenCodeProfile(
       ? join(home, '.cache/opencode/models.json')
       : process.env.OPENCODE_MODELS_PATH || join(home, '.cache/opencode/models.json'))
   return {
+    sourceIds: [...sourceIds].sort(),
     auth,
     providers,
     disabled,
@@ -249,7 +318,7 @@ export async function readOpenCodeProfile(
     catalog: (await readDocument(cache, true, options, false, 8 * 1024 * 1024)) ?? {},
   }
 }
-/** Reusable refreshable private copy, keyed by source material; originals never change. */
+/** Rebuild a private copy from current own sources; never restore an old worker account. */
 export async function snapshotOpenCodeAuth(
   authDirectory: string,
   auth: Record<string, any>,
@@ -260,7 +329,7 @@ export async function snapshotOpenCodeAuth(
     providers.filter((id) => activeOpenCodeCredential(auth[id])).map((id) => [id, auth[id]]),
   )
   const digest = createHash('sha256').update(JSON.stringify(chosen)).digest('hex')
-  const root = join(authDirectory, 'cliworker-snapshots', digest)
+  const root = join(authDirectory, 'cliworker-snapshots', 'own-v2-' + digest)
   for (const path of [
     authDirectory,
     join(authDirectory, 'cliworker-snapshots'),
@@ -280,19 +349,15 @@ export async function snapshotOpenCodeAuth(
       throw new Error('OpenCode 私有账号快照文件不安全')
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    const temporary = join(root, 'opencode', `.auth-${randomUUID()}.tmp`)
-    try {
-      signal?.throwIfAborted()
-      await writeFile(temporary, JSON.stringify(chosen), { mode: 0o600, flag: 'wx' })
-      signal?.throwIfAborted()
-      try {
-        await link(temporary, path)
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-      }
-    } finally {
-      await rm(temporary, { force: true })
-    }
+  }
+  const temporary = join(root, 'opencode', `.auth-${randomUUID()}.tmp`)
+  try {
+    signal?.throwIfAborted()
+    await writeFile(temporary, JSON.stringify(chosen), { mode: 0o600, flag: 'wx' })
+    signal?.throwIfAborted()
+    await rename(temporary, path)
+  } finally {
+    await rm(temporary, { force: true })
   }
   signal?.throwIfAborted()
   return root

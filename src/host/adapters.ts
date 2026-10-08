@@ -1,3 +1,5 @@
+import { discoverCodexModels } from './codex-models.ts'
+import { discoverFirstPartySources, readFirstPartyModelSources } from './first-party-models.ts'
 import { extendedCatalog, isExtendedCli } from './extended-adapters.ts'
 import { ZCodeProtocol, managedZCodeEntry } from './zcode-adapter.ts'
 import { HermesProtocol } from './hermes-adapter.ts'
@@ -5,8 +7,8 @@ import { GrokProtocol } from './grok-adapter.ts'
 import { OpenCodeProtocol } from './opencode-adapter.ts'
 import { BridgeProtocol } from './bridge-protocol.ts'
 import { verifyPiOmpExecutable } from './pi-omp-identity.ts'
-import { groupAgyModels, resolveModel } from '../shared/models.ts'
-import { readFileSync, existsSync, statSync, lstatSync, accessSync, constants } from 'node:fs'
+import { resolveModel } from '../shared/models.ts'
+import { existsSync, statSync, lstatSync, accessSync, constants } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -22,7 +24,6 @@ import { AgyProtocol, type EventInput } from './protocol.ts'
 import { CliProtocol } from './cli-protocol.ts'
 import {
   agyArguments,
-  discoverModels,
   ProcessCleanupUnconfirmedError,
   type ProcessBackend,
   type RuntimeConfig,
@@ -136,88 +137,30 @@ export async function catalogFor(
       config,
       signal,
     )
-    if (!models.length)
-      throw new Error(
-        `${CLI_LABELS[cli]} 尚无可确认当前账号支持的 Worker 模型；请检查该 CLI 的原生登录及模型权限后刷新。只有公共目录或默认配置的候选已隐藏。`,
-      )
+    if (!models.length) throw new Error(`${CLI_LABELS[cli]} 当前账号暂无可用模型，请登录或刷新`)
     return {
       cli,
       models,
-      notice:
-        '仅列出原生配置与当前账号支持范围相符的 Worker 模型；思考强度来自对应原生能力。读取模型清单不等于已登录或实际调用成功，失败不会切换 CLI 或模型。',
+      notice: '当前账号可用模型',
     }
   }
-  if (cli === 'antigravity')
-    return {
-      cli,
-      models: groupAgyModels(await discoverModels(backend, config, cwd, signal)),
-      notice: '模型与强度来自 agy models；未公开强度的模型沿用 CLI 配置。',
-    }
+  if (cli === 'antigravity') throw new Error('Antigravity 尚未提供可确认的账号模型范围')
   if (cli === 'codex') {
-    const cache = JSON.parse(
-      readFileSync(join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'models_cache.json'), 'utf8'),
-    )
-    const models: ModelChoice[] = (cache.models ?? [])
-      .filter((m: any) => m.visibility === 'list')
-      .map((m: any) => ({
-        id: String(m.slug),
-        label: String(m.display_name ?? m.slug),
-        efforts: (m.supported_reasoning_levels ?? [])
-          .map((e: any) => e.effort)
-          .filter((e: any) => EFFORTS.includes(e)),
-      }))
-      .filter((m: ModelChoice) => m.id && m.efforts?.length)
-    if (!models.length) throw new Error('没有 Codex 模型缓存；请先在终端启动 Codex 刷新模型列表')
-    return {
-      cli,
-      models,
-      notice: '模型来自本机 Codex 缓存，可能过期。使用 workspace-write / read-only 沙箱；不自动批准提权。',
-    }
+    const models = await discoverCodexModels(backend, config, executable, cwd, signal)
+    if (!models.length) throw new Error('Codex 当前账号暂无可确认模型，请刷新')
+    return { cli, models, notice: '当前账号可用模型' }
   }
-  if (cli === 'claude') {
-    const help = await capture(backend, config, [executable, '--help'], cwd, signal)
-    if (!help.includes('--effort') || !help.includes('--output-format'))
-      throw new Error('Claude 版本不支持所需参数，请升级后重试')
-    const efforts = EFFORTS.filter((e) =>
-      new RegExp(`\\b${e}\\b`).test(help.match(/--effort[\s\S]*?(?=\n\s+--|$)/)?.[0] ?? ''),
+  if (cli === 'claude' || cli === 'kimi' || cli === 'mimo') {
+    const sources = await readFirstPartyModelSources(
+      cli,
+      executable,
+      cwd,
+      (argv, env) => capture(backend, config, argv, cwd, signal, env),
+      signal,
     )
-    return {
-      cli,
-      models: ['sonnet', 'opus'].map((id) => ({
-        id,
-        label: `Claude 官方模型别名 ${id}（账户可用性由 CLI 验证）`,
-        efforts,
-      })),
-      notice:
-        'Claude acceptEdits 模式；保留原生权限检查，需要额外授权的工具会被拒绝并显示原因。别名不代表账户一定可用。',
-    }
-  }
-  if (cli === 'kimi') {
-    const raw = JSON.parse(
-      await capture(backend, config, [executable, 'provider', 'list', '--json'], cwd, signal),
-    )
-    const models = Object.keys(raw.models ?? {}).map((id) => ({
-      id,
-      label: id,
-      efforts: ['default' as const],
-    }))
-    if (!models.length) throw new Error('Kimi 尚无模型配置，请先在终端登录并配置模型')
-    return {
-      cli,
-      models,
-      notice: 'Kimi -p 自动执行工具；当前 CLI 没有强度参数，只能沿用其配置，且不支持只读派遣。',
-    }
-  }
-  if (cli === 'mimo') {
-    const output = await capture(backend, config, [executable, 'models', '--verbose'], cwd, signal)
-    const models = parseMimoModels(output)
-    if (!models.length) throw new Error('MiMo 未返回模型，请先在官方 mimo CLI 配置提供商')
-    return {
-      cli,
-      models,
-      notice:
-        '仅适配 XiaomiMiMo/MiMo-Code 官方 CLI。使用 build / plan agent，保留原生权限检查；强度取自模型 variants。',
-    }
+    const models = await discoverFirstPartySources(sources, signal)
+    if (!models.length) throw new Error(`${CLI_LABELS[cli]} 当前账号暂无可确认模型，请检查配置`)
+    return { cli, models, notice: '当前账号可用模型' }
   }
   throw new Error('Unsupported CLI')
 }
@@ -295,8 +238,7 @@ export function workerArguments(
       'stream-json',
       '--model',
       preference.model,
-      '--effort',
-      preference.effort,
+      ...(preference.effort !== 'default' ? ['--effort', preference.effort] : []),
       '--permission-mode',
       mode === 'plan' ? 'plan' : 'acceptEdits',
       ...(conversationId ? ['--resume', conversationId] : []),

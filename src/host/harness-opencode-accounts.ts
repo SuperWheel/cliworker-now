@@ -5,38 +5,10 @@ import { fileURLToPath } from 'node:url'
 import type { AccountAction } from '../shared/accounts.ts'
 import type { AccountIdentity } from './account-identity.ts'
 import type { RuntimeConfig } from './process.ts'
-import {
-  openCodeAuthDirectory,
-  openCodeCredentialEnvironment,
-  openCodeEnvironment,
-} from './opencode-adapter.ts'
+import { openCodeAuthDirectory, openCodeEnvironment } from './opencode-adapter.ts'
 import { confineExtended, privateDirectory } from './extended-adapters.ts'
 import { inspectPiOmpNativeAccount } from './pi-omp-native.ts'
 import { inspectOpenCodeProfile, type OpenCodeNativeOptions } from './opencode-native.ts'
-
-const record = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value)
-
-async function managedIdentity(config: RuntimeConfig, signal: AbortSignal): Promise<AccountIdentity> {
-  signal.throwIfAborted()
-  if (!config.zaiCredentialRef) return { state: 'unconfigured', summary: '尚未配置备用 API' }
-  let key: string | undefined
-  try {
-    key = await config.resolveCredential?.(config.zaiCredentialRef)
-  } catch {
-    signal.throwIfAborted()
-    return { state: 'unavailable', summary: '备用 API 读取失败，请检查宿主设置' }
-  }
-  signal.throwIfAborted()
-  return key
-    ? {
-        state: 'configured',
-        authMethod: 'api',
-        verification: 'local',
-        summary: '已配置备用 API',
-      }
-    : { state: 'unavailable', summary: '备用 API 不可用，请检查宿主设置' }
-}
 
 export async function readPiOmpAccount(
   cli: 'pi' | 'omp',
@@ -45,23 +17,7 @@ export async function readPiOmpAccount(
   options: { nativeHome?: string } = {},
 ): Promise<AccountIdentity> {
   const native = await inspectPiOmpNativeAccount(cli, config.stateDirectory, signal, options)
-  return withManagedSource(native, config, signal)
-}
-
-/** A Host API reference is an additional execution source, never a native login. */
-async function withManagedSource(
-  native: AccountIdentity,
-  config: RuntimeConfig,
-  signal: AbortSignal,
-): Promise<AccountIdentity> {
-  if (!config.zaiCredentialRef) return native
-  const managed = await managedIdentity(config, signal)
-  return {
-    ...native,
-    summary: `${native.summary}；${
-      managed.state === 'configured' ? '已配置备用 API' : '备用 API 不可用，请检查宿主设置'
-    }`,
-  }
+  return native
 }
 
 /** Project only capability metadata, never keys, arbitrary provider metadata or token claims. */
@@ -75,19 +31,7 @@ export async function readOpenCodeAccount(
     ...options,
     signal,
   })
-  return withManagedSource(native, config, signal)
-}
-
-async function withCancellation<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) {
-    void pending.catch(() => undefined)
-    signal.throwIfAborted()
-  }
-  return new Promise<T>((resolve, reject) => {
-    const cancel = () => reject(signal.reason)
-    signal.addEventListener('abort', cancel, { once: true })
-    void pending.then(resolve, reject).finally(() => signal.removeEventListener('abort', cancel))
-  })
+  return native
 }
 
 /** User-operated native terminal. No task prompt, slash command, login or logout is injected. */
@@ -105,13 +49,6 @@ export async function prepareOpenCodeAccount(
 }> {
   signal.throwIfAborted()
   if (!['login', 'logout', 'manage'].includes(action)) throw new Error('不支持的 OpenCode 账号操作')
-  // Resolve before allocating disk state, and release a cancelled startup even if
-  // an unavailable credential provider never settles its original request.
-  const credentials = await withCancellation(
-    action === 'manage' ? openCodeCredentialEnvironment(config) : Promise.resolve({}),
-    signal,
-  )
-  signal.throwIfAborted()
   const data = openCodeAuthDirectory(config.stateDirectory)
   const accountRoot = privateDirectory(dirname(data))
   const terminals = privateDirectory(join(accountRoot, 'terminals'))
@@ -146,16 +83,9 @@ export async function prepareOpenCodeAccount(
       state,
       {
         permission: { '*': 'deny' },
-        ...(config.zaiCredentialRef && action === 'manage'
-          ? {
-              model: 'zhipuai-coding-plan/glm-5.3-flash',
-              small_model: 'zhipuai-coding-plan/glm-5.3-flash',
-              enabled_providers: ['zhipuai-coding-plan'],
-            }
-          : {}),
       },
       data,
-      !!config.zaiCredentialRef && action === 'manage',
+      false,
     )
     signal.throwIfAborted()
     const argv = [executable, ...(action === 'manage' ? [] : ['auth', action])]
@@ -168,15 +98,13 @@ export async function prepareOpenCodeAccount(
         undefined,
         data,
       ),
-      env: { ...env, ...credentials, ELECTRON_RUN_AS_NODE: '1' },
+      env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
       cwd: state,
       cleanup,
       instruction:
-        config.zaiCredentialRef && action === 'manage'
-          ? '当前 API 凭据由 Harness 原生模型设置管理；此终端沿用任务的同一凭据，账号切换请使用原生模型设置。'
-          : action === 'manage'
-            ? '在 OpenCode 原生终端使用 /connect 管理登录；凭据与插件任务共用，工作数据保持独立。'
-            : '按 OpenCode 原生账号流程操作；凭据与插件任务共用，关闭终端不会撤销已完成的账号操作。',
+        action === 'manage'
+          ? '在 OpenCode 原生终端使用 /connect 管理登录；凭据与插件任务共用，工作数据保持独立。'
+          : '按 OpenCode 原生账号流程操作；凭据与插件任务共用，关闭终端不会撤销已完成的账号操作。',
     }
   } catch (error) {
     cleanup()

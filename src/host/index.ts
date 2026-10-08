@@ -27,8 +27,14 @@ import {
   type RoleSnapshot,
 } from '../shared/types.ts'
 import { agentNameSchema, askRolePreset } from './roles.ts'
-import { DEFAULT_CONFIG, projectDirectory, type RuntimeConfig } from './process.ts'
-import { catalogFor, validatePreference } from './adapters.ts'
+import {
+  DEFAULT_CONFIG,
+  projectDirectory,
+  ProcessCleanupUnconfirmedError,
+  type RuntimeConfig,
+} from './process.ts'
+import { validatePreference } from './adapters.ts'
+import { authorizedCatalog, authorizeSelection } from './authorized-catalog.ts'
 import { WorkerStorage } from './storage.ts'
 import { WorkerRuntime, type Submission } from './runtime.ts'
 import { AccountManager } from './accounts.ts'
@@ -74,7 +80,7 @@ export interface Config {
   opencodeExecutable?: string
   zcodeAuthDirectory?: string
   zcodeBuiltinConfig?: string
-  /** Explicit Harness credential reference reused only by the CN Zhipu adapters. */
+  /** @deprecated Accepted for old deployments only; never read or forwarded. */
   zaiCredentialRef?: string
   /** Optional private state directory; defaults to DSH_HOME/cliworker-now. */
   stateDirectory?: string
@@ -158,6 +164,8 @@ export class CliWorkerService extends TypertRemoteService {
   private options: RuntimeConfig
   private pending = new Map<string, number>()
   private preferenceWaits = new Map<string, Promise<Preference>>()
+  private selectionBindings = new WeakMap<Preference, string>()
+  private displayedBindings = new Map<string, string>()
   private disposed = new AbortController()
 
   /** @param ctx - Harness services. @param config - Validated deployment options. */
@@ -166,13 +174,6 @@ export class CliWorkerService extends TypertRemoteService {
     this.options = {
       ...DEFAULT_CONFIG,
       ...config,
-      resolveCredential: async (ref) => {
-        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(ref)) throw new Error('无效凭据引用')
-        const credentials = ctx.get('credentials' as any) as unknown as
-          | { resolve(ref: string): Promise<{ value: string } | undefined> }
-          | undefined
-        return (await credentials?.resolve(ref))?.value
-      },
     }
     this.accounts = new AccountManager(ctx.subprocess, this.options)
     this.runtime = new WorkerRuntime(
@@ -225,17 +226,42 @@ export class CliWorkerService extends TypertRemoteService {
     if (agent.ctx.get('sandboxPolicy')!.resolve({ session: agent.session }).mode === 'read-only')
       throw new Error('Harness 当前为只读权限；外部 CLI 需要可写运行状态，请先明确切换项目权限')
   }
+  private async queryCatalog(...args: Parameters<typeof authorizedCatalog>) {
+    try {
+      return await authorizedCatalog(...args)
+    } catch (error) {
+      if (error instanceof ProcessCleanupUnconfirmedError) this.runtime.blockOnCleanup(error)
+      throw error
+    }
+  }
+  private async querySelection(...args: Parameters<typeof authorizeSelection>) {
+    try {
+      return await authorizeSelection(...args)
+    } catch (error) {
+      if (error instanceof ProcessCleanupUnconfirmedError) this.runtime.blockOnCleanup(error)
+      throw error
+    }
+  }
   private async choose(agent: Agent, signal: AbortSignal, cli: CliId): Promise<Preference> {
     this.runtime.assertCliEnabled(cli)
     const project = this.project(agent)
-    const key = JSON.stringify([project, cli])
     const saved = this.runtime.storage.preference(project, cli)
-    const catalog = await catalogFor(cli, this.ctx.subprocess, this.options, project, signal)
+    const { catalog, binding } = await this.queryCatalog(
+      cli,
+      this.ctx.subprocess,
+      this.options,
+      project,
+      signal,
+    )
+    const key = JSON.stringify([project, cli, binding])
     this.runtime.assertCliEnabled(cli)
     const models = catalog.models
     if (saved) {
       try {
         validatePreference(saved, catalog)
+        if (resolveModel(saved, models).model !== saved.model)
+          throw new Error('Saved model requires selection')
+        ;(this.selectionBindings ??= new WeakMap()).set(saved, binding)
         return saved
       } catch {
         /* Ask again for obsolete preferences. */
@@ -247,6 +273,8 @@ export class CliWorkerService extends TypertRemoteService {
       const result = await waiting
       signal.throwIfAborted()
       this.runtime.assertCliEnabled(cli)
+      await this.querySelection(result, this.ctx.subprocess, this.options, project, signal, binding)
+      ;(this.selectionBindings ??= new WeakMap()).set(result, binding)
       return result
     }
     this.pending.set(agent.id, (this.pending.get(agent.id) ?? 0) + 1)
@@ -293,7 +321,9 @@ export class CliWorkerService extends TypertRemoteService {
         effort = selection.answers.find((a) => a.id === 'cliworker_effort')?.selected[0] as typeof effort
       }
       const preference = resolveModel(preferenceSchema.parse({ cli, model, effort }), models)
-      validatePreference(preference, catalog)
+      await this.querySelection(preference, this.ctx.subprocess, this.options, project, signal, binding)
+      this.runtime.assertCliEnabled(cli)
+      ;(this.selectionBindings ??= new WeakMap()).set(preference, binding)
       this.runtime.storage.setPreference(project, preference)
       return preference
     })()
@@ -324,7 +354,7 @@ export class CliWorkerService extends TypertRemoteService {
       this.runtime.changed()
     }
   }
-  private launch(
+  private async launch(
     agent: Agent,
     title: string,
     prompt: string,
@@ -332,12 +362,29 @@ export class CliWorkerService extends TypertRemoteService {
     mode: TaskMode,
     workerId?: string,
     identity?: { agentName?: string; role?: RoleSnapshot },
-  ): string {
+    signal: AbortSignal = this.disposed.signal,
+  ): Promise<string> {
     this.assertExecution(agent)
     this.runtime.assertCliEnabled(cliOf(preference))
     if (this.accounts.isBusy(cliOf(preference)))
       throw new Error('此 CLI 正在管理账号，请先关闭账号终端再启动任务')
     const project = this.project(agent)
+    const expected = workerId
+      ? this.runtime.storage.accountBinding(workerId)
+      : this.selectionBindings?.get(preference)
+    const { binding, preference: authorizedPreference } = await this.querySelection(
+      preference,
+      this.ctx.subprocess,
+      this.options,
+      project,
+      signal,
+      expected,
+    )
+    if (authorizedPreference.model !== preference.model) throw new Error('模型与思考强度不匹配，请重新选择')
+    signal.throwIfAborted()
+    this.assertExecution(agent)
+    this.runtime.assertCliEnabled(cliOf(preference))
+    if (this.accounts.isBusy(cliOf(preference))) throw new Error('请先关闭账号终端')
     let submission: Submission | undefined
     const id = agent.ctx.get('jobs')!.start({
       kind: 'cliworker',
@@ -354,6 +401,7 @@ export class CliWorkerService extends TypertRemoteService {
           mode,
           workerId,
           identity,
+          binding,
         )
         submission = submitted
         return {
@@ -470,6 +518,7 @@ export class CliWorkerService extends TypertRemoteService {
                 args.read_only ? 'plan' : 'accept-edits',
                 undefined,
                 { agentName, role },
+                AbortSignal.any([exec.signal, this.disposed.signal]),
               )
             },
           }),
@@ -786,7 +835,14 @@ export class CliWorkerService extends TypertRemoteService {
       const id = validate.enum(CLI_IDS).parse(cli)
       const project = this.project(await this.parent(parentSessionId))
       this.runtime.assertCliEnabled(id)
-      const catalog = await catalogFor(id, this.ctx.subprocess, this.options, project, signal)
+      const { catalog, binding } = await this.queryCatalog(
+        id,
+        this.ctx.subprocess,
+        this.options,
+        project,
+        signal,
+      )
+      ;(this.displayedBindings ??= new Map()).set(JSON.stringify([parentSessionId, id]), binding)
       this.runtime.assertCliEnabled(id)
       return JSON.stringify({
         ...catalog,
@@ -804,7 +860,14 @@ export class CliWorkerService extends TypertRemoteService {
       let preference: Preference = preferenceSchema.parse(JSON.parse(selection))
       const project = this.project(agent)
       this.runtime.assertCliEnabled(cliOf(preference))
-      const catalog = await catalogFor(cliOf(preference), this.ctx.subprocess, this.options, project, signal)
+      const { catalog } = await this.querySelection(
+        preference,
+        this.ctx.subprocess,
+        this.options,
+        project,
+        signal,
+        this.displayedBindings?.get(JSON.stringify([parentSessionId, cliOf(preference)])),
+      )
       validatePreference(preference, catalog)
       preference = resolveModel(preference, catalog.models)
       signal.throwIfAborted()
@@ -830,12 +893,14 @@ export class CliWorkerService extends TypertRemoteService {
       const preference = preferenceSchema.parse(JSON.parse(selection))
       if (cliOf(preference) !== cliOf(worker.preference)) throw new Error('已有会话不能切换 CLI')
       this.runtime.assertCliEnabled(cliOf(preference))
-      const catalog = await catalogFor(
-        cliOf(preference),
+      const { catalog } = await this.querySelection(
+        preference,
         this.ctx.subprocess,
         this.options,
         worker.project,
         signal,
+        this.runtime.storage.accountBinding(workerId) ??
+          this.displayedBindings?.get(JSON.stringify([parentSessionId, cliOf(preference)])),
       )
       validatePreference(preference, catalog)
       signal.throwIfAborted()
@@ -861,18 +926,16 @@ export class CliWorkerService extends TypertRemoteService {
       this.assertExecution(agent)
       const worker = this.runtime.get(agent.id, workerId)
       this.runtime.assertCliEnabled(cliOf(worker.preference))
-      validatePreference(
+      return this.launch(
+        agent,
+        worker.title,
+        prompt,
         worker.preference,
-        await catalogFor(
-          cliOf(worker.preference),
-          this.ctx.subprocess,
-          this.options,
-          this.project(agent),
-          signal,
-        ),
+        worker.mode,
+        workerId,
+        undefined,
+        signal,
       )
-      signal.throwIfAborted()
-      return this.launch(agent, worker.title, prompt, worker.preference, worker.mode, workerId)
     } catch (error) {
       throw failure(error)
     }

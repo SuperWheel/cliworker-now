@@ -194,7 +194,7 @@ it('imports only OMP auth/catalog rows, preserving custom model env and native a
   expect((await f.status()).state).toBe('configured')
   expect((await readFile(join(f.global, 'agent.db'))).equals(sourceBefore)).toBe(true)
 })
-it('preserves worker refreshed OAuth and env while adding a newly configured provider to a continuation', async () => {
+it('rebuilds continuation credentials from current own sources, never the worker copy', async () => {
   const f = await fixture('pi')
   await save(f.global, 'auth.json', {
     first: { type: 'oauth', access: 'SYNTHETIC_OLD', refresh: 'SYNTHETIC_OLD_REFRESH', expires: 1 },
@@ -220,10 +220,67 @@ it('preserves worker refreshed OAuth and env while adding a newly configured pro
   })
   await snapshotPiOmpNative('pi', f.worker, { ...f.options, preserveCredentials: true })
   const auth = JSON.parse(await readFile(join(f.worker, 'auth.json'), 'utf8'))
-  expect(auth.first.access).toBe('SYNTHETIC_REFRESHED')
+  expect(auth.first.access).toBe('SYNTHETIC_OLD')
   expect(auth.second.type).toBe('api')
   expect((await restorePiOmpEnvironment(f.worker)).FIRST_API_KEY).toBe('SYNTHETIC_ENV')
   expect(
     JSON.parse(await readFile(join(f.worker, 'models.json'), 'utf8')).providers.second.models[0].id,
   ).toBe('second-model')
+})
+
+it.each(['pi', 'omp'] as const)('%s cannot revive a logged-out source from old worker files', async (cli) => {
+  const f = await fixture(cli)
+  if (cli === 'pi') await save(f.global, 'auth.json', { fixture: { type: 'api', key: 'SYNTHETIC_OWN' } })
+  else
+    credentialDB(join(f.global, 'agent.db'), 'fixture', {
+      access: 'SYNTHETIC_OWN',
+      refresh: 'SYNTHETIC_REFRESH',
+      expires: 9999999999999,
+    })
+  await writeFile(join(f.global, '.env'), 'FIXTURE_API_KEY=SYNTHETIC_OWN_ENV\n')
+  await snapshotPiOmpNative(cli, f.worker, f.options)
+  await rm(join(f.global, cli === 'pi' ? 'auth.json' : 'agent.db'))
+  await rm(join(f.global, '.env'))
+  const refreshed = await snapshotPiOmpNative(cli, f.worker, { ...f.options, preserveCredentials: true })
+  expect(refreshed.configured).toBe(false)
+  expect(await restorePiOmpEnvironment(f.worker)).toEqual({})
+  if (cli === 'pi') expect(JSON.parse(await readFile(join(f.worker, 'auth.json'), 'utf8'))).toEqual({})
+  else {
+    const db = new DatabaseSync(join(f.worker, 'agent.db'))
+    try {
+      expect(db.prepare('SELECT * FROM auth_credentials').all()).toEqual([])
+    } finally {
+      db.close()
+    }
+  }
+})
+
+it('discards only the known Host-only OMP route and excludes remote auth brokers', async () => {
+  const f = await fixture('omp')
+  const legacy = {
+    api: 'openai-completions',
+    apiKey: 'ZAI_CODING_CN_API_KEY',
+    baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
+    models: [{ id: 'glm-5.3-flash' }],
+  }
+  await save(f.account, 'models.yml', {
+    providers: { 'cliworker-zai-cn': legacy, own: { apiKey: 'SYNTHETIC_OWN' } },
+  })
+  await save(f.account, 'config.yml', {
+    auth: { broker: { url: 'https://other-account.invalid' }, preference: 'oauth' },
+  })
+  const before = await readFile(join(f.account, 'models.yml'), 'utf8')
+  await snapshotPiOmpNative('omp', f.worker, f.options)
+  expect(JSON.parse(await readFile(join(f.worker, 'models.yml'), 'utf8')).providers).toEqual({
+    own: { apiKey: 'SYNTHETIC_OWN' },
+  })
+  expect(JSON.parse(await readFile(join(f.worker, 'native-auth.json'), 'utf8')).auth).toEqual({
+    preference: 'oauth',
+  })
+  expect(await readFile(join(f.account, 'models.yml'), 'utf8')).toBe(before)
+  await writeFile(join(f.account, '.env'), 'ZAI_CODING_CN_API_KEY=SYNTHETIC_EXPLICIT_OWN\n')
+  await snapshotPiOmpNative('omp', f.worker, f.options)
+  expect(
+    JSON.parse(await readFile(join(f.worker, 'models.yml'), 'utf8')).providers['cliworker-zai-cn'],
+  ).toEqual(legacy)
 })

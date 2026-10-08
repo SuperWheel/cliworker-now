@@ -7,7 +7,7 @@ import { CLI_IDS, type Worker } from '../src/shared/types.ts'
 import { CliWorkerService } from '../src/host/index.ts'
 import { WorkerStorage } from '../src/host/storage.ts'
 import { WorkerRuntime } from '../src/host/runtime.ts'
-import { DEFAULT_CONFIG, type ProcessBackend } from '../src/host/process.ts'
+import { DEFAULT_CONFIG, ProcessCleanupUnconfirmedError, type ProcessBackend } from '../src/host/process.ts'
 import { catalogFor, type Catalog } from '../src/host/adapters.ts'
 
 vi.mock('../src/host/adapters.ts', async (original) => ({
@@ -27,6 +27,21 @@ const catalog: Catalog = {
   models: [{ id: 'fixture', label: 'Synthetic fixture', efforts: ['low'] }],
   notice: 'Synthetic fixture',
 }
+it('a settings model-query cleanup failure blocks later metadata and task admission', async () => {
+  const f = fixture()
+  vi.mocked(catalogFor).mockRejectedValueOnce(new ProcessCleanupUnconfirmedError())
+  await expect(
+    f.service.catalogForCli('parent', 'antigravity', new AbortController().signal),
+  ).rejects.toThrow()
+  await expect(
+    f.service.catalogForCli('parent', 'antigravity', new AbortController().signal),
+  ).rejects.toThrow('清理')
+  expect(() =>
+    f.runtime.submit('parent', f.project, 'Synthetic', 'Synthetic', preference, 'accept-edits'),
+  ).toThrow('清理')
+  expect(catalogFor).toHaveBeenCalledTimes(1)
+  expect(f.backend.spawn).not.toHaveBeenCalled()
+})
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((yes) => (resolve = yes))
@@ -276,7 +291,12 @@ describe('account-supported model selection', () => {
     cli: 'antigravity',
     models: [
       { id: 'paid/GLM-5.3-Flash', label: 'GLM-5.3-Flash（付费来源）', efforts: ['default'], cost: 'paid' },
-      { id: 'native-free/glm-5.3-flash', label: 'GLM-5.3-Flash（免费来源）', efforts: ['default'], cost: 'free' },
+      {
+        id: 'native-free/glm-5.3-flash',
+        label: 'GLM-5.3-Flash（免费来源）',
+        efforts: ['default'],
+        cost: 'free',
+      },
       { id: 'paid/GLM-5.3', label: 'GLM-5.3 (provider)', efforts: ['default'], cost: 'unknown' },
     ],
     notice: '【模拟】仅已确认账号支持的模型',
@@ -314,9 +334,16 @@ describe('account-supported model selection', () => {
     const { service, storage, project, worker, signal, backend } = fixture()
     vi.mocked(catalogFor).mockResolvedValue(supported)
     storage.setPreference(project, worker.preference)
-    await expect(service.configure('parent', JSON.stringify(worker.preference), signal)).rejects.toThrow('不可用')
+    await expect(service.configure('parent', JSON.stringify(worker.preference), signal)).rejects.toThrow(
+      '不可用',
+    )
     await expect(service.followup('parent', worker.id, '【模拟】继续', signal)).rejects.toThrow('不可用')
     expect(storage.preference(project, 'antigravity')).toEqual(worker.preference)
     expect(backend.spawn).not.toHaveBeenCalled()
   })
 })
+
+// Account identity is synthetic; these tests exercise actual directory and setting gates.
+vi.mock('../src/host/cli-account-binding.ts', () => ({
+  readCliAccountBinding: vi.fn(async () => 'synthetic-settings-account'),
+}))

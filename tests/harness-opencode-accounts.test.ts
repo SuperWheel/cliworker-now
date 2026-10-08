@@ -92,7 +92,7 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
     expect(state).toMatchObject({
       state: 'unconfigured',
       verification: 'local',
-      summary: expect.stringContaining('已配置备用 API'),
+      summary: '尚未配置原生账号',
     })
     expect(await readOpenCodeAccount(config, signal())).toMatchObject({
       state: 'unconfigured',
@@ -100,7 +100,7 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
     expect(JSON.stringify(state)).not.toContain('synthetic-')
     expect(
       await readPiOmpAccount('pi', { ...config, resolveCredential: async () => undefined }, signal()),
-    ).toMatchObject({ state: 'unconfigured', summary: expect.stringContaining('备用 API 不可用') })
+    ).toMatchObject({ state: 'unconfigured', summary: '尚未配置原生账号' })
     const failed = await readPiOmpAccount(
       'pi',
       {
@@ -225,102 +225,60 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
     expect(nativeConfig).not.toHaveProperty('enabled_providers')
     login.cleanup()
   })
-  it('keeps the configured managed source in terminals/tasks/catalogs while allowing a separate native login selector', async () => {
-    const config = {
-      ...fixture(),
-      zaiCredentialRef: 'synthetic-ref',
-      resolveCredential: async () => 'synthetic-key',
-    }
-    for (const action of ['login', 'logout'] as const) {
+  it('never resolves a Host source for terminals, tasks or catalogs', async () => {
+    const resolveCredential = vi.fn(async () => 'synthetic-host-key')
+    const config = { ...fixture(), zaiCredentialRef: 'synthetic-ref', resolveCredential }
+    for (const action of ['login', 'logout', 'manage'] as const) {
       const native = await prepareOpenCodeAccount('/bin/opencode', action, config, signal())
-      expect(native.argv.slice(-2)).toEqual(['auth', action])
       expect(native.env.ZHIPU_API_KEY).toBeUndefined()
       expect(native.env.OPENCODE_AUTH_CONTENT).toBe('')
+      expect(JSON.parse(native.env.OPENCODE_CONFIG_CONTENT!)).not.toHaveProperty('model')
       native.cleanup()
     }
-    const terminal = await prepareOpenCodeAccount('/bin/opencode', 'manage', config, signal())
+    const capture = vi.fn()
+    expect(
+      await extendedCatalog('opencode', '/bin/opencode', capture, config.stateDirectory, config),
+    ).toEqual([])
+    expect(capture).not.toHaveBeenCalled()
+    await expect(
+      extendedLaunch(
+        'opencode',
+        '/bin/opencode',
+        config.stateDirectory,
+        { cli: 'opencode', model: 'zhipuai-coding-plan/glm-5.3-flash', effort: 'default' },
+        'plan',
+        'synthetic task',
+        join(config.stateDirectory, 'native', 'one'),
+        config,
+      ),
+    ).rejects.toThrow('没有有效账号')
+    expect(resolveCredential).not.toHaveBeenCalled()
+    seedAccount(config)
     const worker = await extendedLaunch(
       'opencode',
       '/bin/opencode',
       config.stateDirectory,
-      { cli: 'opencode', model: 'zhipuai-coding-plan/glm-5.3-flash', effort: 'default' },
+      { cli: 'opencode', model: 'fixture/model', effort: 'default' },
       'plan',
       'synthetic task',
-      join(config.stateDirectory, 'native', 'one'),
+      join(config.stateDirectory, 'native', 'two'),
       config,
     )
-    let catalogEnv: Record<string, string> | undefined
-    await extendedCatalog(
-      'opencode',
-      '/bin/opencode',
-      async (_argv, env) => {
-        catalogEnv = env
-        return (
-          'zhipuai-coding-plan/glm-5.3-flash\n' +
-          JSON.stringify({
-            providerID: 'zhipuai-coding-plan',
-            id: 'glm-5.3-flash',
-            variants: {},
-            api: {
-              id: 'glm-5.3-flash',
-              url: 'https://open.bigmodel.cn/api/coding/paas/v4',
-              npm: '@ai-sdk/openai-compatible',
-            },
-          }) +
-          '\n'
-        )
-      },
-      config.stateDirectory,
-      config,
+    expect(worker.env.ZHIPU_API_KEY).toBeUndefined()
+    expect(readFileSync(join(worker.env.XDG_DATA_HOME!, 'opencode/auth.json'), 'utf8')).toContain(
+      'synthetic-key',
     )
-    for (const env of [terminal.env, worker.env, catalogEnv!]) {
-      expect(env.ZHIPU_API_KEY).toBe('synthetic-key')
-      expect(env.OPENCODE_AUTH_CONTENT).toBe(env === catalogEnv ? '' : '{}')
-      expect(env.XDG_DATA_HOME).toContain(openCodeAuthDirectory(config.stateDirectory))
-    }
-    expect(JSON.parse(terminal.env.OPENCODE_CONFIG_CONTENT!)).toMatchObject({
-      model: 'zhipuai-coding-plan/glm-5.3-flash',
-      small_model: 'zhipuai-coding-plan/glm-5.3-flash',
-      enabled_providers: ['zhipuai-coding-plan'],
-      permission: { '*': 'deny' },
-    })
-    expect(terminal.instruction).toContain('Harness')
-    expect(worker.argv.join(' ')).toContain(openCodeAuthDirectory(config.stateDirectory))
-    terminal.cleanup()
     worker.cleanup()
-    await expect(
-      prepareOpenCodeAccount(
-        '/bin/opencode',
-        'manage',
-        { ...config, resolveCredential: async () => undefined },
-        signal(),
-      ),
-    ).rejects.toThrow('凭据引用不可用')
+    expect(resolveCredential).not.toHaveBeenCalled()
   })
-  it('observes cancellation before preparing a terminal and after credential resolution', async () => {
+  it('observes cancellation before preparing a terminal or reading an account', async () => {
     const config = fixture(),
       controller = new AbortController()
-    controller.abort()
-    await expect(
-      prepareOpenCodeAccount('/bin/opencode', 'login', config, controller.signal),
-    ).rejects.toThrow()
-    const next = new AbortController()
-    const resolveCredential = vi.fn(async () => {
-      next.abort(new Error('Synthetic credential lookup cancelled'))
-      return 'synthetic-key'
-    })
-    await expect(
-      readPiOmpAccount(
-        'pi',
-        {
-          ...config,
-          zaiCredentialRef: 'fixture',
-          resolveCredential,
-        },
-        next.signal,
-      ),
-    ).rejects.toThrow('Synthetic credential lookup cancelled')
-    expect(resolveCredential).toHaveBeenCalledExactlyOnceWith('fixture')
+    controller.abort(new Error('synthetic cancelled'))
+    await expect(prepareOpenCodeAccount('/bin/opencode', 'login', config, controller.signal)).rejects.toThrow(
+      'synthetic cancelled',
+    )
+    await expect(readPiOmpAccount('pi', config, controller.signal)).rejects.toThrow('synthetic cancelled')
   })
   it('removes only private terminal runtime data after exit, leaving shared auth and worker data intact', async () => {
     const config = fixture()
@@ -352,30 +310,18 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
     expect(readdirSync(join(config.stateDirectory, 'accounts', 'opencode', 'terminals'))).toEqual([])
     expect(readFileSync(join(outside, 'sentinel'), 'utf8')).toBe('untouched')
   })
-  it('cancels a stalled credential provider without allocating or retaining terminal state', async () => {
+  it('a stalled Host resolver cannot block native account management', async () => {
     const config = fixture(),
-      controller = new AbortController()
-    let began!: () => void
-    const started = new Promise<void>((resolve) => {
-      began = resolve
-    })
-    const pending = prepareOpenCodeAccount(
+      resolver = vi.fn(() => new Promise<string>(() => {}))
+    const terminal = await prepareOpenCodeAccount(
       '/bin/opencode',
       'manage',
-      {
-        ...config,
-        zaiCredentialRef: 'fixture',
-        resolveCredential: () => {
-          began()
-          return new Promise(() => {})
-        },
-      },
-      controller.signal,
+      { ...config, zaiCredentialRef: 'fixture', resolveCredential: resolver },
+      signal(),
     )
-    await started
-    controller.abort()
-    await expect(pending).rejects.toThrow()
-    expect(readdirSync(config.stateDirectory)).toEqual([])
+    expect(resolver).not.toHaveBeenCalled()
+    terminal.cleanup()
+    expect(existsSync(terminal.cwd)).toBe(false)
   })
   it.skipIf(process.platform !== 'darwin')(
     'permits native OAuth refresh in shared data while denying plan project writes',

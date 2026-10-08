@@ -26,7 +26,6 @@ const errorMessage = (error) =>
     ? error.message
     : 'Pi/OMP 原生配置、模型或协议校验失败'
 const inside = (root, path) => path.startsWith(root + sep)
-const cnProvider = (cli) => (cli === 'pi' ? 'zai-coding-cn' : 'cliworker-zai-cn')
 let selectedProvider, selectedModel
 async function privateDirectory(path) {
   await mkdir(path, { recursive: true, mode: 0o700 })
@@ -155,10 +154,6 @@ try {
   Object.assign(env, {
     PI_CODING_AGENT_DIR: nativeRoot,
     TMPDIR: temporaryDirectory,
-    // Native source env was projected by Host. Runtime path overrides never enter here.
-    ...Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => /_(?:API_KEY|TOKEN|SECRET)$/.test(key)),
-    ),
     PI_OFFLINE: '1',
     PI_TELEMETRY: '0',
     ELECTRON_RUN_AS_NODE: '1',
@@ -172,7 +167,7 @@ try {
     Object.entries(nativeEnvironment).some(
       ([key, value]) =>
         !/^[A-Z][A-Z0-9_]*$/.test(key) ||
-        /^(?:PATH|HOME|SHELL|TMPDIR|NODE_OPTIONS|NODE_PATH|ELECTRON_RUN_AS_NODE|OMP_PROFILE|PI_PROFILE|PI_CONFIG_DIR|PI_CODING_AGENT_DIR|LD_.*|DYLD_.*)$/.test(
+        /^(?:PATH|HOME|SHELL|TMPDIR|NODE_OPTIONS|NODE_PATH|ELECTRON_RUN_AS_NODE|OMP_AUTH_BROKER_.*|OMP_PROFILE|PI_PROFILE|PI_CONFIG_DIR|PI_CODING_AGENT_DIR|LD_.*|DYLD_.*)$/.test(
           key,
         ) ||
         typeof value !== 'string',
@@ -180,26 +175,9 @@ try {
   )
     throw new Error('Invalid native environment snapshot')
   Object.assign(env, nativeEnvironment)
-  // The explicitly supplied Host reference wins only for its own CN route;
-  // native env remains the source for every other provider.
-  if (
-    config.managedCredentials &&
-    (config.discover ||
-      ['zai-coding-cn', 'cliworker-zai-cn', 'zhipu-coding-plan'].includes(
-        config.preference?.model?.split('/')[0],
-      ))
-  ) {
-    if (process.env.ZAI_CODING_CN_API_KEY) env.ZAI_CODING_CN_API_KEY = process.env.ZAI_CODING_CN_API_KEY
-  }
-  if (config.managedCredentials && !config.discover) {
-    const provider = config.preference?.model?.split('/')[0]
-    if (provider !== cnProvider(config.cli) && !(config.cli === 'omp' && provider === 'zhipu-coding-plan')) {
-      for (const key of ['ZAI_CODING_CN_API_KEY', 'ZHIPU_API_KEY']) {
-        if (nativeEnvironment[key] !== undefined) env[key] = nativeEnvironment[key]
-        else delete env[key]
-      }
-    }
-  }
+  // Pi's SDK is loaded in this process and consults process.env itself. Apply
+  // the same own-source environment before importing it, not only at spawn.
+  process.env = env
   const isolated =
     config.cli === 'pi'
       ? [
@@ -224,37 +202,6 @@ try {
         ]
   if (config.cli === 'omp') {
     env.PI_CONFIG_DIR = relative(homedir(), config.stateDirectory)
-    const native = JSON.parse(await readFile(join(nativeRoot, 'models.yml'), 'utf8'))
-    // Legacy CN alias remains available alongside the installed native CN catalog.
-    const model = {
-      id: 'glm-5.3-flash',
-      name: 'GLM-5.3-Flash',
-      reasoning: true,
-      input: ['text', 'image'],
-      contextWindow: 1000000,
-      maxTokens: 131072,
-      cost: { input: 0.15, output: 0.5, cacheRead: 0.03, cacheWrite: 0 },
-      thinking: { mode: 'effort', efforts: ['low', 'high', 'max'], defaultLevel: 'low' },
-      compat: {
-        supportsStore: false,
-        supportsDeveloperRole: false,
-        supportsReasoningEffort: true,
-        maxTokensField: 'max_tokens',
-        thinkingFormat: 'zai',
-        supportsStrictMode: true,
-      },
-    }
-    if (env.ZAI_CODING_CN_API_KEY) {
-      env.ZHIPU_API_KEY = env.ZAI_CODING_CN_API_KEY
-      native.providers ??= {}
-      native.providers['cliworker-zai-cn'] = {
-        api: 'openai-completions',
-        baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
-        apiKey: 'ZAI_CODING_CN_API_KEY',
-        models: [model],
-      }
-    }
-    await writePrivateFile(join(nativeRoot, 'models.yml'), JSON.stringify(native))
     const nativeAuth = JSON.parse(await readFile(join(nativeRoot, 'native-auth.json'), 'utf8'))
     await writePrivateFile(
       join(nativeRoot, 'config.yml'),
@@ -280,46 +227,6 @@ try {
         tools: { approvalMode: 'write' },
       }),
     )
-  }
-  if (
-    config.managedCredentials &&
-    env.ZAI_CODING_CN_API_KEY &&
-    (config.discover ||
-      (config.cli === 'pi'
-        ? config.preference?.model?.split('/')[0] === 'zai-coding-cn'
-        : ['cliworker-zai-cn', 'zhipu-coding-plan'].includes(config.preference?.model?.split('/')[0])))
-  ) {
-    if (config.cli === 'pi') {
-      const auth = JSON.parse(await privateFile(join(nativeRoot, 'auth.json'), true))
-      delete auth['zai-coding-cn']
-      await writePrivateFile(join(nativeRoot, 'auth.json'), JSON.stringify(auth))
-      const models = JSON.parse(await privateFile(join(nativeRoot, 'models.json'), true))
-      models.providers ??= {}
-      models.providers['zai-coding-cn'] = {
-        ...(models.providers['zai-coding-cn'] ?? {}),
-        api: 'openai-completions',
-        baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
-        apiKey: 'ZAI_CODING_CN_API_KEY',
-      }
-      await writePrivateFile(join(nativeRoot, 'models.json'), JSON.stringify(models))
-    } else {
-      const { DatabaseSync } = await import('node:sqlite')
-      const db = new DatabaseSync(join(nativeRoot, 'agent.db'))
-      try {
-        db.prepare('DELETE FROM auth_credentials WHERE provider IN (?,?)').run(
-          'cliworker-zai-cn',
-          'zhipu-coding-plan',
-        )
-      } finally {
-        db.close()
-      }
-      const models = JSON.parse(await privateFile(join(nativeRoot, 'models.yml'), true))
-      // This is a native builtin; auth-only config overlays are not portable
-      // across the bundled OMP registry. Remove a competing private override and
-      // bind the explicitly supplied source through its native ZHIPU env instead.
-      if (models.providers) delete models.providers['zhipu-coding-plan']
-      await writePrivateFile(join(nativeRoot, 'models.yml'), JSON.stringify(models))
-    }
   }
   let resume
   let catalog

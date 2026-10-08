@@ -93,6 +93,20 @@ export class WorkerStorage {
   private lock: string
   private enabled = enabledByDefault()
   private presets: RolePreset[] = []
+  /** Account epochs live outside public Worker records and event/history responses. */
+  accountBinding(id: string): string | undefined {
+    z.uuid().parse(id)
+    const path = join(this.directory, `${id}.account-binding.json`)
+    if (!existsSync(path)) return undefined
+    return z
+      .object({ policy: z.literal(1), binding: z.string().min(1).max(256) })
+      .parse(JSON.parse(readFileSync(path, 'utf8'))).binding
+  }
+  bindAccount(id: string, binding: string): void {
+    z.uuid().parse(id)
+    z.string().min(1).max(256).parse(binding)
+    atomicJSON(join(this.directory, `${id}.account-binding.json`), { policy: 1, binding })
+  }
   constructor(readonly directory: string) {
     mkdirSync(directory, { recursive: true, mode: 0o700 })
     chmodSync(directory, 0o700)

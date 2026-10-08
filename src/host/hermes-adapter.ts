@@ -6,7 +6,7 @@ import { StringDecoder } from 'node:string_decoder'
 import { EFFORTS, type Effort, type ModelChoice, type TaskMode } from '../shared/types.ts'
 import type { EventInput, ProtocolResult } from './protocol.ts'
 import type { TokenUsage } from '../shared/telemetry.ts'
-import { hermesAccountModels } from './hermes-models.ts'
+import { hermesAccountModels, assertHermesOwnAccounts } from './hermes-models.ts'
 import { verifyHermesExecutable } from './hermes-installation.ts'
 
 export interface HermesInput {
@@ -174,6 +174,7 @@ export async function discoverHermes(
   await verifyHermesExecutable(executable, options.signal ?? AbortSignal.timeout(15000))
   const home = hermesHomeDirectory(hermesHome)
   await requireConfiguration(home)
+  await assertHermesOwnAccounts(home, options.signal)
   options.signal?.throwIfAborted()
   const env = await environment(stateDirectory, home)
   const get = async (key: string): Promise<unknown> => {
@@ -215,6 +216,7 @@ export async function prepareHermes(
     throw new Error('Invalid Hermes session identity')
   const home = hermesHomeDirectory(input.hermesHome)
   await requireConfiguration(home)
+  await assertHermesOwnAccounts(home)
   const efforts = await reasoningEfforts(home, provider, model)
   if (!efforts.includes(input.preference.effort))
     throw new Error('Hermes 未确认支持此思考强度，请刷新模型后重选')

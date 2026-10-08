@@ -9,7 +9,8 @@ import { attachTelemetry, TelemetryReader } from '../src/host/telemetry.ts'
 import { foldEvents, type WorkerEvent } from '../src/shared/types.ts'
 
 vi.mock('../src/host/hermes-installation.ts', () => ({ verifyHermesExecutable: async () => undefined }))
-vi.mock('../src/host/hermes-models.ts', () => ({
+vi.mock('../src/host/hermes-models.ts', async (load) => ({
+  ...(await load<typeof import('../src/host/hermes-models.ts')>()),
   hermesAccountModels: vi.fn(async () => ({
     state: 'supported',
     source: 'account-models',
@@ -26,7 +27,7 @@ function nativeHome() {
   const home = directory()
   writeFileSync(
     join(home, 'config.yaml'),
-    '# SYNTHETIC CONFIG\nmodel:\n  provider: openrouter\n  default: fixture/model\n',
+    '# SYNTHETIC CONFIG\nauth:\n  adopt_external_logins: false\nmodel:\n  provider: openrouter\n  default: fixture/model\n',
   )
   return home
 }

@@ -24,7 +24,7 @@ export interface OpenCodeInput {
   stateDirectory: string
   /** Stable private XDG data root shared with account login, not worker databases. */
   authDirectory?: string
-  /** Host-managed API references must not silently fall back to native credentials. */
+  /** Deprecated compatibility option; ignored. */
   managedCredentials?: boolean
   nativeHome?: string
   modelsPath?: string
@@ -39,19 +39,11 @@ export interface OpenCodeCredentialConfig {
   zaiCredentialRef?: string
   resolveCredential?: (ref: string) => Promise<string | undefined>
 }
-/** Managed refs are an explicit source, never a fallback to unrelated native auth. */
+/** Compatibility only: Host credentials are never resolved for OpenCode. */
 export async function openCodeCredentialEnvironment(
-  config: OpenCodeCredentialConfig,
+  _config: OpenCodeCredentialConfig,
 ): Promise<Record<string, string>> {
-  if (!config.zaiCredentialRef) return {}
-  let key: string | undefined
-  try {
-    key = await config.resolveCredential?.(config.zaiCredentialRef)
-  } catch {
-    throw new Error('OpenCode 的 Harness 凭据引用不可用，请在原生模型设置中配置')
-  }
-  if (!key) throw new Error('OpenCode 的 Harness 凭据引用不可用，请在原生模型设置中配置')
-  return { ZHIPU_API_KEY: key }
+  return {}
 }
 
 export function openCodeAuthDirectory(stateDirectory?: string): string {
@@ -68,7 +60,7 @@ export async function openCodeEnvironment(
   stateDirectory: string,
   config: Record<string, unknown>,
   authDirectory = join(stateDirectory, 'data'),
-  managedCredentials = false,
+  _managedCredentials = false,
   modelsPath?: string,
 ) {
   if (!isAbsolute(stateDirectory) || !isAbsolute(authDirectory))
@@ -120,9 +112,9 @@ export async function openCodeEnvironment(
     OPENCODE_DISABLE_PRUNE: '1',
     OPENCODE_DISABLE_SHARE: '1',
     // Native OAuth refresh hooks are built-ins. External plugins remain disabled.
-    OPENCODE_DISABLE_DEFAULT_PLUGINS: managedCredentials ? '1' : '0',
+    OPENCODE_DISABLE_DEFAULT_PLUGINS: '0',
     // Clear inherited overrides; native mode reads the same private auth.json as login.
-    OPENCODE_AUTH_CONTENT: managedCredentials ? '{}' : '',
+    OPENCODE_AUTH_CONTENT: '',
     OPENCODE_DISABLE_PROJECT_CONFIG: '1',
     OPENCODE_DISABLE_CLAUDE_CODE: '1',
     OPENCODE_DISABLE_EXTERNAL_SKILLS: '1',
@@ -144,13 +136,11 @@ export async function prepareOpenCode(
   if (mode !== 'plan' && mode !== 'accept-edits') throw new Error('Unsupported OpenCode task mode')
   if (conversationId && !sessionID(conversationId)) throw new Error('Invalid native OpenCode session ID')
   const selectedProvider = preference.model.slice(0, preference.model.indexOf('/'))
-  if (input.managedCredentials && selectedProvider !== 'zhipuai-coding-plan')
-    throw new Error('OpenCode 的 Host 智谱引用仅用于原生 CN Coding Plan 提供商')
   const source = input.authDirectory ?? openCodeAuthDirectory()
-  const profile = input.managedCredentials ? undefined : await readOpenCodeProfile(source, input)
-  if (profile && !activeOpenCodeCredential(profile.auth[selectedProvider]))
+  const profile = await readOpenCodeProfile(source, input)
+  if (!activeOpenCodeCredential(profile.auth[selectedProvider]))
     throw new Error('OpenCode 所选提供商没有有效账号配置，请先登录')
-  const snapshot = profile ? await snapshotOpenCodeAuth(source, profile.auth, [selectedProvider]) : source
+  const snapshot = await snapshotOpenCodeAuth(source, profile.auth, [selectedProvider])
   const env = await openCodeEnvironment(
     stateDirectory,
     {
@@ -174,7 +164,7 @@ export async function prepareOpenCode(
       },
     },
     snapshot,
-    input.managedCredentials,
+    false,
     profile?.modelsPath,
   )
   return {
@@ -296,15 +286,12 @@ export async function discoverOpenCode(
   capture: Capture,
   stateDirectory: string,
   authDirectory?: string,
-  managedCredentials = false,
+  _managedCredentials = false,
   options: OpenCodeDiscoveryOptions = {},
 ): Promise<ModelChoice[]> {
   options.signal?.throwIfAborted()
   const source = authDirectory ?? openCodeAuthDirectory()
   const profile = await readOpenCodeProfile(source, options)
-  const cnKey = options.credentialEnv?.ZHIPU_API_KEY
-  const cn = managedCredentials && typeof cnKey === 'string' && !!cnKey.trim()
-  if (cn) profile.auth['zhipuai-coding-plan'] = { type: 'api', key: cnKey }
   const providers = Object.keys(profile.auth).filter(
     (id) =>
       activeOpenCodeCredential(profile.auth[id]) &&
@@ -313,16 +300,9 @@ export async function discoverOpenCode(
       !(id === 'opencode' && profile.auth[id].key === 'public'),
   )
   if (!providers.length) return []
-  const snapshot = await snapshotOpenCodeAuth(
-    source,
-    profile.auth,
-    providers.filter((id) => !(cn && id === 'zhipuai-coding-plan')),
-    options.signal,
-  )
+  const snapshot = await snapshotOpenCodeAuth(source, profile.auth, providers, options.signal)
   const nativeProviderConfig = Object.fromEntries(
-    providers
-      .filter((id) => profile.providers[id] && !(cn && id === 'zhipuai-coding-plan'))
-      .map((id) => [id, profile.providers[id]]),
+    providers.filter((id) => profile.providers[id]).map((id) => [id, profile.providers[id]]),
   )
   const env = await openCodeEnvironment(
     stateDirectory,
@@ -335,21 +315,16 @@ export async function discoverOpenCode(
     false,
     profile.modelsPath,
   )
-  const records = parseOpenCodeRecords(
-    await capture([executable, 'models', '--verbose'], { ...env, ...(cn ? { ZHIPU_API_KEY: cnKey! } : {}) }),
-  )
+  const records = parseOpenCodeRecords(await capture([executable, 'models', '--verbose'], env))
   options.signal?.throwIfAborted()
   const scoped = (native: Record<string, any>) => {
     const provider = native.providerID,
       config = profile.providers[provider] ?? {}
-    const managed = cn && provider === 'zhipuai-coding-plan'
     const oauthCodex = profile.auth[provider]?.type === 'oauth' && provider === 'openai'
     const baseUrl = oauthCodex
       ? 'https://chatgpt.com/backend-api'
-      : managed
-        ? 'https://open.bigmodel.cn/api/coding/paas/v4'
-        : (config.options?.baseURL ?? native.api?.url ?? profile.catalog[provider]?.api)
-    const apiType = !managed && native.api?.npm === '@ai-sdk/anthropic' ? 'anthropic-messages' : undefined
+      : (config.options?.baseURL ?? native.api?.url ?? profile.catalog[provider]?.api)
+    const apiType = native.api?.npm === '@ai-sdk/anthropic' ? 'anthropic-messages' : undefined
     const oauth = profile.auth[provider]?.type === 'oauth'
     const key = JSON.stringify([provider, oauth ? 'oauth-account' : baseUrl, oauth ? '' : apiType])
     const authHeader = (headers: unknown) =>
@@ -358,10 +333,9 @@ export async function discoverOpenCode(
         /authorization|api[-_]?key|token|cookie|openai-organization|openai-project/i.test(name),
       )
     const blocked =
-      !managed &&
-      (authHeader(native.headers) ||
-        authHeader(config.options?.headers) ||
-        (oauthCodex && native.api?.npm !== '@ai-sdk/openai'))
+      authHeader(native.headers) ||
+      authHeader(config.options?.headers) ||
+      (oauthCodex && native.api?.npm !== '@ai-sdk/openai')
     return { provider, baseUrl, apiType, key, blocked }
   }
   const groups = new Map<string, { route: ReturnType<typeof scoped>; entries: typeof records }>()
@@ -390,7 +364,7 @@ export async function discoverOpenCode(
               : { type: 'api', key: auth.key },
           baseUrl,
           apiType,
-          customModelIds: cn && provider === 'zhipuai-coding-plan' ? [] : [...new Set(explicit)],
+          customModelIds: [...new Set(explicit)],
           verifiedModelIds: [],
         },
         { ...options.probeOptions, signal: options.signal ?? options.probeOptions?.signal },
@@ -412,7 +386,6 @@ export async function discoverOpenCode(
       profile.auth[native.providerID]?.key,
       profile.auth[native.providerID]?.access,
       profile.auth[native.providerID]?.refresh,
-      cnKey,
     ].filter((value): value is string => typeof value === 'string' && !!value)
     if (secrets.some((secret) => choice.id.includes(secret) || String(apiId).includes(secret))) continue
     const explicit = profile.providers[native.providerID]?.models?.[native.id]

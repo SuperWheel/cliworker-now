@@ -37,7 +37,9 @@ export interface RuntimeConfig {
   zcodeAuthDirectory?: string
   zcodeBuiltinConfig?: string
   stateDirectory?: string
+  /** @deprecated Legacy deployment input; own-account isolation ignores it. */
   zaiCredentialRef?: string
+  /** @deprecated Test/old API compatibility only; must never be invoked. */
   resolveCredential?: (ref: string) => Promise<string | undefined>
   maxConcurrent: number
   timeoutMs: number

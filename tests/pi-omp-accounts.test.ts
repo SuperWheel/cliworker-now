@@ -45,49 +45,46 @@ async function fixture(cli: 'pi' | 'omp') {
   }
 }
 
-it.each(['pi', 'omp'] as const)(
-  '%s uses the selected Host API credential without putting it on disk or argv',
-  async (cli) => {
-    const { input, resolveCredential } = await fixture(cli)
-    const launch = await preparePiOmpAccountTerminal(input)
-    expect(resolveCredential).toHaveBeenCalledExactlyOnceWith('fixture:zai-cn')
-    expect(launch.env.ZAI_CODING_CN_API_KEY).toBe(fixtureKey)
-    expect(JSON.stringify(launch.argv)).not.toContain(fixtureKey)
-    expect(launch.instruction).toContain('/login')
-    expect(launch.instruction).not.toContain(fixtureKey)
-    expect(launch.cwd).not.toBe(input.project)
-    expect(launch.env.PI_CODING_AGENT_DIR).toBe(
-      await realpath(join(input.stateDirectory, 'accounts', cli, 'agent')),
-    )
-    expect(launch.env.TMPDIR).toBe(join(launch.cwd, 'tmp'))
-    expect(launch.env.ELECTRON_RUN_AS_NODE).toBe('1')
-    expect(launch.env.OMP_PROFILE).toBe('')
-    expect(launch.env.PI_PROFILE).toBe('')
-    expect(launch.env.HOME).toBeUndefined()
-    expect(launch.argv).toContain('--no-session')
-    expect(launch.argv).toContain('--no-tools')
-    expect(launch.argv).toContain('--no-extensions')
-    expect(launch.argv).not.toContain('--print')
-    expect(launch.argv).not.toContain('--mode')
-    expect(launch.argv).not.toContain('/login')
-    expect(launch.argv).not.toContain('auth-broker')
-    for (const directory of [launch.cwd, launch.env.PI_CODING_AGENT_DIR, launch.env.TMPDIR])
-      expect((await stat(directory!)).mode & 0o777).toBe(0o700)
-    for (const name of await readdir(launch.env.PI_CODING_AGENT_DIR!)) {
-      const path = join(launch.env.PI_CODING_AGENT_DIR!, name)
-      expect(await readFile(path, 'utf8')).not.toContain(fixtureKey)
-      expect((await stat(path)).mode & 0o777).toBe(0o600)
-    }
-    await launch.cleanup()
-    await launch.cleanup()
-    await expect(lstat(launch.cwd)).rejects.toMatchObject({ code: 'ENOENT' })
-  },
-)
+it.each(['pi', 'omp'] as const)('%s ignores Host credentials in account terminals', async (cli) => {
+  const { input, resolveCredential } = await fixture(cli)
+  const launch = await preparePiOmpAccountTerminal(input)
+  expect(resolveCredential).not.toHaveBeenCalled()
+  expect(launch.env.ZAI_CODING_CN_API_KEY).toBeUndefined()
+  expect(JSON.stringify(launch.argv)).not.toContain(fixtureKey)
+  expect(launch.instruction).toContain('/login')
+  expect(launch.instruction).not.toContain(fixtureKey)
+  expect(launch.cwd).not.toBe(input.project)
+  expect(launch.env.PI_CODING_AGENT_DIR).toBe(
+    await realpath(join(input.stateDirectory, 'accounts', cli, 'agent')),
+  )
+  expect(launch.env.TMPDIR).toBe(join(launch.cwd, 'tmp'))
+  expect(launch.env.ELECTRON_RUN_AS_NODE).toBe('1')
+  expect(launch.env.OMP_PROFILE).toBe('')
+  expect(launch.env.PI_PROFILE).toBe('')
+  expect(launch.env.HOME).toBeUndefined()
+  expect(launch.argv).toContain('--no-session')
+  expect(launch.argv).toContain('--no-tools')
+  expect(launch.argv).toContain('--no-extensions')
+  expect(launch.argv).not.toContain('--print')
+  expect(launch.argv).not.toContain('--mode')
+  expect(launch.argv).not.toContain('/login')
+  expect(launch.argv).not.toContain('auth-broker')
+  for (const directory of [launch.cwd, launch.env.PI_CODING_AGENT_DIR, launch.env.TMPDIR])
+    expect((await stat(directory!)).mode & 0o777).toBe(0o700)
+  for (const name of await readdir(launch.env.PI_CODING_AGENT_DIR!)) {
+    const path = join(launch.env.PI_CODING_AGENT_DIR!, name)
+    expect(await readFile(path, 'utf8')).not.toContain(fixtureKey)
+    expect((await stat(path)).mode & 0o777).toBe(0o600)
+  }
+  await launch.cleanup()
+  await launch.cleanup()
+  await expect(lstat(launch.cwd)).rejects.toMatchObject({ code: 'ENOENT' })
+})
 
 it('opens native Pi through Node without imposing a model or sending a prompt', async () => {
   const { input } = await fixture('pi')
   const launch = await preparePiOmpAccountTerminal(input)
-  expect(launch.argv.slice(0, 4)).toEqual([
+  expect(launch.argv.slice(3, 7)).toEqual([
     process.execPath,
     expect.stringContaining('private-launch.mjs'),
     process.execPath,
@@ -108,10 +105,10 @@ it('opens native Pi through Node without imposing a model or sending a prompt', 
   expect(launch.env.PI_CONFIG_DIR).toBeUndefined()
 })
 
-it('registers the same OMP custom CN route and disables automatic fallback before launching', async () => {
+it('does not synthesize an OMP CN route and disables automatic fallback before launching', async () => {
   const { input } = await fixture('omp')
   const launch = await preparePiOmpAccountTerminal(input)
-  expect(launch.argv.slice(0, 3)).toEqual([
+  expect(launch.argv.slice(3, 6)).toEqual([
     process.execPath,
     expect.stringContaining('private-launch.mjs'),
     input.executable,
@@ -121,13 +118,7 @@ it('registers the same OMP custom CN route and disables automatic fallback befor
   )
   const agent = launch.env.PI_CODING_AGENT_DIR!
   const models = JSON.parse(await readFile(join(agent, 'models.yml'), 'utf8'))
-  expect(Object.keys(models.providers)).toEqual(['cliworker-zai-cn'])
-  expect(models.providers['cliworker-zai-cn']).toMatchObject({
-    api: 'openai-completions',
-    baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
-    apiKey: 'ZAI_CODING_CN_API_KEY',
-    models: [{ id: 'glm-5.3-flash', thinking: { mode: 'effort', efforts: ['low', 'high', 'max'] } }],
-  })
+  expect(Object.keys(models.providers)).toEqual([])
   expect(JSON.parse(await readFile(join(agent, 'config.yml'), 'utf8'))).toEqual({
     startup: { setupWizard: false, showSplash: false, checkUpdate: false },
     disabledProviders: [
@@ -155,12 +146,14 @@ it('registers the same OMP custom CN route and disables automatic fallback befor
 })
 
 it.each(['pi', 'omp'] as const)(
-  '%s refuses a missing Host credential instead of pretending native OAuth covers the route',
+  '%s permits native account management without a Host credential',
   async (cli) => {
     const { input, resolveCredential } = await fixture(cli)
     resolveCredential.mockResolvedValue(undefined)
-    await expect(preparePiOmpAccountTerminal(input)).rejects.toThrow('Harness 模型设置')
-    await expect(lstat(input.stateDirectory)).rejects.toMatchObject({ code: 'ENOENT' })
+    const launch = await preparePiOmpAccountTerminal(input)
+    expect(resolveCredential).not.toHaveBeenCalled()
+    expect(launch.env.ZAI_CODING_CN_API_KEY).toBeUndefined()
+    await launch.cleanup()
   },
 )
 
@@ -176,21 +169,30 @@ it('does not look up a guessed credential reference', async () => {
   expect(resolveCredential).not.toHaveBeenCalled()
 })
 
-it('does not expose raw credential resolver errors', async () => {
-  const { input, resolveCredential } = await fixture('pi')
-  resolveCredential.mockRejectedValue(new Error(`fixture provider error ${fixtureKey}`))
-  const error = await preparePiOmpAccountTerminal(input).catch((failure) => failure)
-  expect(error.message).toContain('无法读取智谱凭据')
-  expect(error.message).not.toContain(fixtureKey)
+it('does not invoke failing or stalled Host credential resolvers', async () => {
+  for (const resolver of [
+    vi.fn().mockRejectedValue(new Error(fixtureKey)),
+    vi.fn(() => new Promise<string>(() => {})),
+  ]) {
+    const { input } = await fixture('pi')
+    const launch = await preparePiOmpAccountTerminal({
+      ...input,
+      config: { ...input.config, resolveCredential: resolver },
+    })
+    expect(resolver).not.toHaveBeenCalled()
+    expect(JSON.stringify(launch)).not.toContain(fixtureKey)
+    await launch.cleanup()
+  }
 })
 
-it('cancels an unresolved credential lookup without creating a terminal runtime', async () => {
+it('cancels before creating a terminal runtime', async () => {
   const { input, resolveCredential } = await fixture('pi')
-  resolveCredential.mockImplementation(() => new Promise(() => {}))
   const controller = new AbortController()
-  const operation = preparePiOmpAccountTerminal({ ...input, signal: controller.signal })
   controller.abort(new Error('fixture cancelled'))
-  await expect(operation).rejects.toThrow('fixture cancelled')
+  await expect(preparePiOmpAccountTerminal({ ...input, signal: controller.signal })).rejects.toThrow(
+    'fixture cancelled',
+  )
+  expect(resolveCredential).not.toHaveBeenCalled()
   await expect(lstat(input.stateDirectory)).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
@@ -235,7 +237,7 @@ it.each(['pi', 'omp'] as const)(
     const launch = await preparePiOmpAccountTerminal({ ...input, executable })
     await exec(launch.argv[0]!, launch.argv.slice(1), { cwd: launch.cwd, env: launch.env, timeout: 5000 })
     const observed = JSON.parse(await readFile(join(launch.cwd, 'observed.json'), 'utf8'))
-    expect(observed.keyPresent).toBe(true)
+    expect(observed.keyPresent).toBe(false)
     expect(observed.mask).toBe(0o077)
     expect(observed.args).toContain('--no-tools')
     expect(observed.args).not.toContain('--print')
@@ -311,5 +313,42 @@ it.each(['pi', 'omp'] as const)(
     await launch.cleanup()
     expect(await readFile(account, 'utf8')).toContain('fixture')
     await expect(lstat(launch.cwd)).rejects.toMatchObject({ code: 'ENOENT' })
+  },
+)
+
+it.each(['pi', 'omp'] as const)(
+  '%s account terminal blocks ambient dotenv reads but retains own projected env and OAuth files',
+  async (cli) => {
+    const { root, input } = await fixture(cli),
+      agent = join(input.stateDirectory, 'accounts', cli, 'agent')
+    await mkdir(agent, { recursive: true, mode: 0o700 })
+    await writeFile(join(agent, '.env'), 'FIXTURE_API_KEY=SYNTHETIC_OWN_ACCOUNT\n', { mode: 0o600 })
+    await writeFile(join(agent, 'oauth-fixture.json'), '{"synthetic":true}', { mode: 0o600 })
+    const paths = [
+      join(root, '.env'),
+      join(input.project, '.env'),
+      join(input.project, '.env.local'),
+      join(agent, '.env'),
+    ]
+    for (const path of paths.slice(0, -1)) await writeFile(path, 'OTHER_API_KEY=SYNTHETIC_FOREIGN\n')
+    const executable = join(root, 'synthetic-account.js')
+    await writeFile(
+      executable,
+      `import { readFileSync, writeFileSync } from 'node:fs';
+const denied=${JSON.stringify(paths)}.map(path=>{try{readFileSync(path);return false}catch{return true}});
+writeFileSync('observed.json',JSON.stringify({denied,own:process.env.FIXTURE_API_KEY,oauth:JSON.parse(readFileSync(${JSON.stringify(join(agent, 'oauth-fixture.json'))},'utf8')).synthetic}));`,
+    )
+    const launch = await preparePiOmpAccountTerminal({ ...input, executable })
+    try {
+      await exec(launch.argv[0]!, launch.argv.slice(1), { cwd: launch.cwd, env: launch.env, timeout: 5000 })
+      expect(JSON.parse(await readFile(join(launch.cwd, 'observed.json'), 'utf8'))).toEqual({
+        denied: [true, true, true, true],
+        own: 'SYNTHETIC_OWN_ACCOUNT',
+        oauth: true,
+      })
+      expect(await readFile(join(agent, '.env'), 'utf8')).toBe('FIXTURE_API_KEY=SYNTHETIC_OWN_ACCOUNT\n')
+    } finally {
+      await launch.cleanup()
+    }
   },
 )

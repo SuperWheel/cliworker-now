@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { preparePiOmp, discoverPiOmp, type PiOmpInput, type PiOmpCli } from '../src/host/pi-omp-adapter.ts'
-import { extendedCatalog } from '../src/host/extended-adapters.ts'
+import { extendedCatalog, extendedLaunch } from '../src/host/extended-adapters.ts'
 import { DEFAULT_CONFIG, ProcessCleanupUnconfirmedError } from '../src/host/process.ts'
 
 const exec = promisify(execFile)
@@ -797,3 +797,94 @@ describe('Pi/OMP bridge with simulated native RPC processes', () => {
     },
   )
 })
+
+it('sanitizes the bridge process before the Pi SDK reads environment credential fallbacks', async () => {
+  const { root, input } = await fixture('pi', 'non-glm')
+  const sdk = join(root, 'dist/core/model-runtime.js')
+  await writeFile(
+    sdk,
+    `// SYNTHETIC SDK checks only fixture environment, never network.\nif(process.env.SYNTHETIC_FOREIGN_API_KEY || process.env.OMP_AUTH_BROKER_URL) throw new Error('foreign credential source');\nif(process.env.FIXTURE_API_KEY !== ${JSON.stringify(fixtureKey)}) throw new Error('missing own source');\n` +
+      (await readFile(sdk, 'utf8')),
+  )
+  const catalog = await discoverPiOmp(
+    'pi',
+    input.executable,
+    async (argv, env) =>
+      (
+        await exec(argv[0]!, argv.slice(1), {
+          env: {
+            ...fixtureEnvironment(input.nativeHome, env),
+            SYNTHETIC_FOREIGN_API_KEY: 'SYNTHETIC_OTHER_CLI',
+            OMP_AUTH_BROKER_URL: 'https://other-account.invalid',
+          },
+          timeout: 10000,
+        })
+      ).stdout,
+    input.stateDirectory,
+    { nativeHome: input.nativeHome, accountRoot: input.accountRoot },
+  )
+  expect(catalog.map((item) => item.id)).toContain(input.preference.model)
+})
+
+it.each(['pi', 'omp'] as const)(
+  '%s denies automatic home/project/old-runtime dotenv reads in catalog and worker processes',
+  async (cli) => {
+    const { root, input } = await fixture(cli, 'non-glm')
+    vi.stubEnv('HOME', root)
+    const foreign = [
+      join(root, '.env'),
+      join(root, '.env.production'),
+      join(input.project, '.env'),
+      join(input.project, '.env.local'),
+    ]
+    for (const path of foreign) await writeFile(path, 'FOREIGN_API_KEY=SYNTHETIC_FOREIGN_DOTENV\n')
+    const guard = `import {readFileSync as probeRead} from 'node:fs';
+for(const file of [...${JSON.stringify(foreign)}, process.env.PI_CODING_AGENT_DIR+'/.env']) {
+  let readable=false; try {probeRead(file);readable=true} catch {}
+  if(readable) throw new Error('foreign dotenv was readable');
+}
+if(process.env.FIXTURE_API_KEY!==${JSON.stringify(fixtureKey)}) throw new Error('own env lost');
+probeRead(process.env.PI_CODING_AGENT_DIR+(${JSON.stringify(cli)}==='pi'?'/auth.json':'/agent.db'));
+`
+    for (const path of [input.executable, join(root, 'dist/core/model-runtime.js')])
+      await writeFile(path, guard + (await readFile(path, 'utf8')))
+    const capture = async (argv: string[], env?: Record<string, string>) => {
+      expect(argv[2]).toContain('(deny file-read-data')
+      const request = JSON.parse(await readFile(argv.at(-1)!, 'utf8'))
+      await writeFile(join(request.stateDirectory, 'agent/.env'), 'FOREIGN_API_KEY=SYNTHETIC_OLD_WORKER\n')
+      return (
+        await exec(argv[0]!, argv.slice(1), {
+          cwd: input.project,
+          env: fixtureEnvironment(root, env),
+          timeout: 10000,
+        })
+      ).stdout
+    }
+    const config = { ...DEFAULT_CONFIG, stateDirectory: input.accountRoot }
+    const models = await extendedCatalog(cli, input.executable, capture, input.stateDirectory, config)
+    expect(models.map((model) => model.id)).toContain(input.preference.model)
+    const launch = await extendedLaunch(
+      cli,
+      input.executable,
+      input.project,
+      { cli, model: input.preference.model, effort: 'low' },
+      'plan',
+      'synthetic task',
+      input.stateDirectory,
+      config,
+      undefined,
+      capture,
+    )
+    try {
+      expect(launch.argv[2]).toContain('(deny file-read-data')
+      const run = await exec(launch.argv[0]!, launch.argv.slice(1), {
+        cwd: input.project,
+        env: fixtureEnvironment(root, launch.env),
+        timeout: 10000,
+      })
+      expect(JSON.parse(run.stdout.trim().split('\n').at(-1)!)).toMatchObject({ status: 'SUCCESS' })
+    } finally {
+      launch.cleanup()
+    }
+  },
+)

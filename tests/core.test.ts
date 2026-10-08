@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, statSync, appendFileSync, readFileSync } from 'node:fs'
 import { tmpdir, homedir } from 'node:os'
 import { join } from 'node:path'
@@ -498,3 +498,13 @@ it('run timing uses persisted per-turn events and survives a sliced timeline', (
   })
   expect(rows[3]?.runEndedAt).toBeUndefined()
 })
+
+// Synthetic authorization fixture for lifecycle/protocol tests; own-account rules
+// are exercised separately by authorized-catalog and runtime-account-isolation.
+vi.mock('../src/host/cli-account-binding.ts', () => ({
+  readCliAccountBinding: async () => 'synthetic-own-account',
+}))
+vi.mock('../src/host/authorized-catalog.ts', () => ({
+  ACCOUNT_CHANGED: '账号已变更，请重新选择或新建任务',
+  authorizeSelection: async (preference: unknown) => ({ binding: 'synthetic-own-account', preference }),
+}))

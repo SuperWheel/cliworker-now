@@ -64,12 +64,11 @@ async function contextFor(
   const cliDirectory = await privateDirectory(join(root, input.cli))
   const isolated = await privateDirectory(join(cliDirectory, identity))
   const agent = await privateDirectory(join(isolated, 'agent'))
-  // Refresh native model/config sources for every request. On continuation this
-  // worker's refreshed OAuth takes precedence over old source credentials.
+  // Rebuild from this CLI's current sources, including on continuation.
   const native = await snapshotPiOmpNative(input.cli, agent, {
     accountRoot: input.accountRoot ?? stateDirectory,
     nativeHome: input.nativeHome,
-    preserveCredentials: 'conversationId' in input && !!input.conversationId,
+    signal: input.signal,
   })
   const request = async (extra: Record<string, unknown> = {}) => {
     const requestDirectory = await mkdtemp(join(isolated, 'request-'))

@@ -74,8 +74,16 @@ function seedSyntheticOpenCode(root: string) {
   const config = join(account, 'config/opencode')
   mkdirSync(auth, { recursive: true, mode: 0o700 })
   mkdirSync(config, { recursive: true, mode: 0o700 })
-  writeFileSync(join(auth, 'auth.json'), JSON.stringify({ fixture: { type: 'api', key: 'SYNTHETIC_ONLY' } }), { mode: 0o600 })
-  writeFileSync(join(config, 'opencode.json'), JSON.stringify({ provider: { fixture: { options: { baseURL: 'https://synthetic.invalid/v1' } } } }), { mode: 0o600 })
+  writeFileSync(
+    join(auth, 'auth.json'),
+    JSON.stringify({ fixture: { type: 'api', key: 'SYNTHETIC_ONLY' } }),
+    { mode: 0o600 },
+  )
+  writeFileSync(
+    join(config, 'opencode.json'),
+    JSON.stringify({ provider: { fixture: { options: { baseURL: 'https://synthetic.invalid/v1' } } } }),
+    { mode: 0o600 },
+  )
 }
 vi.mock('node:fs', async (original) => {
   const fs = await original<typeof import('node:fs')>()
@@ -188,7 +196,7 @@ describe('extended worker boundaries (simulated protocol)', () => {
     ).toThrow('configured credential reference')
     expect(p.conversationId).toBeUndefined()
   })
-  it('resolves only explicitly configured credential references and maps only the selected CLI', async () => {
+  it('ignores legacy Host credential references for every CLI', async () => {
     const calls: string[] = []
     const config = {
       ...DEFAULT_CONFIG,
@@ -204,8 +212,10 @@ describe('extended worker boundaries (simulated protocol)', () => {
     ).toEqual({})
     expect(
       await credentialEnvironment('opencode', { ...config, zaiCredentialRef: 'ZAI_CODING_CN_API_KEY' }),
-    ).toEqual({ ZHIPU_API_KEY: 'fixture-secret' })
-    expect(calls).toEqual(['ZAI_CODING_CN_API_KEY'])
+    ).toEqual({})
+    for (const cli of ['pi', 'omp', 'zcode', 'hermes'] as const)
+      expect(await credentialEnvironment(cli, { ...config, zaiCredentialRef: 'legacy' })).toEqual({})
+    expect(calls).toEqual([])
   })
   it('hardens copied runtime data without following symlinks', () => {
     const root = mkdtempSync(join(tmpdir(), 'cwn-seal-'))

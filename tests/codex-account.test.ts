@@ -120,4 +120,11 @@ describe('Codex effective-account read-only handshake', () => {
     expect(f.child.terminate).toHaveBeenCalledOnce()
     expect(f.child.waitForExit).toHaveBeenCalledOnce()
   })
+
+  it.each(['false', 'throw'])('does not conceal unconfirmed process cleanup: %s', async (failure) => {
+    const f = fixture({ type: 'chatgpt', email: 'current@example.com' })
+    if (failure === 'false') vi.mocked(f.child.waitForExit).mockResolvedValue(false)
+    else vi.mocked(f.child.waitForExit).mockRejectedValue(new Error('synthetic cleanup failure'))
+    await expect(f.run()).rejects.toMatchObject({ name: 'ProcessCleanupUnconfirmedError' })
+  })
 })

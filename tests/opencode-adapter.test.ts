@@ -155,7 +155,7 @@ describe('OpenCode native adapter (explicitly synthetic fixtures)', () => {
         mode: 'plan',
         prompt: 'synthetic read only task',
       }),
-    ).rejects.toThrow('symlink')
+    ).rejects.toThrow(/symlink|安全读取/)
     expect(readFileSync(path, 'utf8')).toBe('SENTINEL')
     expect(statSync(path).mode).toBe(beforeFileMode)
     expect(statSync(outside).mode).toBe(beforeDirectoryMode)
@@ -172,7 +172,7 @@ describe('OpenCode native adapter (explicitly synthetic fixtures)', () => {
         false,
         { nativeHome: native(state).nativeHome, probeOptions: { fetch: metadata404 } },
       ),
-    ).rejects.toThrow('symlink')
+    ).rejects.toThrow(/symlink|安全读取/)
   })
   it('replaces a planted configuration file symlink without overwriting its target', async () => {
     const state = directory(),
@@ -393,82 +393,34 @@ describe('OpenCode native adapter (explicitly synthetic fixtures)', () => {
       }),
     ).toEqual([])
   })
-  it('keeps managed CN credentials only in metadata memory and child env while honoring the current account model scope', async () => {
+  it('ignores legacy managed CN credentials and requires an own account', async () => {
     const root = directory(),
       account = native(root, {}),
-      marker = 'SYNTHETIC-MANAGED-DO-NOT-WRITE'
+      capture = vi.fn(),
+      fetch = vi.fn()
     writeFileSync(join(account.authDirectory, 'opencode/auth.json'), '{}')
-    let captured: Record<string, string> | undefined,
-      requested = ''
-    const models = await discoverOpenCode(
-      '/bin/opencode',
-      async (_args, env) => {
-        captured = env
-        return dump([row('glm-5.3-flash', 'zhipuai-coding-plan'), row('glm-5.3', 'zhipuai-coding-plan')])
-      },
-      root,
-      account.authDirectory,
-      true,
-      {
-        nativeHome: account.nativeHome,
-        credentialEnv: { ZHIPU_API_KEY: marker },
-        probeOptions: {
-          fetch: async (url) => {
-            requested = String(url)
-            return new Response(
-              JSON.stringify({ data: [{ id: 'glm-5.3-flash', free: true }, { id: 'glm-5.3' }] }),
-            )
-          },
-        },
-      },
-    )
-    expect(models.map(({ id, cost }) => ({ id, cost }))).toEqual([
-      { id: 'zhipuai-coding-plan/glm-5.3', cost: 'unknown' },
-      { id: 'zhipuai-coding-plan/glm-5.3-flash', cost: 'unknown' },
-    ])
-    const preference = {
-      cli: 'opencode' as const,
-      model: 'zhipuai-coding-plan/glm-5.3',
-      effort: 'default' as const,
-    }
-    const catalogue = { cli: 'opencode' as const, models, notice: 'Synthetic current account metadata' }
-    expect(() => validatePreference(preference, catalogue)).not.toThrow()
-    expect(() =>
-      validatePreference({ ...preference, model: 'zhipuai-coding-plan/unknown-model' }, catalogue),
-    ).toThrow()
-    const prepared = await prepareOpenCode({
-      executable: '/bin/opencode',
-      project: '/project',
-      preference,
-      mode: 'plan',
-      prompt: 'synthetic task',
-      stateDirectory: join(root, 'selected'),
-      authDirectory: account.authDirectory,
-      managedCredentials: true,
-    })
     expect(
-      prepared.argv.slice(prepared.argv.indexOf('--model'), prepared.argv.indexOf('--model') + 2),
-    ).toEqual(['--model', preference.model])
-    expect(JSON.parse(prepared.env.OPENCODE_CONFIG_CONTENT!)).toMatchObject({
-      model: preference.model,
-      small_model: preference.model,
-      enabled_providers: ['zhipuai-coding-plan'],
-    })
+      await discoverOpenCode('/bin/opencode', capture, root, account.authDirectory, true, {
+        nativeHome: account.nativeHome,
+        credentialEnv: { ZHIPU_API_KEY: 'SYNTHETIC-HOST-KEY' },
+        probeOptions: { fetch },
+      }),
+    ).toEqual([])
+    expect(capture).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
     await expect(
       prepareOpenCode({
         executable: '/bin/opencode',
         project: '/project',
-        preference: { ...preference, model: 'openai/gpt-5.4' },
+        preference: { model: 'zhipuai-coding-plan/glm-5.3', effort: 'default' },
         mode: 'plan',
-        prompt: 'synthetic task',
-        stateDirectory: join(root, 'unrelated'),
+        prompt: 'synthetic',
+        stateDirectory: join(root, 'worker'),
+        authDirectory: account.authDirectory,
+        nativeHome: account.nativeHome,
         managedCredentials: true,
       }),
-    ).rejects.toThrow('CN Coding Plan')
-    expect(captured!.ZHIPU_API_KEY).toBe(marker)
-    expect(requested).toBe('https://open.bigmodel.cn/api/coding/paas/v4/models')
-    expect(readFileSync(join(captured!.XDG_DATA_HOME!, 'opencode/auth.json'), 'utf8')).not.toContain(marker)
-    expect(readFileSync(captured!.OPENCODE_CONFIG!, 'utf8')).not.toContain(marker)
+    ).rejects.toThrow('没有有效账号')
   })
   it('conservatively hides Zen public zero-cost routes without treating unrelated custom endpoints as that restriction', async () => {
     const root = directory(),
@@ -567,11 +519,11 @@ describe('OpenCode native adapter (explicitly synthetic fixtures)', () => {
     await expect(pending).rejects.toThrow('synthetic cancelled')
     expect(readFileSync(join(account.authDirectory, 'opencode/auth.json'), 'utf8')).toBe(before)
   })
-  it('merges native+plugin auth safely, resolves explicit env/file API config and preserves refreshed snapshots', async () => {
+  it('merges only own auth, resolves own env/file config and rebuilds stale snapshots', async () => {
     const root = directory(),
       account = native(root, {}),
       data = join(account.nativeHome, '.local/share/opencode'),
-      secret = join(root, 'secret')
+      secret = join(account.nativeHome, '.config/opencode/secret')
     mkdirSync(data, { recursive: true, mode: 0o700 })
     writeFileSync(
       join(data, 'auth.json'),
@@ -593,8 +545,13 @@ describe('OpenCode native adapter (explicitly synthetic fixtures)', () => {
       { mode: 0o600 },
     )
     expect(await snapshotOpenCodeAuth(account.authDirectory, profile.auth, ['fixture'])).toBe(snapshot)
-    expect(readFileSync(join(snapshot, 'opencode/auth.json'), 'utf8')).toContain('SYNTHETIC-REFRESHED')
-    vi.stubEnv('CLIWORKER_SYNTHETIC_API', 'SYNTHETIC-ENV-KEY')
+    expect(readFileSync(join(snapshot, 'opencode/auth.json'), 'utf8')).toContain('SYNTHETIC-FILE-KEY')
+    vi.stubEnv('CLIWORKER_SYNTHETIC_API', 'SYNTHETIC-PARENT-KEY')
+    writeFileSync(
+      join(account.nativeHome, '.config/opencode/.env'),
+      'CLIWORKER_SYNTHETIC_API=SYNTHETIC-ENV-KEY\n',
+      { mode: 0o600 },
+    )
     writeFileSync(
       join(account.nativeHome, '.config/opencode/opencode.json'),
       '{"provider":{"fixture":{"options":{"apiKey":"{env:CLIWORKER_SYNTHETIC_API}"}}}}',
@@ -721,4 +678,33 @@ describe('OpenCode native adapter (explicitly synthetic fixtures)', () => {
     h.parser.end()
     expect(h.events.some((event) => JSON.stringify(event).includes('private reasoning'))).toBe(false)
   })
+})
+
+it('rejects other CLI file credentials and ignores generic environment configuration', async () => {
+  const root = directory(),
+    account = native(root, {}),
+    foreign = join(account.nativeHome, '.codex')
+  mkdirSync(foreign, { mode: 0o700 })
+  const file = join(foreign, 'auth.json'),
+    marker = 'SYNTHETIC_FOREIGN_SECRET'
+  writeFileSync(file, marker, { mode: 0o600 })
+  const config = join(account.nativeHome, '.config/opencode/opencode.json')
+  writeFileSync(config, JSON.stringify({ provider: { fixture: { options: { apiKey: `{file:${file}}` } } } }))
+  await expect(readOpenCodeProfile(account.authDirectory, account)).rejects.toThrow('自身账号目录')
+  expect(readFileSync(file, 'utf8')).toBe(marker)
+  vi.stubEnv('SYNTHETIC_GENERIC_API_KEY', marker)
+  vi.stubEnv('OPENCODE_CONFIG', file)
+  vi.stubEnv(
+    'OPENCODE_CONFIG_CONTENT',
+    JSON.stringify({ provider: { foreign: { options: { apiKey: marker } } } }),
+  )
+  writeFileSync(join(account.authDirectory, 'opencode/auth.json'), '{}')
+  writeFileSync(
+    config,
+    JSON.stringify({ provider: { fixture: { options: { apiKey: '{env:SYNTHETIC_GENERIC_API_KEY}' } } } }),
+  )
+  const own = await readOpenCodeProfile(account.authDirectory, account)
+  expect(own.auth).toEqual({})
+  expect(own.providers).not.toHaveProperty('foreign')
+  expect(JSON.stringify(own)).not.toContain(marker)
 })

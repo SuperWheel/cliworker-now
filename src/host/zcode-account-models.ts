@@ -8,12 +8,12 @@ import { join } from 'node:path'
  * Keys remain in the Host and are used only for the corresponding native route.
  * OAuth access/refresh tokens and old identities are deliberately not fallbacks.
  */
-export async function readZCodeAccountApiKeys(
+export async function readZCodeAccountBindings(
   authDirectory: string,
   providerIds: string[],
   options: { signal?: AbortSignal; credentialSecret?: string } = {},
-): Promise<Map<string, string>> {
-  const result = new Map<string, string>()
+): Promise<Map<string, { identity: string; key: string }>> {
+  const result = new Map<string, { identity: string; key: string }>()
   if (!providerIds.length) return result
   options.signal?.throwIfAborted()
   let file: Awaited<ReturnType<typeof open>> | undefined
@@ -89,7 +89,7 @@ export async function readZCodeAccountApiKeys(
       const apiKey = decode(
         `account-provider:coding-plan:${providerId}:account:${encodeURIComponent(identity)}:api-key`,
       )
-      if (apiKey) result.set(providerId, apiKey)
+      if (apiKey) result.set(providerId, { identity, key: apiKey })
     }
     return result
   } catch (error) {
@@ -101,4 +101,18 @@ export async function readZCodeAccountApiKeys(
     buffer.fill(0)
     await file?.close()
   }
+}
+
+/** Key-only view retained for account-scoped metadata queries. */
+export async function readZCodeAccountApiKeys(
+  authDirectory: string,
+  providerIds: string[],
+  options: { signal?: AbortSignal; credentialSecret?: string } = {},
+): Promise<Map<string, string>> {
+  return new Map(
+    [...(await readZCodeAccountBindings(authDirectory, providerIds, options))].map(([provider, value]) => [
+      provider,
+      value.key,
+    ]),
+  )
 }

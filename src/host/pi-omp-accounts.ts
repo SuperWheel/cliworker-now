@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { snapshotPiOmpNative, safePiOmpAncestors } from './pi-omp-native.ts'
-import { credentialEnvironment } from './extended-adapters.ts'
+import { confineExtended } from './extended-adapters.ts'
 import type { AccountAction } from '../shared/accounts.ts'
 import type { PiOmpCli } from './pi-omp-adapter.ts'
 import { projectDirectory, type RuntimeConfig } from './process.ts'
@@ -56,19 +56,6 @@ async function writePrivateJSON(path: string, value: unknown) {
   }
 }
 
-async function withCancellation<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
-  if (!signal) return pending
-  if (signal.aborted) {
-    void pending.catch(() => undefined)
-    signal.throwIfAborted()
-  }
-  return new Promise<T>((resolve, reject) => {
-    const abort = () => reject(signal.reason)
-    signal.addEventListener('abort', abort, { once: true })
-    void pending.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))
-  })
-}
-
 /**
  * User-operated native account UI. No task prompt or automatic login is sent;
  * original global sources remain unchanged and this plugin keeps its own account store.
@@ -76,22 +63,10 @@ async function withCancellation<T>(pending: Promise<T>, signal?: AbortSignal): P
 export async function preparePiOmpAccountTerminal(
   input: PiOmpAccountTerminalInput,
 ): Promise<PiOmpAccountTerminalLaunch> {
-  const { cli, config, signal } = input
+  const { cli, signal } = input
   if (cli !== 'pi' && cli !== 'omp') throw new Error('Unsupported Pi/OMP account terminal')
   signal?.throwIfAborted()
   projectDirectory(input.project)
-  let credentials: Record<string, string>
-  try {
-    credentials =
-      input.action === 'login' ? {} : await withCancellation(credentialEnvironment(cli, config), signal)
-  } catch {
-    signal?.throwIfAborted()
-    throw new Error('无法读取智谱凭据，请在 Harness 模型设置中检查当前凭据引用')
-  }
-  signal?.throwIfAborted()
-  if (input.action !== 'login' && config.zaiCredentialRef && !credentials.ZAI_CODING_CN_API_KEY)
-    throw new Error('Harness 模型设置中的智谱凭据引用不可用，请先修复该引用或使用登录设置管理原生账号')
-
   const root = await privateDirectory(resolve(input.stateDirectory))
   const accountRoot = await privateDirectory(join(root, 'account-runtime'))
   const runtime = await mkdtemp(join(accountRoot, `${cli}-`))
@@ -121,16 +96,16 @@ export async function preparePiOmpAccountTerminal(
     const agent = await privateDirectory(join(account, 'agent'))
     const native = await snapshotPiOmpNative(cli, agent, { accountRoot: root, nativeHome: input.nativeHome })
     const temporary = await privateDirectory(join(runtime, 'tmp'))
-    const provider = cli === 'pi' ? 'zai-coding-cn' : 'cliworker-zai-cn'
     const nativeArgs = ['--no-session', '--no-tools', '--no-extensions', '--no-skills']
     const env: Record<string, string> = {
       ...native.env,
-      ...credentials,
       PI_CODING_AGENT_DIR: agent,
       TMPDIR: temporary,
       ELECTRON_RUN_AS_NODE: '1',
       // Do not let a caller's active profile redirect this disposable TUI to
       // another credential store. Harness already scrubs ambient secret names.
+      OMP_AUTH_BROKER_URL: '',
+      OMP_AUTH_BROKER_TOKEN: '',
       OMP_PROFILE: '',
       PI_PROFILE: '',
     }
@@ -145,44 +120,11 @@ export async function preparePiOmpAccountTerminal(
       env.PI_OFFLINE = '1'
       env.PI_TELEMETRY = '0'
     } else {
-      // OMP accepts models.yml; JSON is a YAML subset. This is the exact custom
-      // provider shape used by pi-omp-bridge.mjs, without writing the resolved key.
-      if (credentials.ZAI_CODING_CN_API_KEY) {
-        const models = JSON.parse(await readFile(join(agent, 'models.yml'), 'utf8'))
-        models.providers ??= {}
-        models.providers[provider] = {
-          api: 'openai-completions',
-          baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
-          apiKey: 'ZAI_CODING_CN_API_KEY',
-          models: [
-            {
-              id: 'glm-5.3-flash',
-              name: 'GLM-5.3-Flash',
-              reasoning: true,
-              input: ['text', 'image'],
-              contextWindow: 1000000,
-              maxTokens: 131072,
-              cost: { input: 0.15, output: 0.5, cacheRead: 0.03, cacheWrite: 0 },
-              thinking: { mode: 'effort', efforts: ['low', 'high', 'max'], defaultLevel: 'low' },
-              compat: {
-                supportsStore: false,
-                supportsDeveloperRole: false,
-                supportsReasoningEffort: true,
-                maxTokensField: 'max_tokens',
-                thinkingFormat: 'zai',
-                supportsStrictMode: true,
-              },
-            },
-          ],
-        }
-        await writePrivateJSON(join(agent, 'models.yml'), models)
-      }
       const nativeAuth = JSON.parse(await readFile(join(agent, 'native-auth.json'), 'utf8'))
       await writePrivateJSON(join(agent, 'config.yml'), {
         ...nativeAuth,
         // Native OMP 16.4.4 setup scene selection reads startup.setupWizard.
-        // Each account runtime is fresh, but its API provider is already supplied
-        // by Harness; do not show an unrelated OAuth onboarding wizard.
+        // Account login is an explicit action; manage does not start onboarding.
         startup: { setupWizard: false, showSplash: false, checkUpdate: false },
         // OMP 16.4.4 has no --no-mcp. Its native discovery registry filters these
         // provider IDs before reading global/project MCP files or spawning servers.
@@ -229,11 +171,15 @@ export async function preparePiOmpAccountTerminal(
           : [process.execPath, fileURLToPath(new URL('./pi-login.mjs', import.meta.url)), input.executable]
     }
     return {
-      argv: [
-        process.execPath,
-        fileURLToPath(new URL('./private-launch.mjs', import.meta.url)),
-        ...nativeArgv,
-      ],
+      argv: confineExtended(
+        [process.execPath, fileURLToPath(new URL('./private-launch.mjs', import.meta.url)), ...nativeArgv],
+        runtime,
+        runtime,
+        'plan',
+        undefined,
+        agent,
+        true,
+      ),
       // Avoid loading project files while operating account controls.
       cwd: runtime,
       env,

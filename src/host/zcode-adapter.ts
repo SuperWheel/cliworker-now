@@ -21,7 +21,7 @@ import { EFFORTS, type Effort, type ModelChoice, type TaskMode } from '../shared
 import type { EventInput, ProtocolResult } from './protocol.ts'
 import type { AccountIdentity } from './account-identity.ts'
 import { probeAccountModels } from './account-models.mjs'
-import { readZCodeAccountApiKeys } from './zcode-account-models.ts'
+import { readZCodeAccountApiKeys, readZCodeAccountBindings } from './zcode-account-models.ts'
 
 // Native ZCode uses exact tool-name sets, not globs. Deny its own delegation
 // surface and bundled browser REPL. This is not a general MCP isolation policy;
@@ -384,7 +384,7 @@ function readZCodeConfig(path: string, optional: boolean, personal = false): unk
     if (fd !== undefined) closeSync(fd)
   }
 }
-function readZCodePersonal(authDirectory?: string, options: ZCodeDiscoveryOptions = {}): PersonalDocument {
+function personalPaths(authDirectory?: string, options: ZCodeDiscoveryOptions = {}) {
   const explicit =
     options.personalConfig ??
     (options.nativeHome === undefined ? process.env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE?.trim() : undefined)
@@ -394,12 +394,65 @@ function readZCodePersonal(authDirectory?: string, options: ZCodeDiscoveryOption
   ])
   const pluginPath = resolve(join(authDirectory ?? zcodeAuthDirectory(), '.zcode/v2/provider_config.json'))
   if (!paths.has(pluginPath)) paths.set(pluginPath, true)
+  return paths
+}
+function readZCodePersonal(authDirectory?: string, options: ZCodeDiscoveryOptions = {}): PersonalDocument {
   const documents: PersonalDocument[] = []
-  for (const [path, optional] of paths) {
+  for (const [path, optional] of personalPaths(authDirectory, options)) {
     const raw = readZCodeConfig(path, optional, true)
     if (raw !== undefined) documents.push(parsePersonal(raw))
   }
   return mergePersonal(documents)
+}
+
+/** Private Host material, using the exact discovery overlay and current-account key binding. */
+export async function readZCodeBindingMaterial(
+  executable: string,
+  authDirectory: string,
+  builtinConfig?: string,
+  options: ZCodeDiscoveryOptions = {},
+) {
+  options.signal?.throwIfAborted()
+  const candidates = resolveZCodeModels(
+    readZCodeConfig(builtinPath(executable, builtinConfig), false),
+    readZCodePersonal(authDirectory, options),
+  )
+  const accounts = await readZCodeAccountBindings(
+    authDirectory,
+    candidates.flatMap((entry) =>
+      entry.providerConfig.access?.type === 'zhipu-account' ? [entry.providerId] : [],
+    ),
+    options,
+  )
+  const credentials = new Map<
+    string,
+    { provider: string; identity?: string; key: string; baseUrl: string; apiType: string }
+  >()
+  for (const entry of candidates) {
+    const { access, api } = entry.providerConfig
+    const account = access?.type === 'zhipu-account' ? accounts.get(entry.providerId) : undefined
+    const key =
+      account?.key ??
+      (['api-key', 'zhipu-coding-plan-api-key'].includes(access?.type) ? access.apiKey : undefined)
+    if (!nonempty(key)) continue
+    credentials.set(entry.providerId, {
+      provider: entry.providerId,
+      key,
+      identity: account?.identity,
+      baseUrl: api.baseUrl,
+      apiType: api.type,
+    })
+  }
+  options.signal?.throwIfAborted()
+  return {
+    credentials: [...credentials.values()],
+    sourceIds: [
+      resolve(authDirectory),
+      ...[...personalPaths(authDirectory, options)].flatMap(([path, optional]) =>
+        readZCodeConfig(path, optional, true) === undefined ? [] : [path],
+      ),
+    ],
+  }
 }
 /** Account evidence is an explicit native API credential, never a catalog entry. */
 export function readZCodePersonalIdentity(

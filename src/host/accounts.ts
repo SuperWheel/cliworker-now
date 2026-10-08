@@ -1,10 +1,16 @@
 import { isExtendedCli } from './extended-adapters.ts'
+import { firstPartyEnvironment } from './first-party-models.ts'
 import type { SubprocessTerminalHandle } from '@deepseek-ai/dsh-subprocess'
 import { randomUUID } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
 import { stripVTControlCharacters } from 'node:util'
 import { executableFor, resolveCliExecutable } from './adapters.ts'
-import { projectDirectory, type ProcessBackend, type RuntimeConfig } from './process.ts'
+import {
+  projectDirectory,
+  ProcessCleanupUnconfirmedError,
+  type ProcessBackend,
+  type RuntimeConfig,
+} from './process.ts'
 import { CLI_IDS, type CliId } from '../shared/types.ts'
 import type { AccountAction, AccountFrame, AccountStatus } from '../shared/accounts.ts'
 import {
@@ -194,6 +200,7 @@ interface AccountSession {
 export class AccountManager {
   private readonly sessions = new Map<string, AccountSession>()
   private readonly reserved = new Set<CliId>()
+  private readonly unsafeQueries = new Set<CliId>()
   private readonly pending = new Set<Promise<unknown>>()
   private readonly parents = new Map<string, ParentScope>()
   private readonly parentClosings = new Map<string, Promise<void>>()
@@ -208,7 +215,7 @@ export class AccountManager {
 
   isBusy(cli: CliId): boolean {
     validateCli(cli)
-    return this.reserved.has(cli)
+    return this.reserved.has(cli) || this.unsafeQueries.has(cli)
   }
 
   async status(cli: CliId, cwd: string, signal: AbortSignal): Promise<AccountStatus> {
@@ -218,6 +225,14 @@ export class AccountManager {
   }
 
   private async readStatus(cli: CliId, cwd: string, signal: AbortSignal): Promise<AccountStatus> {
+    if (this.unsafeQueries.has(cli))
+      return {
+        cli,
+        installed: true,
+        state: 'unavailable',
+        summary: '账号查询未完成清理，请重启应用',
+        actions: [],
+      }
     const timer = new AbortController()
     const timeout = setTimeout(() => timer.abort(), STATUS_TIMEOUT)
     timeout.unref?.()
@@ -270,6 +285,7 @@ export class AccountManager {
               : ['auth', 'whoami']
       const child = this.backend.spawn({
         argv: [executable, ...argv],
+        env: firstPartyEnvironment(cli),
         cwd,
         stdio: { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
         graceMs: this.config.graceMs,
@@ -305,12 +321,26 @@ export class AccountManager {
           actions: this.backend.spawnTerminal ? actionsFor(cli, this.config) : [],
         }
       } finally {
-        child.terminate()
-        await child.waitForExit()
+        try {
+          child.terminate()
+          if (!(await child.waitForExit())) throw new ProcessCleanupUnconfirmedError()
+        } catch {
+          throw new ProcessCleanupUnconfirmedError()
+        }
         await Promise.allSettled([child.done, ...readers])
         raw = ''
       }
     } catch (error) {
+      if (error instanceof ProcessCleanupUnconfirmedError) {
+        this.unsafeQueries.add(cli)
+        return {
+          cli,
+          installed,
+          state: 'unavailable',
+          summary: '账号查询未完成清理，请重启应用',
+          actions: [],
+        }
+      }
       if (signal.aborted || this.controller.signal.aborted) throw new Error('账号状态查询已取消')
       const code = (error as NodeJS.ErrnoException)?.code
       if (error instanceof HermesExecutableError)
@@ -371,6 +401,7 @@ export class AccountManager {
     if (!capability || capability.target === 'models')
       throw new Error('此版本 CLI 未提供终端登录或账号管理入口')
     if (!this.backend.spawnTerminal) throw new Error('当前宿主不支持交互终端')
+    if (this.unsafeQueries.has(cli)) throw new ProcessCleanupUnconfirmedError()
     if (this.reserved.has(cli)) throw new Error('此 CLI 已有账号终端，请先关闭后重试')
     const directory = projectDirectory(cwd)
     this.reserved.add(cli)
@@ -412,6 +443,7 @@ export class AccountManager {
       startup.throwIfAborted()
       let launch: { argv: string[]; cwd: string; env?: Record<string, string> } = {
         argv: [executable, ...argumentsFor(cli, action)],
+        env: firstPartyEnvironment(cli),
         cwd,
       }
       if (cli === 'zcode' || cli === 'grok') {

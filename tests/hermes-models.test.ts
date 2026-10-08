@@ -8,7 +8,10 @@ const roots: string[] = []
 function home(provider = 'openrouter') {
   const root = mkdtempSync(join(tmpdir(), 'hermes-models-synthetic-'))
   roots.push(root)
-  writeFileSync(join(root, 'config.yaml'), `model:\n  provider: ${provider}\n  default: synthetic/model\n`)
+  writeFileSync(
+    join(root, 'config.yaml'),
+    `auth:\n  adopt_external_logins: false\nmodel:\n  provider: ${provider}\n  default: synthetic/model\n`,
+  )
   return root
 }
 const response = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status })
@@ -207,4 +210,26 @@ describe('Hermes account supported model discovery (synthetic, no real requests)
     expect((await hermesAccountModels(root, 'openai-codex', { fetch })).models).toEqual([])
     expect(fetch).not.toHaveBeenCalled()
   })
+})
+
+it('requires the native external-login opt-out and rejects imported credential pools without querying', async () => {
+  const root = home(),
+    fetch = vi.fn()
+  writeFileSync(join(root, '.env'), 'OPENROUTER_API_KEY=synthetic-own\n')
+  writeFileSync(join(root, 'config.yaml'), 'model:\n  provider: openrouter\n  default: synthetic/model\n')
+  expect((await hermesAccountModels(root, 'openrouter', { fetch })).state).toBe('unknown')
+  writeFileSync(
+    join(root, 'config.yaml'),
+    'auth:\n  adopt_external_logins: false\nmodel:\n  provider: openrouter\n  default: synthetic/model\n',
+  )
+  writeFileSync(
+    join(root, 'auth.json'),
+    JSON.stringify({
+      credential_pool: {
+        openrouter: [{ source: 'claude_code', auth_type: 'api_key', access_token: 'synthetic-imported' }],
+      },
+    }),
+  )
+  expect((await hermesAccountModels(root, 'openrouter', { fetch })).state).toBe('unknown')
+  expect(fetch).not.toHaveBeenCalled()
 })

@@ -20,12 +20,7 @@ import type { CliId, Preference, TaskMode, ModelChoice } from '../shared/types.t
 import type { RuntimeConfig } from './process.ts'
 import { prepareZCode, discoverZCode, zcodeAuthDirectory } from './zcode-adapter.ts'
 import { preparePiOmp, discoverPiOmp, type PiOmpMetadataCapture } from './pi-omp-adapter.ts'
-import {
-  prepareOpenCode,
-  discoverOpenCode,
-  openCodeAuthDirectory,
-  openCodeCredentialEnvironment,
-} from './opencode-adapter.ts'
+import { prepareOpenCode, discoverOpenCode, openCodeAuthDirectory } from './opencode-adapter.ts'
 import { prepareHermes, discoverHermes, hermesHomeDirectory } from './hermes-adapter.ts'
 import { hermesSandbox } from './hermes-sandbox.ts'
 import { prepareGrok, discoverGrok } from './grok-adapter.ts'
@@ -33,6 +28,10 @@ import { prepareGrok, discoverGrok } from './grok-adapter.ts'
 export const EXTENDED_CLIS = ['zcode', 'grok', 'omp', 'pi', 'hermes', 'opencode'] as const
 export const isExtendedCli = (cli: string): cli is (typeof EXTENDED_CLIS)[number] =>
   (EXTENDED_CLIS as readonly string[]).includes(cli)
+// OMP eagerly loads home/project dotenv files, including before CLI parsing.
+// Own dotenv values have already been read and projected by Host. This fixed
+// basename regex also covers Bun's .env.local / .env.production variants.
+export const PI_OMP_ENVIRONMENT_POLICY = '\n(deny file-read-data (regex #"(^|/)[.]env([.][^/]*)?$"))\n'
 const privateArgv = (argv: string[]) => [
   process.execPath,
   fileURLToPath(new URL('./private-launch.mjs', import.meta.url)),
@@ -90,26 +89,13 @@ export function sealPrivateTree(root: string): void {
   }
   visit(root)
 }
+/** Compatibility only: Host credential references never supply CLI accounts. */
 export async function credentialEnvironment(
-  cli: CliId,
-  config: RuntimeConfig,
-  selectedModel?: string,
+  _cli: CliId,
+  _config: RuntimeConfig,
+  _selectedModel?: string,
 ): Promise<Record<string, string>> {
-  if (cli === 'opencode')
-    return selectedModel && !selectedModel.startsWith('zhipuai-coding-plan/')
-      ? {}
-      : openCodeCredentialEnvironment(config)
-  if (!['pi', 'omp'].includes(cli) || !config.zaiCredentialRef) return {}
-  const provider = selectedModel?.slice(0, selectedModel.indexOf('/'))
-  if (provider && !['zai-coding-cn', 'cliworker-zai-cn', 'zhipu-coding-plan'].includes(provider)) return {}
-  let key: string | undefined
-  try {
-    key = await config.resolveCredential?.(config.zaiCredentialRef)
-  } catch {
-    throw new Error('Pi/OMP 的 Harness 智谱凭据引用不可用，请检查原生模型设置')
-  }
-  if (!key) throw new Error('Pi/OMP 的 Harness 智谱凭据引用不可用，请检查原生模型设置')
-  return { ZAI_CODING_CN_API_KEY: key }
+  return {}
 }
 /** The new adapters need writable private state even for a read-only project. */
 export function confineExtended(
@@ -119,6 +105,7 @@ export function confineExtended(
   mode: TaskMode,
   temporary?: string,
   authDirectory?: string,
+  isolateDotenv = false,
 ): string[] {
   if (process.platform !== 'darwin') throw new Error('这些新增 CLI 当前仅验收 macOS 沙箱；本平台暂不能运行')
   const roots = [
@@ -127,7 +114,7 @@ export function confineExtended(
     ...(temporary ? [realpathSync(temporary)] : []),
     ...(mode === 'accept-edits' ? [realpathSync(project)] : []),
   ]
-  const policy = `(version 1)\n(allow default)\n(deny file-write*)\n(allow file-write* ${roots.map((r) => `(subpath ${JSON.stringify(r)})`).join(' ')} (literal "/dev/null") (literal "/dev/tty"))\n`
+  const policy = `(version 1)\n(allow default)\n(deny file-write*)\n(allow file-write* ${roots.map((r) => `(subpath ${JSON.stringify(r)})`).join(' ')} (literal "/dev/null") (literal "/dev/tty"))\n${isolateDotenv ? PI_OMP_ENVIRONMENT_POLICY : ''}`
   return ['/usr/bin/sandbox-exec', '-p', policy, ...argv]
 }
 export async function extendedLaunch(
@@ -144,13 +131,13 @@ export async function extendedLaunch(
 ) {
   const state = privateDirectory(stateDirectory)
   const input = { executable, project, preference, mode, prompt, conversationId, stateDirectory: state }
-  const creds = await credentialEnvironment(cli, config, preference.model)
   const metadata: PiOmpMetadataCapture | undefined =
     metadataCapture &&
     (async (argv, env, phase) => {
       const confined = confineExtended(privateArgv(argv), state, state, 'plan')
+      if (cli === 'pi' || cli === 'omp') confined[2] += PI_OMP_ENVIRONMENT_POLICY
       if (phase === 'native-candidates') confined[2] += '\n(deny network*)\n'
-      return metadataCapture(confined, { ...env, ...creds, ELECTRON_RUN_AS_NODE: '1' }, phase)
+      return metadataCapture(confined, { ...env, ELECTRON_RUN_AS_NODE: '1' }, phase)
     })
   const launch =
     cli === 'zcode'
@@ -167,7 +154,6 @@ export async function extendedLaunch(
               accountRoot:
                 config.stateDirectory ??
                 join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'cliworker-now'),
-              managedCredentials: !!config.zaiCredentialRef,
             },
             metadata,
           )
@@ -175,8 +161,6 @@ export async function extendedLaunch(
           ? await prepareOpenCode({
               ...input,
               authDirectory: openCodeAuthDirectory(config.stateDirectory),
-              managedCredentials:
-                !!config.zaiCredentialRef && preference.model.startsWith('zhipuai-coding-plan/'),
             })
           : cli === 'hermes'
             ? await prepareHermes({ ...input, hermesHome: config.hermesHome })
@@ -188,7 +172,6 @@ export async function extendedLaunch(
   if (temporary) chmodSync(temporary, 0o700)
   const env = {
     ...launch.env,
-    ...creds,
     ...(temporary ? { TMPDIR: temporary } : {}),
     ELECTRON_RUN_AS_NODE: '1',
   }
@@ -210,6 +193,7 @@ export async function extendedLaunch(
               mode,
               temporary,
               cli === 'opencode' ? openCodeAuthDirectory(config.stateDirectory) : undefined,
+              cli === 'pi' || cli === 'omp',
             ),
       env,
       cleanup: () => {
@@ -236,7 +220,6 @@ export async function extendedCatalog(
   signal?.throwIfAborted()
   const catalogRoot = privateDirectory(join(stateDirectory, 'catalog', cli))
   const state = privateDirectory(mkdtempSync(join(catalogRoot, 'query-')))
-  const creds = await credentialEnvironment(cli, config)
   const run: PiOmpMetadataCapture = async (argv, env, phase) => {
     const temporary = cli === 'zcode' ? mkdtempSync('/private/tmp/cwn-') : undefined
     if (temporary) chmodSync(temporary, 0o700)
@@ -251,13 +234,13 @@ export async function extendedCatalog(
               'plan',
               temporary,
               cli === 'opencode' ? openCodeAuthDirectory(config.stateDirectory ?? stateDirectory) : undefined,
+              cli === 'pi' || cli === 'omp',
             )
       // Exactly one outer sandbox owns each phase. Only the SDK/native directory
       // phase is offline; the account phase performs bounded metadata GETs.
       if (phase === 'native-candidates') confined[2] += '\n(deny network*)\n'
       return await capture(confined, {
         ...env,
-        ...creds,
         ...(temporary ? { TMPDIR: temporary } : {}),
         ELECTRON_RUN_AS_NODE: '1',
       })
@@ -278,7 +261,7 @@ export async function extendedCatalog(
       : cli === 'pi' || cli === 'omp'
         ? await discoverPiOmp(cli, executable, run, state, {
             accountRoot: config.stateDirectory ?? stateDirectory,
-            managedCredentials: !!config.zaiCredentialRef,
+            signal,
           })
         : cli === 'opencode'
           ? await discoverOpenCode(
@@ -286,8 +269,8 @@ export async function extendedCatalog(
               run,
               state,
               openCodeAuthDirectory(config.stateDirectory ?? stateDirectory),
-              !!config.zaiCredentialRef,
-              { credentialEnv: creds, signal },
+              false,
+              { signal },
             )
           : cli === 'hermes'
             ? await discoverHermes(executable, run, state, config.hermesHome, { signal })

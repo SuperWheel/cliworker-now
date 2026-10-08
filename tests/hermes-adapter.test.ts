@@ -24,7 +24,8 @@ import type { EventInput } from '../src/host/protocol.ts'
 import { foldEvents } from '../src/shared/types.ts'
 
 vi.mock('../src/host/hermes-installation.ts', () => ({ verifyHermesExecutable: async () => undefined }))
-vi.mock('../src/host/hermes-models.ts', () => ({
+vi.mock('../src/host/hermes-models.ts', async (load) => ({
+  ...(await load<typeof import('../src/host/hermes-models.ts')>()),
   hermesAccountModels: vi.fn(async () => ({
     state: 'supported',
     source: 'account-models',
@@ -40,9 +41,13 @@ function directory() {
 }
 function home(provider = 'openrouter') {
   const path = directory()
-  writeFileSync(join(path, 'config.yaml'), `model:\n  provider: ${provider}\n  default: synthetic/model\n`, {
-    mode: 0o600,
-  })
+  writeFileSync(
+    join(path, 'config.yaml'),
+    `auth:\n  adopt_external_logins: false\nmodel:\n  provider: ${provider}\n  default: synthetic/model\n`,
+    {
+      mode: 0o600,
+    },
+  )
   return path
 }
 function capabilities(
@@ -304,7 +309,10 @@ describe('Hermes adapter (synthetic fixtures; no inference)', () => {
     )
     const native = join(parent, 'native')
     mkdirSync(native)
-    writeFileSync(join(native, 'config.yaml'), 'model:\n  provider: openrouter\n  default: synthetic/model\n')
+    writeFileSync(
+      join(native, 'config.yaml'),
+      'auth:\n  adopt_external_logins: false\nmodel:\n  provider: openrouter\n  default: synthetic/model\n',
+    )
     const models = await discoverHermes(
       '/fixture/hermes',
       async (argv, env) => {

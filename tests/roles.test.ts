@@ -256,3 +256,13 @@ describe('named conversations and frozen roles', () => {
     await runtime.stop('parent', second.worker.id)
   })
 })
+
+// Synthetic authorization fixture for lifecycle/protocol tests; own-account rules
+// are exercised separately by authorized-catalog and runtime-account-isolation.
+vi.mock('../src/host/cli-account-binding.ts', () => ({
+  readCliAccountBinding: async () => 'synthetic-own-account',
+}))
+vi.mock('../src/host/authorized-catalog.ts', () => ({
+  ACCOUNT_CHANGED: '账号已变更，请重新选择或新建任务',
+  authorizeSelection: async (preference: unknown) => ({ binding: 'synthetic-own-account', preference }),
+}))

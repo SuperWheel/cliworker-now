@@ -32,6 +32,9 @@ import { join } from 'node:path'
 import { AgyContextReader } from './agy-context.ts'
 import { attachTelemetry, TelemetryReader } from './telemetry.ts'
 import { WorkerStorage } from './storage.ts'
+import { authorizeSelection, ACCOUNT_CHANGED } from './authorized-catalog.ts'
+import { readCliAccountBinding } from './cli-account-binding.ts'
+import { firstPartyEnvironment } from './first-party-models.ts'
 
 interface Task {
   worker: Worker
@@ -39,6 +42,7 @@ interface Task {
   controller: AbortController
   done: Promise<Worker>
   settle: (worker: Worker) => void
+  admission: Promise<string>
 }
 export interface Submission {
   worker: Worker
@@ -73,9 +77,14 @@ export class WorkerRuntime {
   }
   assertCliEnabled(cli: CliId): void {
     if (this.disposed) throw new Error('插件正在关闭')
+    if (this.blocked) throw new Error(this.blocked)
     if (isRetiredCli(cli)) throw new Error(RETIRED_HARNESS_NOTICE)
     if (!this.storage.cliSettings().enabled[cli])
       throw new Error(`${CLI_LABELS[cli]} 已关闭，请先在 CLI Worker 设置中开启`)
+  }
+  blockOnCleanup(error: ProcessCleanupUnconfirmedError): void {
+    this.blocked = `无法确认 CLI 进程已清理，已暂停后续派遣：${error.message}`
+    this.drain()
   }
   setCliEnabled(cli: CliId, enabled: boolean) {
     if (isRetiredCli(cli)) throw new Error(RETIRED_HARNESS_NOTICE)
@@ -230,6 +239,7 @@ export class WorkerRuntime {
     mode: TaskMode,
     previousId?: string,
     identity?: { agentName?: string; role?: RoleSnapshot },
+    authorizedBinding?: string,
   ): Submission {
     if (this.disposed) throw new Error('CLI Worker is shutting down')
     if (this.blocked) throw new Error(this.blocked)
@@ -281,12 +291,24 @@ export class WorkerRuntime {
     const done = new Promise<Worker>((resolve) => {
       settle = resolve
     })
+    const controller = new AbortController()
+    // Start the own-account read at admission, before this task waits in the queue.
+    const admission = authorizedBinding
+      ? Promise.resolve(authorizedBinding)
+      : readCliAccountBinding(cliOf(effective), this.backend, this.config, canonical, controller.signal)
+    void admission.catch((error) => {
+      if (error instanceof ProcessCleanupUnconfirmedError) {
+        this.blocked = `无法确认 CLI 进程已清理，已暂停后续派遣：${error.message}`
+        this.drain()
+      }
+    })
     const task: Task = {
       worker,
       prompt: promptForWorker(worker, prompt),
-      controller: new AbortController(),
+      controller,
       done,
       settle,
+      admission,
     }
     this.tasks.set(worker.id, task)
     this.queue.push(task)
@@ -316,16 +338,30 @@ export class WorkerRuntime {
       this.changed()
       if (!this.running.has(task)) {
         this.queue = this.queue.filter((t) => t !== task)
-        this.finish(task, 'interrupted', '用户已取消排队任务')
+        void this.finishQueued(task, 'interrupted', '用户已取消排队任务')
       }
     }
     return task.done
+  }
+  /** A queued task may already own a native account-query process. */
+  private async finishQueued(task: Task, status: 'failed' | 'interrupted', reason: string): Promise<void> {
+    task.controller.abort(new Error(reason))
+    try {
+      await task.admission
+    } catch (error) {
+      if (error instanceof ProcessCleanupUnconfirmedError)
+        this.blocked = `无法确认 CLI 进程已清理，已暂停后续派遣：${error.message}`
+    }
+    this.finish(task, this.blocked ? 'failed' : status, this.blocked ?? reason)
   }
   private drain(): void {
     if (this.disposed) return
     if (this.blocked) {
       const queued = this.queue.splice(0)
-      for (const task of queued) this.finish(task, 'failed', this.blocked)
+      for (const task of queued) {
+        task.worker.status = 'stopping'
+        void this.finishQueued(task, 'failed', this.blocked)
+      }
       return
     }
     for (const task of [...this.queue]) {
@@ -395,6 +431,22 @@ export class WorkerRuntime {
     let release: (() => void) | undefined
     let quiescent = false
     try {
+      const admitted = await task.admission
+      controller.signal.throwIfAborted()
+      const previousBinding = this.storage.accountBinding(worker.id)
+      if (previousBinding && previousBinding !== admitted) throw new Error(ACCOUNT_CHANGED)
+      const { binding, preference: authorizedPreference } = await authorizeSelection(
+        worker.preference,
+        this.backend,
+        this.config,
+        worker.project,
+        controller.signal,
+        admitted,
+      )
+      if (authorizedPreference.model !== worker.preference.model)
+        throw new Error('模型与思考强度不匹配，请重新选择')
+      controller.signal.throwIfAborted()
+      this.assertCliEnabled(cliOf(worker.preference))
       const executable = await resolveCliExecutable(
         cliOf(worker.preference),
         this.backend,
@@ -420,6 +472,7 @@ export class WorkerRuntime {
               captureCatalogMetadata(this.backend, this.config, argv, worker.project, controller.signal, env),
           )
         : {
+            env: firstPartyEnvironment(cliOf(worker.preference)),
             argv: workerArguments(
               executable,
               worker.project,
@@ -432,6 +485,19 @@ export class WorkerRuntime {
           }
       release = 'cleanup' in launch ? launch.cleanup : undefined
       controller.signal.throwIfAborted()
+      if (
+        binding !==
+        (await readCliAccountBinding(
+          cliOf(worker.preference),
+          this.backend,
+          this.config,
+          worker.project,
+          controller.signal,
+        ))
+      )
+        throw new Error(ACCOUNT_CHANGED)
+      controller.signal.throwIfAborted()
+      this.storage.bindAccount(worker.id, binding)
       handle = await spawnManagedAgent(this.backend, {
         argv: launch.argv,
         env: 'env' in launch ? launch.env : undefined,

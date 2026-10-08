@@ -34,7 +34,7 @@ function fixture() {
   }
 }
 function save(home: string, name: string, value: unknown) {
-  mkdirSync(home, { recursive: true })
+  mkdirSync(home, { recursive: true, mode: 0o700 })
   writeFileSync(join(home, name), typeof value === 'string' ? value : JSON.stringify(value), { mode: 0o600 })
 }
 const jwt = (claims: unknown) => `e30.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.synthetic`
@@ -168,6 +168,7 @@ describe('Hermes native accounts (explicit synthetic fixtures)', () => {
 
   it('launches only native login and credential menus in disposable private working directories', async () => {
     const { config, project } = fixture()
+    save(config.hermesHome, 'config.yaml', 'auth:\n  adopt_external_logins: false\n')
     const login = await prepareHermesAccount('login', '/fixture/hermes', project, config, signal())
     const manage = await prepareHermesAccount('manage', '/fixture/hermes', project, config, signal())
     expect(login.argv.slice(-2)).toEqual(['/fixture/hermes', 'model'])

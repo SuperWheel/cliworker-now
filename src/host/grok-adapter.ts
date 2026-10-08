@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, realpath, symlink, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, realpath, symlink, unlink, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
@@ -56,14 +56,16 @@ async function state(stateDirectory: string, project?: string) {
   if (project) {
     const original = join(homedir(), '.grok', 'auth.json'),
       target = join(home, 'auth.json')
-    // Read-only reference. Host's outer sandbox must deny writes to the native auth directory.
-    // Existing isolated login state is preserved; no credential is decoded, copied or printed.
-    if (existsSync(original))
-      try {
-        await symlink(original, target)
-      } catch (e) {
-        if (!record(e) || e.code !== 'EEXIST') throw e
-      }
+    // This path is a derived worker reference, never an account source. Replace
+    // the link itself so logout cannot be undone by a surviving worker copy.
+    try {
+      const existing = await lstat(target)
+      if (!existing.isFile() && !existing.isSymbolicLink()) throw new Error('Unsafe Grok auth snapshot')
+      await unlink(target)
+    } catch (e) {
+      if (!record(e) || e.code !== 'ENOENT') throw e
+    }
+    if (existsSync(original)) await symlink(original, target)
   }
   return {
     root,

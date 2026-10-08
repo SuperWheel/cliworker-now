@@ -59,6 +59,45 @@ function dotenv(text: string): Record<string, string> {
   return result
 }
 
+/** Internal source material; callers must never publish or log the returned values. */
+export async function readHermesAccountMaterial(home: string, signal?: AbortSignal) {
+  const config = parse((await read(join(home, 'config.yaml'), signal)) ?? '')
+  const auth = JSON.parse((await read(join(home, 'auth.json'), signal)) ?? '{}')
+  const env = dotenv((await read(join(home, '.env'), signal)) ?? '')
+  if (!object(config) || !object(auth)) throw new Error('Hermes 账号配置无效')
+  return { config, auth, env, sourceIds: [home] }
+}
+
+/** Hermes' native default adopts other CLI logins, including after refresh failure.
+ * It has no single-run config override, so only the explicit native opt-out is safe. */
+export async function assertHermesOwnAccounts(home: string, signal?: AbortSignal) {
+  const material = await readHermesAccountMaterial(home, signal)
+  if (material.config.auth?.adopt_external_logins !== false)
+    throw new Error('请先关闭 Hermes 的 auth.adopt_external_logins')
+  if (
+    material.config.model?.openai_runtime === 'codex_app_server' ||
+    material.config.model?.api_mode === 'codex_app_server'
+  )
+    throw new Error('Hermes 当前使用外部 Codex 登录，请改用自身账号')
+  for (const entries of Object.values(material.auth.credential_pool ?? {})) {
+    if (!Array.isArray(entries)) throw new Error('Hermes 账号来源无法确认')
+    for (const entry of entries) {
+      if (!object(entry)) throw new Error('Hermes 账号来源无法确认')
+      if (
+        entry.source &&
+        !['manual', 'config'].includes(entry.source) &&
+        !(
+          typeof entry.source === 'string' &&
+          entry.source.startsWith('env:') &&
+          literal(material.env[entry.source.slice(4)])
+        )
+      )
+        throw new Error('Hermes 含外部账号来源，请使用自身登录')
+    }
+  }
+  return material
+}
+
 /** Current selected-provider account scope. Unknown provider/auth schemas fail closed.
  * Route precedence follows Hermes runtime_provider_backends / credential_pool;
  * only the canonical OpenRouter route and native Codex OAuth store are supported
@@ -69,12 +108,10 @@ export async function hermesAccountModels(
   options: { signal?: AbortSignal; fetch?: typeof fetch } = {},
 ): Promise<AccountModelScope> {
   try {
-    const config = parse((await read(join(home, 'config.yaml'), options.signal)) ?? '')
+    const { config, auth, env } = await assertHermesOwnAccounts(home, options.signal)
     if (!object(config) || !object(config.model) || config.model.provider !== provider) return unknown()
     if (config.providers?.[provider]?.enabled === false) return unknown()
     const cfg = config.model
-    const env = dotenv((await read(join(home, '.env'), options.signal)) ?? '')
-    const auth = JSON.parse((await read(join(home, 'auth.json'), options.signal)) ?? '{}')
     if (!object(auth)) return unknown()
     // Extra headers, command secrets, endpoint overrides and unknown pool routes
     // cannot be reconstructed faithfully from a public model catalog.

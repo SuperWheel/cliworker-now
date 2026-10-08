@@ -169,6 +169,26 @@ function fixture(overrides: Partial<RuntimeConfig> = {}) {
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve))
 
 describe('account status safety (synthetic CLI output)', () => {
+  it('blocks task/account admission when native status cleanup cannot be confirmed', async () => {
+    const f = fixture()
+    f.status('Logged in using an API key - SYNTHETIC_KEY')
+    const original = f.backend.spawn
+    f.backend.spawn = vi.fn((spec) => {
+      const child = original(spec)
+      vi.mocked(child.waitForExit).mockResolvedValue(false)
+      return child
+    })
+    expect(await f.manager.status('codex', f.cwd, f.signal)).toMatchObject({
+      state: 'unavailable',
+      actions: [],
+    })
+    expect(f.manager.isBusy('codex')).toBe(true)
+    expect(() => f.manager.start('p', 'codex', 'login', f.cwd, f.signal)).toThrow('cleanup')
+    expect(await f.manager.status('codex', f.cwd, f.signal)).toMatchObject({ state: 'unavailable' })
+    expect(f.backend.spawn).toHaveBeenCalledTimes(1)
+    expect(f.backend.spawnTerminal).not.toHaveBeenCalled()
+  })
+
   it('returns allowlisted summaries without API keys, account fields, or raw exceptions', async () => {
     const f = fixture()
     f.status('Logged in using an API key - sk-SECRET-DO-NOT-EXPOSE')
@@ -777,7 +797,7 @@ describe('extended CLI account capabilities (synthetic credentials and PTYs)', (
       const opened = await f.manager.start('p', cli, 'manage', f.cwd, f.signal)
       const spec = vi.mocked(f.backend.spawnTerminal!).mock.calls[0]![0]
       expect(spec.cwd).not.toBe(f.cwd)
-      expect(spec.env?.ZAI_CODING_CN_API_KEY).toBe('SYNTHETIC_KEY')
+      expect(spec.env?.ZAI_CODING_CN_API_KEY).toBeUndefined()
       expect(spec.argv).not.toContain('SYNTHETIC_KEY')
       expect(existsSync(spec.cwd)).toBe(true)
       f.delayCleanup()

@@ -1,5 +1,14 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
@@ -13,6 +22,7 @@ function directory() {
   return path
 }
 afterEach(() => {
+  vi.unstubAllEnvs()
   for (const path of directories.splice(0)) rmSync(path, { recursive: true, force: true })
 })
 function fixture(max = 8192) {
@@ -188,4 +198,33 @@ setInterval(()=>{},1000);\n`,
     expect(() => fixture(20).parser.feed('x'.repeat(21))).toThrow('maxLineBytes')
     expect(() => fixture(20).send({ type: 'text', data: 'x'.repeat(30) })).toThrow('maxLineBytes')
   })
+})
+
+it('replaces old worker auth references from the own Grok source and removes them after logout', async () => {
+  const native = directory(),
+    stateDirectory = directory(),
+    project = directory()
+  vi.stubEnv('HOME', native)
+  mkdirSync(join(native, '.grok'))
+  const auth = join(native, '.grok/auth.json')
+  writeFileSync(auth, 'SYNTHETIC_OWN_GROK', { mode: 0o600 })
+  const input = {
+    executable: '/fixture/grok',
+    project,
+    stateDirectory,
+    preference: { model: 'grok-fixture', effort: 'default' as const },
+    mode: 'plan' as const,
+    prompt: 'synthetic task',
+  }
+  const first = await prepareGrok(input),
+    target = join(first.env.GROK_HOME!, 'auth.json')
+  expect(readFileSync(target, 'utf8')).toBe('SYNTHETIC_OWN_GROK')
+  rmSync(target)
+  writeFileSync(target, 'SYNTHETIC_OLD_WORKER', { mode: 0o600 })
+  await prepareGrok({ ...input, conversationId: 'synthetic-session' })
+  expect(readFileSync(target, 'utf8')).toBe('SYNTHETIC_OWN_GROK')
+  expect(readFileSync(auth, 'utf8')).toBe('SYNTHETIC_OWN_GROK')
+  rmSync(auth)
+  await prepareGrok({ ...input, conversationId: 'synthetic-session' })
+  expect(existsSync(target)).toBe(false)
 })

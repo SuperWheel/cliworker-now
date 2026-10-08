@@ -1,5 +1,5 @@
 import { StringDecoder } from 'node:string_decoder'
-import type { ProcessBackend, RuntimeConfig } from './process.ts'
+import { ProcessCleanupUnconfirmedError, type ProcessBackend, type RuntimeConfig } from './process.ts'
 import { accountEmail, type AccountIdentity } from './account-identity.ts'
 
 const LIMIT = 64 * 1024
@@ -123,8 +123,14 @@ export async function readCodexAccount(
     return undefined
   } finally {
     control.removeEventListener('abort', cancel)
-    child.terminate()
-    await child.waitForExit()
+    let exited = false
+    try {
+      child.terminate()
+      exited = await child.waitForExit()
+    } catch {
+      throw new ProcessCleanupUnconfirmedError()
+    }
+    if (!exited) throw new ProcessCleanupUnconfirmedError()
     await Promise.allSettled([stdout, stderr, child.done])
     child.stdin?.removeListener('error', inputError)
   }

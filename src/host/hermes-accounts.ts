@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import type { AccountAction } from '../shared/accounts.ts'
 import { accountEmail, localTokenExpired, type AccountIdentity } from './account-identity.ts'
 import { confineExtended, privateDirectory } from './extended-adapters.ts'
+import { assertHermesOwnAccounts } from './hermes-models.ts'
 import { hermesHomeDirectory } from './hermes-adapter.ts'
 import { projectDirectory, type RuntimeConfig } from './process.ts'
 
@@ -204,6 +205,7 @@ export async function prepareHermesAccount(
   if (!nonempty(executable) || executable.includes('\0')) throw new Error('Invalid Hermes executable')
   projectDirectory(project)
   const home = hermesHomeDirectory(config.hermesHome)
+  await assertHermesOwnAccounts(home, signal)
   const userHome = await realpath(homedir())
   if (home === sep || home === userHome || userHome.startsWith(home + sep))
     throw new Error('Unsafe Hermes home')

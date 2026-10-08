@@ -11,7 +11,7 @@ import type { PiOmpCli } from './pi-omp-adapter.ts'
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v)
 const defaultRoot = () => join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'cliworker-now')
 const runtimeEnv =
-  /^(?:PATH|HOME|SHELL|TMPDIR|NODE_OPTIONS|NODE_PATH|ELECTRON_RUN_AS_NODE|OMP_PROFILE|PI_PROFILE|PI_CONFIG_DIR|PI_CODING_AGENT_DIR|LD_.*|DYLD_.*)$/
+  /^(?:PATH|HOME|SHELL|TMPDIR|NODE_OPTIONS|NODE_PATH|ELECTRON_RUN_AS_NODE|OMP_AUTH_BROKER_.*|OMP_PROFILE|PI_PROFILE|PI_CONFIG_DIR|PI_CODING_AGENT_DIR|LD_.*|DYLD_.*)$/
 function configuredEnvironmentRefs(value: unknown, output = new Set<string>()) {
   if (typeof value === 'string' && /^[A-Z][A-Z0-9_]*$/.test(value)) output.add(value)
   if (object(value) || Array.isArray(value))
@@ -21,6 +21,8 @@ function configuredEnvironmentRefs(value: unknown, output = new Set<string>()) {
 export interface PiOmpNativeOptions {
   accountRoot?: string
   nativeHome?: string
+  signal?: AbortSignal
+  /** Deprecated. Worker copies are never authoritative credential sources. */
   preserveCredentials?: boolean
 }
 export const piOmpAccountDirectory = (cli: PiOmpCli, root = defaultRoot()) =>
@@ -112,6 +114,7 @@ function credentialState(
   throw new Error('Unsupported native credential type')
 }
 interface NativeSource {
+  sourceId: string
   auth: Record<string, any>
   models: Record<string, any>
   modelCache: any[]
@@ -124,6 +127,7 @@ interface NativeSource {
 }
 async function source(cli: PiOmpCli, path: string, scratch?: string): Promise<NativeSource> {
   const result: NativeSource = {
+    sourceId: resolve(path),
     auth: {},
     models: {},
     modelCache: [],
@@ -170,7 +174,9 @@ async function source(cli: PiOmpCli, path: string, scratch?: string): Promise<Na
     const config = parseObject(await readOptional(join(path, 'config.yml')), true)
     // Only model/auth-specific settings enter workers; extension/hooks/tools do not.
     result.config = {
-      ...(object(config.auth) ? { auth: config.auth } : {}),
+      ...(object(config.auth)
+        ? { auth: Object.fromEntries(Object.entries(config.auth).filter(([key]) => key !== 'broker')) }
+        : {}),
       ...(config.defaultThinkingLevel === undefined
         ? {}
         : { defaultThinkingLevel: config.defaultThinkingLevel }),
@@ -237,6 +243,16 @@ async function source(cli: PiOmpCli, path: string, scratch?: string): Promise<Na
   const refs = configuredEnvironmentRefs([result.models, result.config])
   for (const key of Object.keys(result.env))
     if (!/_(?:API_KEY|TOKEN|SECRET)$/.test(key) && !refs.has(key)) delete result.env[key]
+  // Earlier versions wrote this exact Host-only route into the plugin store.
+  // Preserve native/user configuration, including an explicitly supplied own .env.
+  const legacy = result.models.providers?.['cliworker-zai-cn']
+  if (
+    object(legacy) &&
+    legacy.apiKey === 'ZAI_CODING_CN_API_KEY' &&
+    legacy.baseUrl === 'https://open.bigmodel.cn/api/coding/paas/v4' &&
+    !result.env.ZAI_CODING_CN_API_KEY
+  )
+    delete result.models.providers['cliworker-zai-cn']
   return result
 }
 async function withSources<T>(
@@ -244,6 +260,7 @@ async function withSources<T>(
   options: PiOmpNativeOptions,
   fn: (sources: NativeSource[], scratch: string) => Promise<T>,
 ): Promise<T> {
+  options.signal?.throwIfAborted()
   const root = options.accountRoot ?? defaultRoot()
   await safePiOmpAncestors(root)
   const scratch = await mkdtemp(join(await realpath(tmpdir()), 'cliworker-native-read-'))
@@ -251,7 +268,11 @@ async function withSources<T>(
     const global = join(options.nativeHome ?? homedir(), cli === 'pi' ? '.pi' : '.omp', 'agent')
     const paths = [...new Set([global, piOmpAccountDirectory(cli, root)])]
     const results: NativeSource[] = []
-    for (const path of paths) results.push(await source(cli, path, scratch))
+    for (const path of paths) {
+      options.signal?.throwIfAborted()
+      results.push(await source(cli, path, scratch))
+    }
+    options.signal?.throwIfAborted()
     return await fn(results, scratch)
   } finally {
     await rm(scratch, { recursive: true, force: true })
@@ -307,6 +328,29 @@ function mergeSources(sources: NativeSource[]) {
   if (Object.values(knownEnv).some((key) => env[key])) kinds.add('api')
   return { auth, providers, env, credentialProviders, cache, kinds, expired }
 }
+/** Internal binding material only. Never expose these values through public status. */
+export async function readPiOmpAccountMaterial(cli: PiOmpCli, options: PiOmpNativeOptions = {}) {
+  return withSources(cli, options, async (sources) => {
+    const merged = mergeSources(sources)
+    return {
+      auth: merged.auth,
+      credentials: [...merged.credentialProviders.values()].flat(),
+      env: merged.env,
+      models: { providers: merged.providers },
+      configAuth: Object.assign({}, ...sources.map((s) => s.config ?? {})),
+      sourceIds: sources
+        .filter(
+          (s) =>
+            Object.keys(s.auth).length ||
+            s.credentials.length ||
+            Object.keys(s.env).length ||
+            Object.keys(s.config?.auth ?? {}).length ||
+            Object.values(s.models.providers ?? {}).some((p) => object(p) && p.apiKey),
+        )
+        .map((s) => s.sourceId),
+    }
+  })
+}
 /** Global native input then plugin account overrides by provider; empty plugin auth never hides global accounts. */
 export async function snapshotPiOmpNative(
   cli: PiOmpCli,
@@ -314,19 +358,7 @@ export async function snapshotPiOmpNative(
   options: PiOmpNativeOptions = {},
 ) {
   try {
-    return await withSources(cli, options, async (sources, scratch) => {
-      if (options.preserveCredentials) {
-        const current = await source(cli, destination, scratch)
-        current.models = {}
-        current.modelCache = []
-        current.modelsStore = {}
-        current.env = {
-          ...(await restorePiOmpEnvironment(destination)),
-          ...Object.assign(Object.create(null), ...sources.map((source) => source.env)),
-        }
-        // Only this worker's refreshed credentials take precedence on continuation.
-        sources.push(current)
-      }
+    return await withSources(cli, options, async (sources) => {
       const { auth, providers, kinds, env, credentialProviders, cache, expired } = mergeSources(sources)
       const files: Record<string, unknown> =
         cli === 'pi'
