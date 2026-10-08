@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { AccountAction, AccountFrame } from '../shared/accounts.ts'
+import type { AccountAction, AccountFrame, AccountSource } from '../shared/accounts.ts'
 import { CLI_LABELS, type CliId } from '../shared/types.ts'
 import { value, type API } from './workers.ts'
 import { accountTerminalCSS } from './account-terminal-css.ts'
@@ -30,6 +30,7 @@ export function AccountTerminal({
   sessionId,
   cli,
   action,
+  source,
   onClose,
   onFinished,
 }: {
@@ -37,6 +38,7 @@ export function AccountTerminal({
   sessionId: string
   cli: CliId
   action: AccountAction
+  source?: AccountSource
   onClose: () => void
   onFinished: () => void
 }) {
@@ -204,7 +206,9 @@ export function AccountTerminal({
       void (async () => {
         try {
           const result = JSON.parse(
-            value(await api.cliworker.accountStart(sessionId, cli, action, startup.signal)),
+            value(await (source
+              ? api.cliworker.accountStartForSource(sessionId, cli, action, source, startup.signal)
+              : api.cliworker.accountStart(sessionId, cli, action, startup.signal))),
           ) as { id: string; instruction: string }
           clearTimeout(startupTimer)
           id = result.id
@@ -267,7 +271,7 @@ export function AccountTerminal({
       void stopSession().catch(() => undefined)
       void disposeStream().catch(() => undefined)
     }
-  }, [api, sessionId, cli, action, attempt])
+  }, [api, sessionId, cli, action, source, attempt])
 
   const close = async (retry = false) => {
     const ownGeneration = generation.current

@@ -14,6 +14,7 @@ import { openCodeAuthDirectory } from './opencode-adapter.ts'
 import { effectiveHermesHome } from './hermes-account-context.ts'
 import { assertHermesOwnAccounts, hermesPoolEntryUnavailable } from './hermes-models.ts'
 import { HermesNousError, selectHermesNousSource } from './hermes-nous.ts'
+import { hermesUnsuppressedEnvironment, projectHermesUnsuppressedAuth } from './hermes-suppression.ts'
 import { readZCodeBindingMaterial, zcodeAuthDirectory } from './zcode-adapter.ts'
 import { ProcessCleanupUnconfirmedError, type ProcessBackend, type RuntimeConfig } from './process.ts'
 
@@ -435,8 +436,13 @@ async function material(
   }
   if (cli === 'hermes') {
     const root = effectiveHermesHome(config)
-    const source = await assertHermesOwnAccounts(root, signal)
-    const provider = source.config.model?.provider
+    const raw = await assertHermesOwnAccounts(root, signal)
+    const provider = raw.config.model?.provider
+    const source = {
+      ...raw,
+      auth: projectHermesUnsuppressedAuth(raw.auth),
+      env: hermesUnsuppressedEnvironment(raw.auth, raw.env, provider),
+    }
     const entries: BindingEntry[] = []
     if (provider === 'nous') {
       try {

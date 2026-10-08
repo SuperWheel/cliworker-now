@@ -12,7 +12,7 @@ import {
   type RuntimeConfig,
 } from './process.ts'
 import { CLI_IDS, type CliId } from '../shared/types.ts'
-import type { AccountAction, AccountFrame, AccountStatus } from '../shared/accounts.ts'
+import type { AccountAction, AccountFrame, AccountSource, AccountStatus } from '../shared/accounts.ts'
 import {
   accountEmail,
   localAccountIdentity,
@@ -29,7 +29,8 @@ import {
   ZCodeAccountCapabilityError,
 } from './zcode-grok-accounts.ts'
 import { readPiOmpAccount, readOpenCodeAccount, prepareOpenCodeAccount } from './harness-opencode-accounts.ts'
-import { prepareHermesAccount, readHermesAccount } from './hermes-accounts.ts'
+import { prepareHermesAccount, readHermesAccount, listHermesAccountSources } from './hermes-accounts.ts'
+import { listPiOmpAccountSources } from './pi-omp-native.ts'
 import { verifyHermesExecutable, HermesExecutableError } from './hermes-installation.ts'
 import { preparePiOmpAccountTerminal } from './pi-omp-accounts.ts'
 import { readKimiAccount, KIMI_MANAGE_LOGIN, prepareKimiAccountDirectory } from './kimi-accounts.ts'
@@ -66,6 +67,7 @@ const actionsFor = (cli: CliId, config: RuntimeConfig): AccountStatus['actions']
   if (cli === 'pi' || cli === 'omp' || cli === 'hermes')
     return [
       { id: 'login', label: '登录设置', description: '打开原生终端登录界面，选择提供商后由你完成授权。' },
+      { id: 'logout', label: '退出登录', description: '选择当前账号来源，在原生菜单中退出或移除凭据。' },
       { id: 'manage', label: '账号终端', description: '打开原生终端管理账号。' },
     ]
 
@@ -303,13 +305,19 @@ export class AccountManager {
                 : readPiOmpAccount(cli, this.config, control),
           control,
         )
+        const sources =
+          cli === 'pi' || cli === 'omp'
+            ? await listPiOmpAccountSources(cli, this.config.stateDirectory, control)
+            : cli === 'hermes'
+              ? await listHermesAccountSources(this.config, control)
+              : undefined
         return {
           cli,
           installed,
           ...identity,
-          actions: actionsFor(cli, this.config).filter(
-            (item) => item.target === 'models' || this.backend.spawnTerminal,
-          ),
+          actions: actionsFor(cli, this.config)
+            .map((item) => (item.id === 'logout' && sources ? { ...item, sources } : item))
+            .filter((item) => item.target === 'models' || this.backend.spawnTerminal),
         }
       }
       if (cli === 'antigravity') {
@@ -458,9 +466,17 @@ export class AccountManager {
     action: AccountAction,
     cwd: string,
     signal: AbortSignal,
+    source?: AccountSource,
   ): Promise<{ id: string; instruction: string }> {
     validateCli(cli)
     if (!ACTIONS.includes(action)) throw new Error('不支持的账号操作')
+    if (
+      source !== undefined &&
+      (!['native', 'plugin'].includes(source) ||
+        action !== 'logout' ||
+        !['pi', 'omp', 'hermes'].includes(cli))
+    )
+      throw new Error('不支持的账号来源')
     if (!parent || parent.length > 512) throw new Error('无效的父会话')
     this.controller.signal.throwIfAborted()
     signal.throwIfAborted()
@@ -478,7 +494,7 @@ export class AccountManager {
       scope = { controller: new AbortController(), pending: new Set() }
       this.parents.set(parent, scope)
     }
-    const operation = this.track(this.startSession(parent, cli, action, directory, signal, scope))
+    const operation = this.track(this.startSession(parent, cli, action, directory, signal, scope, source))
     scope.pending.add(operation)
     void operation.finally(() => scope.pending.delete(operation)).catch(() => undefined)
     return operation
@@ -491,6 +507,7 @@ export class AccountManager {
     cwd: string,
     signal: AbortSignal,
     scope: ParentScope,
+    source?: AccountSource,
   ) {
     const timeout = new AbortController()
     const timer = setTimeout(() => timeout.abort(), STARTUP_TIMEOUT)
@@ -556,6 +573,7 @@ export class AccountManager {
         const prepared = await preparePiOmpAccountTerminal({
           cli,
           action,
+          source,
           executable,
           project: cwd,
           stateDirectory:
@@ -568,7 +586,7 @@ export class AccountManager {
         instruction = prepared.instruction
         release = prepared.cleanup
       } else if (cli === 'hermes') {
-        const prepared = await prepareHermesAccount(action, executable, cwd, this.config, startup)
+        const prepared = await prepareHermesAccount(action, executable, cwd, this.config, startup, source)
         launch = prepared
         instruction = prepared.instruction
         release = prepared.cleanup

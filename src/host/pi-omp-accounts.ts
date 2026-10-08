@@ -5,13 +5,15 @@ import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { snapshotPiOmpNative, safePiOmpAncestors } from './pi-omp-native.ts'
 import { confineExtended } from './extended-adapters.ts'
-import type { AccountAction } from '../shared/accounts.ts'
+import type { AccountAction, AccountSource } from '../shared/accounts.ts'
+import { preparePiOmpLogout } from './pi-omp-logout.ts'
 import type { PiOmpCli } from './pi-omp-adapter.ts'
 import { projectDirectory, type RuntimeConfig } from './process.ts'
 
 export interface PiOmpAccountTerminalInput {
   cli: PiOmpCli
   action?: AccountAction
+  source?: AccountSource
   executable: string
   project: string
   stateDirectory: string
@@ -65,6 +67,7 @@ export async function preparePiOmpAccountTerminal(
 ): Promise<PiOmpAccountTerminalLaunch> {
   const { cli, signal } = input
   if (cli !== 'pi' && cli !== 'omp') throw new Error('Unsupported Pi/OMP account terminal')
+  if (input.action === 'logout') return preparePiOmpLogout(input)
   signal?.throwIfAborted()
   projectDirectory(input.project)
   const root = await privateDirectory(resolve(input.stateDirectory))

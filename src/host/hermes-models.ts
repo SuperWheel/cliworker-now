@@ -3,6 +3,7 @@ import { lstat, open } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parse } from 'yaml'
 import { parseHermesOwnEnvironment } from './hermes-env.ts'
+import { hermesUnsuppressedEnvironment, projectHermesUnsuppressedAuth } from './hermes-suppression.ts'
 import {
   beginHermesNousCapabilities,
   fetchHermesNousModels,
@@ -147,7 +148,15 @@ export async function hermesAccountModels(
   options: { signal?: AbortSignal; fetch?: typeof fetch } = {},
 ): Promise<AccountModelScope> {
   try {
-    const material = await assertHermesOwnAccounts(home, options.signal)
+    const currentMaterial = async () => {
+      const raw = await assertHermesOwnAccounts(home, options.signal)
+      return {
+        ...raw,
+        auth: projectHermesUnsuppressedAuth(raw.auth),
+        env: hermesUnsuppressedEnvironment(raw.auth, raw.env, provider),
+      }
+    }
+    const material = await currentMaterial()
     const { config, auth, env } = material
     if (!object(config) || !object(config.model) || config.model.provider !== provider) return unknown()
     if (config.providers?.[provider]?.enabled === false) return unknown()
@@ -163,7 +172,7 @@ export async function hermesAccountModels(
       try {
         const result = await fetchHermesNousModels(home, source, options, generation)
         options.signal?.throwIfAborted()
-        const current = selectHermesNousSource(await assertHermesOwnAccounts(home, options.signal))
+        const current = selectHermesNousSource(await currentMaterial())
         // A query never authorizes a credential that appeared while it was in flight.
         // Stable task bindings intentionally ignore ordinary token rotation separately.
         if (

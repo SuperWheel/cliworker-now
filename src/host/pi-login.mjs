@@ -7,6 +7,8 @@ import { inspectPiInstallation } from './pi-installation.mjs'
 process.umask(0o077)
 try {
   const executable = process.argv[2]
+  const action = process.argv[3] ?? 'login'
+  if (!['login', 'logout'].includes(action)) throw new Error('Invalid account action')
   if (!executable) throw new Error('Missing Pi entry')
   const { dist } = inspectPiInstallation(executable)
   const {
@@ -15,6 +17,7 @@ try {
     createAgentSessionRuntime,
     SessionManager,
     InteractiveMode,
+    ModelRuntime,
   } = await import(pathToFileURL(join(dist, 'index.js')).href)
   if (
     [
@@ -24,7 +27,7 @@ try {
       SessionManager?.inMemory,
       InteractiveMode,
     ].some((entry) => typeof entry !== 'function') ||
-    ['init', 'handleLoginCommand', 'run'].some(
+    ['init', action === 'logout' ? 'showOAuthSelector' : 'handleLoginCommand', 'run'].some(
       (method) => typeof InteractiveMode.prototype[method] !== 'function',
     )
   )
@@ -36,6 +39,17 @@ try {
       const services = await createAgentSessionServices({
         cwd,
         agentDir,
+        ...(action === 'logout'
+          ? {
+              modelRuntime: await ModelRuntime.create({
+                authPath: process.argv[4],
+                modelsPath: null,
+                modelsStorePath: join(agentDir, 'models-store.json'),
+                refreshOnCreate: false,
+                allowModelNetwork: false,
+              }),
+            }
+          : {}),
         resourceLoaderOptions: {
           noExtensions: true,
           noSkills: true,
@@ -55,12 +69,12 @@ try {
     { cwd, agentDir, sessionManager: SessionManager.inMemory(cwd) },
   )
   const ui = new InteractiveMode(runtime)
-  if (typeof ui.handleLoginCommand !== 'function') throw new Error('Missing Pi login UI')
   await ui.init()
-  await ui.handleLoginCommand()
+  if (action === 'logout') await ui.showOAuthSelector('logout')
+  else await ui.handleLoginCommand()
   await ui.run()
 } catch {
   // Native errors can contain authentication data. Keep this boundary generic.
-  process.stderr.write('无法打开 Pi 原生登录界面，请检查 Pi Coding Agent 安装与受支持的原生接口。\n')
+  process.stderr.write('无法打开 Pi 原生账号界面，请检查 Pi Coding Agent 安装与受支持的原生接口。\n')
   process.exitCode = 1
 }

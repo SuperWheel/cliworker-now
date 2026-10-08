@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { parse as parseYaml } from 'yaml'
 import type { AccountIdentity } from './account-identity.ts'
 import { authenticatedAccountLogins, providerLogin, usableNativeApiKey } from './account-login.ts'
-import type { AccountLogin } from '../shared/accounts.ts'
+import type { AccountLogin, AccountSource } from '../shared/accounts.ts'
 import type { PiOmpCli } from './pi-omp-adapter.ts'
 import { acquireOwnAccountLease, releaseOwnAccountLease, OWN_ACCOUNT_BUSY } from './own-account-lease.mjs'
 import {
@@ -305,6 +305,49 @@ async function withSources<T>(
   } finally {
     await rm(scratch, { recursive: true, force: true })
   }
+}
+
+/** Current native roots only. Account actions must never remove a merged worker copy. */
+export async function readPiOmpLogoutSources(
+  cli: PiOmpCli,
+  stateDirectory: string | undefined,
+  signal: AbortSignal,
+  options: { nativeHome?: string } = {},
+) {
+  return withSources(cli, { accountRoot: stateDirectory, ...options, signal }, async (sources) =>
+    sources.flatMap((source, index) => {
+      const configured =
+        Object.keys(source.auth).length ||
+        source.credentials.length ||
+        Object.values(source.models.providers ?? {}).some(
+          (provider) => object(provider) && provider.apiKey,
+        ) ||
+        Object.values(knownProviderEnvironment).some((key) => usableNativeApiKey(source.env[key]))
+      if (!configured) return []
+      return [
+        {
+          id: (index === 0 ? 'native' : 'plugin') as AccountSource,
+          label: index === 0 ? 'CLI 全局账号' : '插件账号',
+          directory: source.sourceId,
+          env: source.env,
+          config: source.config ?? {},
+          stored: Object.keys(source.auth).length > 0 || source.credentials.length > 0,
+        },
+      ]
+    }),
+  )
+}
+
+export async function listPiOmpAccountSources(
+  cli: PiOmpCli,
+  stateDirectory: string | undefined,
+  signal: AbortSignal,
+  options: { nativeHome?: string } = {},
+) {
+  return (await readPiOmpLogoutSources(cli, stateDirectory, signal, options)).map(({ id, label }) => ({
+    id,
+    label,
+  }))
 }
 function mergeSources(sources: NativeSource[]) {
   const auth = Object.assign(Object.create(null), ...sources.map((s) => s.auth))

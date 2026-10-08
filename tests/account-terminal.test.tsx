@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AccountTerminal } from '../src/client/account-terminal.tsx'
 import type { API } from '../src/client/workers.ts'
-import type { AccountAction, AccountFrame } from '../src/shared/accounts.ts'
+import type { AccountAction, AccountFrame, AccountSource } from '../src/shared/accounts.ts'
 import type { CliId } from '../src/shared/types.ts'
 
 // Simulated PTY/Gateway and renderer only; these tests never invoke an installed CLI.
@@ -140,11 +140,13 @@ afterEach(async () => {
 async function setup(initiallyOpen = true) {
   const starts: ReturnType<typeof deferred>[] = []
   const streams: AccountStream[] = []
-  const accountStart = vi.fn(() => {
+  const pendingStart = () => {
     const pending = deferred()
     starts.push(pending)
     return pending.promise
-  })
+  }
+  const accountStart = vi.fn(pendingStart)
+  const accountStartForSource = vi.fn(pendingStart)
   const accountWrite = vi.fn().mockResolvedValue(ok())
   const accountStop = vi.fn().mockResolvedValue(ok())
   const accountResize = vi.fn().mockResolvedValue(ok())
@@ -155,16 +157,17 @@ async function setup(initiallyOpen = true) {
   })
   const api = {
     $stream: (options: any) => options.open(new AbortController().signal),
-    cliworker: { accountStart, accountWatch, accountWrite, accountStop, accountResize },
+    cliworker: { accountStart, accountStartForSource, accountWatch, accountWrite, accountStop, accountResize },
   } as unknown as API
   const onClose = vi.fn(),
     onFinished = vi.fn()
-  const render = (cli: CliId = 'codex', action: AccountAction = 'login') => (
+  const render = (cli: CliId = 'codex', action: AccountAction = 'login', source?: AccountSource) => (
     <AccountTerminal
       api={api}
       sessionId="parent"
       cli={cli}
       action={action}
+      source={source}
       onClose={onClose}
       onFinished={onFinished}
     />
@@ -176,9 +179,9 @@ async function setup(initiallyOpen = true) {
     })
     mounted.push(renderer)
   })
-  const update = async (cli: CliId = 'codex', action: AccountAction = 'login') => {
+  const update = async (cli: CliId = 'codex', action: AccountAction = 'login', source?: AccountSource) => {
     await act(async () => {
-      renderer.update(render(cli, action))
+      renderer.update(render(cli, action, source))
     })
   }
   const start = async (id = 'terminal-a', index = 0) => {
@@ -206,6 +209,7 @@ async function setup(initiallyOpen = true) {
     starts,
     streams,
     accountStart,
+    accountStartForSource,
     accountWatch,
     accountWrite,
     accountStop,
@@ -224,6 +228,7 @@ it('starts an account action only when explicitly mounted and never enters a pro
   expect(fixture.accountStart).not.toHaveBeenCalled()
   await fixture.update('kimi', 'manage')
   expect(fixture.accountStart).toHaveBeenCalledWith('parent', 'kimi', 'manage', expect.any(AbortSignal))
+  expect(fixture.accountStartForSource).not.toHaveBeenCalled()
   expect(terminals[0].options.disableStdin).toBe(true)
   await fixture.start()
   expect(terminals[0].options.disableStdin).toBe(false)
@@ -232,6 +237,29 @@ it('starts an account action only when explicitly mounted and never enters a pro
   const text = JSON.stringify(fixture.renderer.toJSON())
   expect(text).toContain('模拟账号交互')
   expect(text).not.toMatch(/插件不保存|关闭此窗口会结束|cwn-account-privacy/)
+})
+it.each(['native', 'plugin'] as const)('starts only the explicit %s account source through the scoped API', async (source) => {
+  const fixture = await setup(false)
+  await fixture.update('omp', 'logout', source)
+  expect(fixture.accountStart).not.toHaveBeenCalled()
+  expect(fixture.accountStartForSource).toHaveBeenCalledExactlyOnceWith('parent', 'omp', 'logout', source, expect.any(AbortSignal))
+  await fixture.start()
+  expect(fixture.accountWrite).not.toHaveBeenCalled()
+  await fixture.close()
+  expect(fixture.accountStop).toHaveBeenCalledWith('parent', 'terminal-a')
+})
+it('aborts a source-specific start and cleans up its late terminal when the source changes', async () => {
+  const fixture = await setup(false)
+  await fixture.update('pi', 'logout', 'native')
+  const signal = fixture.accountStartForSource.mock.calls[0][4] as AbortSignal
+  await fixture.update('pi', 'logout', 'plugin')
+  expect(signal.aborted).toBe(true)
+  expect(fixture.accountStartForSource).toHaveBeenNthCalledWith(2, 'parent', 'pi', 'logout', 'plugin', expect.any(AbortSignal))
+  await fixture.start('late-native', 0)
+  expect(fixture.accountStop).toHaveBeenCalledWith('parent', 'late-native')
+  expect(fixture.accountWatch).not.toHaveBeenCalled()
+  await fixture.start('current-plugin', 1)
+  expect(fixture.accountWatch).toHaveBeenCalledExactlyOnceWith('parent', 'current-plugin', expect.any(AbortSignal))
 })
 
 it('aborts an unmounted start and cleans up its late terminal id without opening a stream', async () => {

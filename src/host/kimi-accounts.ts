@@ -76,6 +76,43 @@ function tokenSlot(key: unknown): string {
   return slot
 }
 
+/** Display metadata only, never a JWT verification or an authentication decision.
+ * Native stableJwtSubject uses sub, then user_id. Recognize the observed native
+ * kimi-auth issuer and omit ambiguous/unknown identities without changing login.
+ * The label contains six decoded account-ID characters, never token characters. */
+function kimiAccountLabel(accessToken: string): string | undefined {
+  const parts = accessToken.split('.')
+  if (
+    parts.length !== 3 ||
+    !parts.every((part) => part.length > 0 && /^[A-Za-z0-9_-]+$/.test(part)) ||
+    parts[1].length > 16 * 1024
+  )
+    return undefined
+  let bytes: Buffer | undefined
+  try {
+    bytes = Buffer.from(parts[1], 'base64url')
+    if (bytes.toString('base64url') !== parts[1]) return undefined
+    const claims: unknown = JSON.parse(bytes.toString('utf8'))
+    if (!object(claims) || claims.iss !== 'kimi-auth') return undefined
+    const safeId = (value: unknown): value is string =>
+      typeof value === 'string' &&
+      /^[A-Za-z0-9][A-Za-z0-9_-]{6,127}$/.test(value) &&
+      !/^(?:sk[-_]|pk[-_]|api[-_]?key|access[-_]?token|refresh[-_]?token|secret|bearer|token|eyJ|placeholder|changeme|your[-_])/i.test(value)
+    if (
+      (claims.sub !== undefined && !safeId(claims.sub)) ||
+      (claims.user_id !== undefined && !safeId(claims.user_id)) ||
+      (claims.sub !== undefined && claims.user_id !== undefined && claims.sub !== claims.user_id)
+    )
+      return undefined
+    const id = claims.sub ?? claims.user_id
+    return safeId(id) ? `Kimi ID · …${id.slice(-6)}` : undefined
+  } catch {
+    return undefined
+  } finally {
+    bytes?.fill(0)
+  }
+}
+
 /** No-follow, bounded read; never refreshes, creates or modifies the native token. */
 async function readToken(directory: string, slot: string, signal: AbortSignal) {
   let handle: Awaited<ReturnType<typeof open>> | undefined
@@ -160,7 +197,14 @@ export async function readKimiAccount(
       return api
         ? configured
         : { state: 'unauthenticated', verification: 'local', summary: 'Kimi 登录已过期，请重新登录' }
-    return { state: 'authenticated', authMethod: 'oauth', verification: 'local', summary: '已登录 Kimi' }
+    const accountLabel = kimiAccountLabel(token.access_token)
+    return {
+      state: 'authenticated',
+      authMethod: 'oauth',
+      verification: 'local',
+      summary: '已登录 Kimi',
+      ...(accountLabel ? { accountLabel } : {}),
+    }
   } catch {
     signal.throwIfAborted()
     return unavailable()

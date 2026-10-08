@@ -52,6 +52,10 @@ vi.mock('../src/host/pi-omp-native.ts', async (load) => {
         ...options,
         nativeHome: dirname(options.accountRoot ?? destination),
       }),
+    listPiOmpAccountSources: (cli: 'pi' | 'omp', stateDirectory: string, signal: AbortSignal) =>
+      actual.listPiOmpAccountSources(cli, stateDirectory, signal, { nativeHome: dirname(stateDirectory) }),
+    readPiOmpLogoutSources: (cli: 'pi' | 'omp', stateDirectory: string, signal: AbortSignal) =>
+      actual.readPiOmpLogoutSources(cli, stateDirectory, signal, { nativeHome: dirname(stateDirectory) }),
     inspectPiOmpNativeAccount: async () => ({
       state: 'unconfigured',
       verification: 'local',

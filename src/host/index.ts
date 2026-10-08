@@ -750,6 +750,33 @@ export class CliWorkerService extends TypertRemoteService {
     action: string,
     signal: AbortSignal,
   ): Promise<string> {
+    return this.startAccount(parentSessionId, cli, action, signal)
+  }
+
+  /** @param source - One current CLI-native source, never a filesystem path. */
+  @Remote('accountStartForSource')
+  async accountStartForSource(
+    parentSessionId: string,
+    cli: string,
+    action: string,
+    source: string,
+    signal: AbortSignal,
+  ): Promise<string> {
+    try {
+      const selected = validate.enum(['native', 'plugin']).parse(source)
+      return this.startAccount(parentSessionId, cli, action, signal, selected)
+    } catch (error) {
+      throw failure(error)
+    }
+  }
+
+  private async startAccount(
+    parentSessionId: string,
+    cli: string,
+    action: string,
+    signal: AbortSignal,
+    source?: 'native' | 'plugin',
+  ): Promise<string> {
     try {
       const id = validate.enum(CLI_IDS).parse(cli)
       const operation = validate.enum(['login', 'logout', 'manage']).parse(action)
@@ -767,7 +794,9 @@ export class CliWorkerService extends TypertRemoteService {
         )
         this.accountParents.set(parent.id, dispose)
       }
-      return JSON.stringify(await this.accounts.start(parent.id, id, operation, this.project(parent), signal))
+      return JSON.stringify(
+        await this.accounts.start(parent.id, id, operation, this.project(parent), signal, source),
+      )
     } catch (error) {
       throw failure(error)
     }

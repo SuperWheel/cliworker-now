@@ -3,10 +3,11 @@ import { lstat, mkdir, mkdtemp, open, realpath, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { AccountAction } from '../shared/accounts.ts'
+import type { AccountAction, AccountSource } from '../shared/accounts.ts'
 import { accountEmail, localTokenExpired, type AccountIdentity } from './account-identity.ts'
 import type { AccountLogin } from '../shared/accounts.ts'
 import { authenticatedAccountLogins, providerLogin, usableNativeApiKey } from './account-login.ts'
+import { hermesSourceSuppressed, projectHermesUnsuppressedAuth } from './hermes-suppression.ts'
 import { projectHermesNousSource } from './hermes-nous.ts'
 import { parseHermesOwnEnvironment } from './hermes-env.ts'
 import { confineExtended, privateDirectory } from './extended-adapters.ts'
@@ -54,6 +55,8 @@ function tokenEmail(value: unknown): string | undefined {
  * Explicit own credentials project local login; provider declarations and unknown schemas do not.
  */
 export function projectHermesIdentity(raw: unknown): AccountIdentity | undefined {
+  if (!record(raw)) throw new Error('Invalid Hermes auth metadata')
+  raw = projectHermesUnsuppressedAuth(raw)
   if (!record(raw)) throw new Error('Invalid Hermes auth metadata')
   const providers = record(raw.providers) ? raw.providers : {}
   const ids = nonempty(raw.active_provider) ? [raw.active_provider] : Object.keys(providers)
@@ -157,7 +160,7 @@ export function projectHermesIdentity(raw: unknown): AccountIdentity | undefined
   return undefined
 }
 
-async function environmentLogins(path: string, signal: AbortSignal): Promise<AccountLogin[]> {
+async function environmentLogins(path: string, signal: AbortSignal, auth: unknown): Promise<AccountLogin[]> {
   let file: Awaited<ReturnType<typeof open>> | undefined
   const buffer = Buffer.alloc(64 * 1024 + 1)
   try {
@@ -181,9 +184,13 @@ async function environmentLogins(path: string, signal: AbortSignal): Promise<Acc
         /^(OPENROUTER|OPENAI|ANTHROPIC|GEMINI|GOOGLE|GROQ|MISTRAL|DEEPSEEK|XAI|ZAI|KIMI|MINIMAX|NOUS)_API_KEY(?:_\d+)?$/.exec(
           name,
         )
-      return match && usableNativeApiKey(value)
-        ? [providerLogin(match[1] === 'GEMINI' ? 'google' : match[1]!.toLowerCase(), 'api')]
-        : []
+      if (!match || !usableNativeApiKey(value)) return []
+      const provider = ['GEMINI', 'GOOGLE'].includes(match[1]!)
+        ? 'google'
+        : match[1] === 'KIMI'
+          ? 'kimi-coding'
+          : match[1]!.toLowerCase()
+      return hermesSourceSuppressed(auth, provider, `env:${name}`) ? [] : [providerLogin(provider, 'api')]
     })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
@@ -201,6 +208,7 @@ export async function readHermesAccount(
   signal.throwIfAborted()
   let file: Awaited<ReturnType<typeof open>> | undefined
   let identity: AccountIdentity | undefined
+  let auth: unknown = {}
   const buffer = Buffer.alloc(64 * 1024 + 1)
   try {
     const home = effectiveHermesHome(config)
@@ -222,12 +230,13 @@ export async function readHermesAccount(
         length += result.bytesRead
       }
       if (length > 64 * 1024) throw new Error('Oversized Hermes auth file')
-      identity = projectHermesIdentity(JSON.parse(buffer.subarray(0, length).toString('utf8')))
+      auth = JSON.parse(buffer.subarray(0, length).toString('utf8'))
+      identity = projectHermesIdentity(auth)
       signal.throwIfAborted()
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
-    const envLogins = await environmentLogins(join(home, '.env'), signal)
+    const envLogins = await environmentLogins(join(home, '.env'), signal, auth)
     if (envLogins.length) return authenticatedAccountLogins([...(identity?.logins ?? []), ...envLogins])
     return (
       identity ?? {
@@ -251,12 +260,38 @@ export async function readHermesAccount(
   }
 }
 
+export async function listHermesAccountSources(config: RuntimeConfig, signal: AbortSignal) {
+  const status = await readHermesAccount(config, signal)
+  if (!['authenticated', 'configured', 'unauthenticated'].includes(status.state)) return []
+  const plugin = resolve(
+    config.stateDirectory ?? join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'cliworker-now'),
+    'accounts',
+    'hermes',
+  )
+  const id: AccountSource = effectiveHermesHome(config) === plugin ? 'plugin' : 'native'
+  return [{ id, label: id === 'plugin' ? '插件账号' : 'CLI 全局账号' }]
+}
+
+/** Native auth remove writes only these account files, not installation or history. */
+export function hermesLogoutPolicy(home: string): string {
+  const literal = (name: string) => `(literal ${JSON.stringify(join(home, name))})`
+  if (/[\x00-\x1f\x7f]/.test(home)) throw new Error('Unsafe Hermes home')
+  const regex = (pattern: string) => '#"' + pattern.replace(/"/g, '\\"') + '"'
+  const escaped = home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return (
+    `\n(deny network*)\n(allow file-write-mode (literal ${JSON.stringify(home)}))\n` +
+    `(allow file-write* ${['auth.json', 'auth.lock', '.env', '.env.lock', '.anthropic_oauth.json'].map(literal).join(' ')} ` +
+    `(regex ${regex(`^${escaped}/[.]auth_[^/]+[.]tmp$`)}) (regex ${regex(`^${escaped}/[.]env_[^/]+[.]tmp$`)}))\n`
+  )
+}
+
 export async function prepareHermesAccount(
   action: AccountAction,
   executable: string,
   project: string,
   config: RuntimeConfig,
   signal: AbortSignal,
+  source?: AccountSource,
 ): Promise<{
   argv: string[]
   cwd: string
@@ -265,10 +300,17 @@ export async function prepareHermesAccount(
   cleanup: () => Promise<void>
 }> {
   signal.throwIfAborted()
-  if (action !== 'login' && action !== 'manage') throw new Error('Hermes 账号终端不提供全局退出操作')
+  if (!['login', 'manage', 'logout'].includes(action)) throw new Error('不支持的 Hermes 账号操作')
   if (!nonempty(executable) || executable.includes('\0')) throw new Error('Invalid Hermes executable')
   projectDirectory(project)
-  const home = prepareHermesAccountHome(config)
+  let sourceLabel = ''
+  if (action === 'logout') {
+    const sources = await listHermesAccountSources(config, signal)
+    const chosen = source ? sources.find((item) => item.id === source) : sources[0]
+    if (!chosen) throw new Error('账号来源已变化，请刷新后重试')
+    sourceLabel = chosen.label
+  }
+  const home = action === 'logout' ? effectiveHermesHome(config) : prepareHermesAccountHome(config)
   await assertHermesOwnAccounts(home, signal)
   const userHome = await realpath(homedir())
   if (home === sep || home === userHome || userHome.startsWith(home + sep))
@@ -317,12 +359,13 @@ export async function prepareHermesAccount(
       state,
       'plan',
       temporary,
-      nativeHome,
+      action === 'logout' ? undefined : nativeHome,
     )
     argv[2] += hermesRuntimePolicy(
       hermesCommandInstallationHome(command) ?? hermesHomeDirectory(config.hermesHome),
     )
     argv[2] += hermesAccountIsolationPolicy(nativeHome, state, [hermesHomeDirectory(config.hermesHome)])
+    if (action === 'logout') argv[2] += hermesLogoutPolicy(nativeHome)
     return {
       argv,
       cwd: state,
@@ -337,9 +380,11 @@ export async function prepareHermesAccount(
         ELECTRON_RUN_AS_NODE: '1',
       },
       instruction:
-        action === 'login'
-          ? '在 Hermes 原生菜单中选择服务商并登录。'
-          : '在 Hermes 原生账号菜单中管理凭据；更改保存在插件的 Hermes 账号目录，终端输入仅由你直接操作。',
+        action === 'logout'
+          ? `${sourceLabel}：选择 Remove a credential，再选择服务商和凭据；其他来源保留。`
+          : action === 'login'
+            ? '在 Hermes 原生菜单中选择服务商并登录。'
+            : '在 Hermes 原生账号菜单中管理凭据；更改保存在插件的 Hermes 账号目录，终端输入仅由你直接操作。',
       cleanup,
     }
   } catch (error) {

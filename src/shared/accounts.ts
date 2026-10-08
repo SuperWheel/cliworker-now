@@ -1,6 +1,15 @@
 import type { CliId } from './types.ts'
 
 export type AccountAction = 'login' | 'logout' | 'manage'
+export type AccountSource = 'native' | 'plugin'
+export interface AccountActionDescriptor {
+  id: AccountAction
+  label: string
+  description: string
+  target?: 'models'
+  /** Logout applies only to the selected source, never all visible accounts. */
+  sources?: { id: AccountSource; label: string }[]
+}
 /** Safe display projection of one authenticated provider; never raw credentials or route URLs. */
 export interface AccountLogin {
   providerLabel: string
@@ -21,7 +30,7 @@ export interface AccountStatus {
   logins?: AccountLogin[]
   /** A CLI status report or local session metadata, not a remote credential check. */
   verification?: 'cli' | 'local'
-  actions: { id: AccountAction; label: string; description: string; target?: 'models' }[]
+  actions: AccountActionDescriptor[]
 }
 /** Ephemeral, user-operated terminal transport; never stored with worker events. */
 export interface AccountFrame {

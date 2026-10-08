@@ -242,11 +242,11 @@ describe('Hermes native accounts (explicit synthetic fixtures)', () => {
     ).rejects.toThrow('来源记录')
   })
 
-  it('rejects unsupported logout and cancellation before creating state', async () => {
+  it('rejects empty logout sources and cancellation before creating state', async () => {
     const { config, project } = fixture()
     await expect(
       prepareHermesAccount('logout', '/fixture/hermes', project, config, signal()),
-    ).rejects.toThrow('全局退出')
+    ).rejects.toThrow('账号来源已变化')
     const abort = new AbortController()
     abort.abort(new Error('cancelled'))
     await expect(

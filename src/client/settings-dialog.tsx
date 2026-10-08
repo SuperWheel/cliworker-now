@@ -20,7 +20,7 @@ import {
   type ModelChoice,
   type Preference,
 } from '../shared/types.ts'
-import type { AccountAction, AccountStatus } from '../shared/accounts.ts'
+import type { AccountAction, AccountSource, AccountStatus } from '../shared/accounts.ts'
 import { modelName } from '../shared/models.ts'
 import { visibleModelChoices } from '../shared/model-presentation.ts'
 import { AccountTerminal } from './account-terminal.tsx'
@@ -71,12 +71,18 @@ function providerLoginSummary(account: AccountStatus): { label: string; detail: 
       identity.length <= 254 && !unsafe.test(identity) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(identity)
         ? identity
         : ''
-    return [{ label: `${provider} ${login.authMethod === 'api' ? 'API 登录' : '账号登录'}`, email }]
+    return [{
+      label: login.authMethod === 'api' ? `${provider} API 登录` : `${provider}账号登录`,
+      authMethod: login.authMethod,
+      email,
+    }]
   })
   if (!logins.length) return undefined
-  const detail = logins.map(({ label, email }) => (email ? `${label} ${email}` : label)).join(' · ')
+  const oauth = logins.filter((login) => login.authMethod === 'oauth')
+  const visible = oauth.length ? oauth : logins
+  const detail = [...new Set(logins.map(({ label, email }) => (email ? `${label} ${email}` : label)))].join(' · ')
   return {
-    label: logins.length === 1 ? detail : logins.map(({ label }) => label).join(' · '),
+    label: [...new Set(visible.map(({ label }) => label))].join(' · '),
     detail,
   }
 }
@@ -505,6 +511,7 @@ function CliSettings({
   const [effort, setEffort] = useState<Preference['effort']>('default')
   const [action, setAction] = useState<AccountAction>()
   const [chosenAction, setChosenAction] = useState<AccountStatus['actions'][number]>()
+  const [accountSource, setAccountSource] = useState<AccountSource>()
   const saveController = useRef<AbortController>()
   useEffect(() => () => saveController.current?.abort(), [])
   useEffect(() => {
@@ -600,8 +607,13 @@ function CliSettings({
   }
   const closeAccount = () => {
     setAction(undefined)
+    setAccountSource(undefined)
     onRefreshAccount(true)
   }
+  const sources = chosenAction?.sources?.filter((source, index, all) =>
+    ['native', 'plugin'].includes(source.id) && all.findIndex((item) => item.id === source.id) === index,
+  )
+  const choosingSource = action === 'logout' && chosenAction?.sources !== undefined && !accountSource
   const accountAction = (id: AccountAction) => {
     const item = account?.data?.actions.find((candidate) => candidate.id === id)
     const label =
@@ -645,6 +657,8 @@ function CliSettings({
               return
             }
             setChosenAction(item)
+            setAccountSource(id === 'logout' && item.sources?.length === 1 &&
+              ['native', 'plugin'].includes(item.sources[0]!.id) ? item.sources[0]!.id : undefined)
             setAction(item.id)
           }
         }}
@@ -741,14 +755,28 @@ function CliSettings({
             className="cwn-account-dialog"
             contentClassName="cwn-account-dialog-content"
           >
-            <AccountTerminal
-              api={api}
-              sessionId={sessionId}
-              cli={cli}
-              action={action}
-              onClose={closeAccount}
-              onFinished={finishedAccountAction}
-            />
+            {choosingSource ? (
+              <section aria-label="选择退出账号来源">
+                <p>{sources?.length ? '选择要退出的账号来源' : '账号来源不可用，请关闭后刷新状态'}</p>
+                <div className="cwn-account-actions">
+                  {sources?.map((source) => (
+                    <Button key={source.id} variant="outline" size="md" onClick={() => setAccountSource(source.id)}>
+                      {source.label}
+                    </Button>
+                  ))}
+                </div>
+              </section>
+            ) : (
+              <AccountTerminal
+                api={api}
+                sessionId={sessionId}
+                cli={cli}
+                action={action}
+                source={accountSource}
+                onClose={closeAccount}
+                onFinished={finishedAccountAction}
+              />
+            )}
           </Modal>
         )}
       </section>

@@ -47,6 +47,14 @@ async function fixture() {
   }
 }
 
+function syntheticJwt(claims: unknown) {
+  return [
+    Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url'),
+    Buffer.from(JSON.stringify(claims)).toString('base64url'),
+    'synthetic-signature',
+  ].join('.')
+}
+
 it('isolates account working directories and project MCP without changing native accounts or trust', async () => {
   const f = await fixture()
   await f.set(f.token)
@@ -107,6 +115,102 @@ it.each(['current', 'refreshable', 'native-no-expiry'] as const)(
     expect(await readFile(f.path)).toEqual(before)
   },
 )
+
+it.each(['current', 'refreshable', 'native-no-expiry'] as const)(
+  'shows only a masked decoded native account ID for %s OAuth',
+  async (kind) => {
+    const f = await fixture()
+    const id = 'synthetic-account-123abc'
+    const accessToken = syntheticJwt({ iss: 'kimi-auth', sub: id, user_id: id })
+    await f.set({
+      ...f.token,
+      access_token: accessToken,
+      expires_at: kind === 'current' ? f.token.expires_at : kind === 'refreshable' ? 1 : 0,
+    })
+    const before = await readFile(f.path)
+    const value = await f.read()
+    expect(value).toEqual({
+      state: 'authenticated',
+      authMethod: 'oauth',
+      verification: 'local',
+      summary: '已登录 Kimi',
+      accountLabel: 'Kimi ID · …123abc',
+    })
+    expect(value).not.toHaveProperty('logins')
+    for (const secret of [id, accessToken, f.token.refresh_token, 'synthetic-signature'])
+      expect(JSON.stringify(value)).not.toContain(secret)
+    expect(await readFile(f.path)).toEqual(before)
+  },
+)
+
+it.each(['sub', 'user_id'] as const)('supports the native %s identity field alone', async (field) => {
+  const f = await fixture()
+  await f.set({ ...f.token, access_token: syntheticJwt({ iss: 'kimi-auth', [field]: 'account-abc123' }) })
+  expect((await f.read()).accountLabel).toBe('Kimi ID · …abc123')
+})
+
+it.each([
+  ['no identity', { iss: 'kimi-auth' }],
+  ['unknown issuer', { iss: 'synthetic-other-issuer', sub: 'account-abc123' }],
+  ['missing issuer', { sub: 'account-abc123' }],
+  ['conflicting identities', { iss: 'kimi-auth', sub: 'account-abc123', user_id: 'account-def456' }],
+  ['non-string identity', { iss: 'kimi-auth', sub: 123456789 }],
+  ['malformed secondary identity', { iss: 'kimi-auth', sub: 'account-abc123', user_id: null }],
+  ['API key shape', { iss: 'kimi-auth', sub: 'sk-secret-abc123' }],
+  ['token shape', { iss: 'kimi-auth', sub: 'token-secret-abc123' }],
+  ['JWT shape', { iss: 'kimi-auth', sub: 'eyJhbGciOiJFUzI1NiJ9' }],
+  ['too short to mask', { iss: 'kimi-auth', sub: 'abc123' }],
+  ['too long', { iss: 'kimi-auth', sub: 'a'.repeat(129) }],
+  ['control character', { iss: 'kimi-auth', sub: 'account-\nabc123' }],
+  ['bidi text', { iss: 'kimi-auth', sub: 'account-\u202eabc123' }],
+  ['HTML shape', { iss: 'kimi-auth', sub: '<b>account-abc123</b>' }],
+  ['email is not a native ID', { iss: 'kimi-auth', sub: 'synthetic@example.invalid' }],
+  ['profile is not an ID', { iss: 'kimi-auth', email: 'synthetic@example.invalid', nickname: 'Synthetic' }],
+  ['non-object claims', ['account-abc123']],
+] as const)('omits unsafe or unconfirmed identity metadata: %s', async (_kind, claims) => {
+  const f = await fixture()
+  const accessToken = syntheticJwt(claims)
+  await f.set({ ...f.token, access_token: accessToken })
+  expect(await f.read()).toEqual({
+    state: 'authenticated',
+    authMethod: 'oauth',
+    verification: 'local',
+    summary: '已登录 Kimi',
+  })
+})
+
+it.each([
+  'opaque-native-token',
+  'header.%%%%.signature',
+  'header.bnVsbA.signature',
+  'header.e30=.signature',
+  `header.${'a'.repeat(16 * 1024 + 1)}.signature`,
+])('keeps native login when access-token identity cannot be decoded (case %#)', async (accessToken) => {
+  const f = await fixture()
+  await f.set({ ...f.token, access_token: accessToken })
+  const value = await f.read()
+  expect(value.state).toBe('authenticated')
+  expect(value.accountLabel).toBeUndefined()
+})
+
+it('reads a changed account afresh and removes its label after logout, source switch or expiry', async () => {
+  const f = await fixture()
+  const token = (id: string) => ({ ...f.token, access_token: syntheticJwt({ iss: 'kimi-auth', sub: id }) })
+  await f.set(token('account-abc123'))
+  expect((await f.read()).accountLabel).toBe('Kimi ID · …abc123')
+  await f.set(token('account-def456'))
+  expect((await f.read()).accountLabel).toBe('Kimi ID · …def456')
+  await f.set({ ...f.token, access_token: '', refresh_token: f.token.refresh_token })
+  expect(await f.read()).toMatchObject({ state: 'unauthenticated' })
+  expect((await f.read()).accountLabel).toBeUndefined()
+  await f.set({ ...token('account-def456'), refresh_token: '', expires_at: 1 })
+  expect(await f.read()).toMatchObject({ state: 'unauthenticated' })
+  expect((await f.read()).accountLabel).toBeUndefined()
+  await f.set(token('account-def456'))
+  f.config.providers['managed:kimi-code'].oauth.key = 'oauth/new-slot'
+  expect(await f.read()).toMatchObject({ state: 'unconfigured' })
+  expect((await f.read()).accountLabel).toBeUndefined()
+})
 
 it('does not treat provider configuration or a stale other slot as logged in', async () => {
   const f = await fixture()
