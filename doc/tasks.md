@@ -617,3 +617,21 @@
 - [x] 正式包 `artifacts/dsh-cliworker-now-0.6.11.tgz` 共 237 文件，SHA-256 `8db29b1dddd050d6f4b813724fe413b199823bad0a2ba758ab3531bcf2259523`。包内容与构建核对一致，动态辅助模块相对导入完整，无测试／账号／缓存／运行数据。Host 与 preview 逐字节相同；Client 仅构建位置产生的 node_modules 区域注释路径不同，可执行文本完全相同。验证报告 `artifacts/dsh-cliworker-now-0.6.11-verification.json`；真实模型生成 0。
 
 - [x] 3 个能力域的 8 条增量需求逐条同步主规格并核对文本一致；归档前 6 项严格校验、归档后 5 项主规格严格校验通过，任务 9/9，活动变更 0。归档为 `openspec/changes/archive/2026-10-08-isolate-cli-account-models`；能力限制和未做模型生成的边界保留在本记录及规格中。源码、文档和归档分阶段本地提交，不推送。
+
+
+## 2026-10-08：v0.6.12 原生登录入口与 Grok 账号目录
+
+- OpenSpec：`repair-native-cli-login-entrypoints`；规划提交 `952cd76`，实现提交 `d7d7c92`。本轮修复 Kimi、OMP、Hermes 登录入口及 Grok 目录，不取消全部 CLI 自身账号隔离。设置继续只显示必要单行信息；详细诊断留在聊天与本记录。
+- Kimi：原生当前 provider OAuth 引用必须对应自己的有效或可续用令牌，缺失、撤销、过期不能续期与普通 API 配置分开。已有账号的 `kimi login` 会直接复用并退出，没有原生 force 参数；改为“管理登录”打开原生 TUI，由用户明确 `/logout`、`/login`，插件不自动退出。全部账号操作使用 0700 独立空目录，设空 Git/MCP 边界阻止上溯用户项目，退出后按 inode 清理。实际 Desktop 已见“已登录”、管理按钮及独立目录的原生 Trust 提示；未接受 Trust、未输入退出/登录、未生成，关闭后临时目录已移除，原令牌哈希不变。不能将到达 Trust 菜单写成已完成账号切换。
+- Kimi 版本：本轮早先本机为 0.42.0，原生 TUI 随后显示更新通知；最后对 Host 实际解析的执行文件在禁写、禁网沙箱仅运行 `--version`，返回 2.1.1，前后哈希相同。当前二进制与早先哈希不同，README 按 2.1.1 记录；之前 0.42.0 的生成 403 仍是历史证据，本轮未重新执行生成或主动运行升级命令。
+- OMP：原生 `setup` 会写 `agent` 同级 `logs`，只给规范化的自身日志子目录补写权限。16.4.4 空账号禁网原生菜单及实际 Desktop 提供商菜单均打开，原日志 EPERM 消失；未选提供商或提交认证，退出后进程范围清理。实际 Desktop 关闭菜单后的首次状态读取曾失败，手动刷新恢复“已配置”；之后两次只读原生/Host 检查成功，没有可识别的 SQL 锁或读取竞态诊断，未可靠复现根因，未加入猜测性重试。该瞬态问题仍保留观察，不计为已根治。基线覆盖的三份 OMP 配置未变；基线不含数据库，原生菜单更新了插件自身数据库，不能声称数据库字节不变。
+- Hermes：显式账号操作建立插件独立原生目录及目录外来源标记，状态、目录、账号绑定和执行统一来源，退出不回退全局旧账号。精确允许原生 source/provider，继续阻断其他 CLI 导入、安装源码 `.env`、旧全局环境及外部密钥命令；自身 `.env` 禁插值和账号上下文重定向。复用已安装官方 checkout `6c80c32734` 的既有 venv，原生锁内核验 committed facts 并持 generation lease；不触发新账号目录下的依赖重装。最终源码禁网菜单和 Desktop 的 Select provider 菜单可见，未选提供商、未提交认证，关闭后仍未登录；全局原账号/配置/历史保留。
+- Grok 官方只读核查：分别严格使用用户一次授权 GET `/v1/models` 和一次授权 GET `/v1/settings`，均 HTTP 200、账号文件未变，没有重试、刷新账号或生成。模型返回 `grok-4.7`、Grok 4.7，强度 `low/medium/high/xhigh`；独立 Build 门禁返回 `allow_access: true`。因此不能将此账号空列表归因于没有订阅；模型目录可读也不能单独证明调用权限。旧插件没有接通自己的认证目录查询，且原生匿名 fallback 的 `grok-4.5` 与新目录不一致。现在先确认同账号官方门禁，再取官方模型与当前原生能力交集，换号/退出/取消丢弃结果，错误不混为无权益，不向设置页加入长说明。
+- Grok 原生能力：实际安装 `1.0.0 (3cd0d0cbcebe)` 在禁外网、空 HOME、合成 key 的本机回环模拟 metadata 服务下，原生 ACP 返回 `grok-4.7` 及四档强度，确认该精确版本支持动态目录；其他版本保留原生候选交集。该证据是原生协议的模拟元数据验收，不是当前账号真实生成。实际 Desktop 更新后未重开 Grok 详情，以免超出两次只读授权；尚未验证实际生成、额度消耗和服务端生成限制。
+- 最终自动验证：`pnpm typecheck`、`pnpm test` 通过，55 文件／932 项；`pnpm build:preview`、`pnpm build` 及 `pnpm pack --out artifacts/dsh-cliworker-now-0.6.12.tgz` 通过。命令使用 `--config.verifyDepsBeforeRun=false`；完整测试在支持原生 PTY、Seatbelt 和本机回环的环境运行。覆盖令牌缺失/撤销、外部账号拒绝、菜单权限、来源贯通、门禁、错误/取消、账号变更与清理；0 真实模型生成。主要日志 `.test-data/native-login-0612/{typecheck-final,full-test-final,preview-final-build,production-build,package}.log`。
+- 隔离界面：Tabbit 加载隔离 Harness 页面和明确模拟账号/目录，核对 Kimi 已登录+管理登录，OMP/Hermes 未登录+登录设置，Grok 已登录但未知权限时空目录禁用；账号行均为 22px、无附加说明段。浏览器实际加载的 Client 与最终 preview 逐字核对，仅 Gateway 封装分隔及 source map 不同；正式 Client 与 preview 仅构建路径注释不同，执行代码一致。截图 `ui/kimi-login-simulation.png`、`ui/ui-verification.json`；浏览器任务、临时服务和端口已清理。模拟页面不替代真实账号授权验收。
+- Desktop：更新前保留旧构建备份并确认 10 份 Worker 记录中活动任务 0、账号/任务桥接进程 0；先完成隔离 preview，再正式构建更新本地链接并重开 DeepSeek Harness 0.2.0-rc.2。实际菜单见本轮 CUA 截图/辅助功能记录，摘要 `.test-data/native-login-0612/desktop-verification.json`。44 份既有账号/配置/历史/偏好基线文件哈希全部不变，另对最终 Kimi 菜单前的 1 份令牌核对不变；未将未基线的 OMP 数据库纳入此结论。新增 Hermes 私有来源目录/标记是显式登录入口需要的状态，未复制旧账号。结束时账号终端与设置已关闭，Desktop 留在正常面板。
+- 包验证：251 个文件，98 个源码文件与最终隔离 preview 相同；Host 完全相同，两处 `hermes-native-entry.py` 资产与源码相同，包内文件逐个匹配构建，pnpm 仅规范化移除 `packageManager`。无测试、账号、私有日志或运行数据入包。SHA-256 `428db572f4a4d2180665dc0702c89e6dc3bac39826130213625390b8cdc097d0`；摘要 `artifacts/dsh-cliworker-now-0.6.12-verification.json`。最后的 README 版本校正后已重新打包和校验；未改执行代码，无需重复 Desktop 更新。
+- 未验证/保留事项：未提交任何 CLI 登录、未执行 Kimi Trust 后的切换、未新建真实模型任务；Grok 的 Build 许可及目录不等于额度或生成成功。OMP 关闭菜单后的瞬态状态失败仍按上述现象记录。本轮私有证据位于 `.test-data/native-login-0612/` 和 `.test-data/grok-account-probe-0612/`，不提交 Git；用户原有图标整理及既有文档改动不纳入本轮提交，不推送远程。
+- 归档前严格校验：`pnpm spec:check` 的 5 个主规格和本变更共 6 项全部通过。实现、自动检查、隔离/原生菜单、Desktop 与交付文档共 7 项任务均有上述对应证据；模型生成、登录提交及 OMP 瞬态读取的边界保持可见。
+- 最终规格复核将新增的“退出不回退全局账号”明确限定为 Hermes 独立来源；Pi/OMP 原有全局与插件自身来源合并未被文档误写成已改造。三个新增要求已同步至主规格且逐块核对，使用 `--skip-specs` 避免归档时重复合并；变更归档于 `openspec/changes/archive/2026-10-08-repair-native-cli-login-entrypoints/`，7/7 任务，归档后 `pnpm spec:check` 的 5 个主规格通过，活动变更为 0。

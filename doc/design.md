@@ -403,3 +403,14 @@ Hermes 与角色功能共享同一 WorkerRuntime；名称、角色快照与原�
 - Antigravity consumer 登录使用实时原生 `agy models`，按其明确返回的 ID/label 生成模型与强度变体；自定义提供商改选不沿用 consumer 账号绑定。登录身份先通过本地受限读取展示，模型元数据随后独立加载。
 - MiMo 原生网页登录写入的是自身 ApiAuth，metadata 中的官方 base_url 参与原生模型路由解析。状态直接读自身 auth.json；账号终端使用隔离 HOME/config/DB/cwd，仅链接同一原生认证文件，避免项目模型配置阻塞登录。原生 verbose 模型头部的 window/budget/compacts 字段是合法元数据，解析后仍核验 provider/model 与 JSON 一致，再与账号模型范围求交。
 - 只合并相同 CLI/项目正在进行的账号请求；每个调用独立取消，最后取消须等待进程清理，完成结果没有 TTL 缓存。Codex 优先一次原生 account/read，协议不支持才回退；OMP 仅缓存按可执行文件 canonical 路径、inode、大小和时间戳绑定的能力，账号/模型权限仍每次检查。
+
+
+## 0.6.12 原生登录入口与 Grok 权限目录修复（2026-10-08）
+
+- Kimi `provider list --json` 仅在 Host 内解析；按原生当前 `managed:kimi-code` OAuth 引用读取自己的令牌槽位，区分缺失、撤销墓碑、过期不可续期与有效／可续期。已有登录的 `login` 本来会直接复用账号，所以按钮改为“管理登录”，打开原生 TUI，由用户明确 `/logout` 后 `/login`；不自动退出或构造不存在的 force 参数。账号终端使用 0700 独立空目录和空 Git/MCP 边界，避免上溯到用户项目；原生未信任目录的 Trust 提示由用户选择，不自动写入信任记录；退出后按 inode 校验清理。
+- OMP 的 `setup` 入口保持原生；其日志位于 `agent` 同级 `logs`，只为已规范化的自身私有日志子目录补写权限，不扩大到整个账号根目录。
+- Hermes 在显式账号操作时建立插件内独立原生账号目录和目录外的来源标记；状态、目录、绑定、执行统一读取该来源。之后退出不回退到旧全局账号，原全局配置／凭据／会话保留。精确允许原生自身登录 source/provider 对，不开放 `manual:*` 通配；原生 last_status、reset/cooldown 仍是不可用证据。
+- Hermes 安装与账号分离：复用已安装官方 launcher 绑定 checkout 的 committed facts 所选 venv，在原生安装锁内复核并持 generation lease，禁用懒安装。入口资产随正式包和 preview 打包；未知安装形态仍遵循原有核验。沙箱只允许自身 `.env`，阻断旧全局和安装源码的环境层及已知外部账号导入。
+- Grok 登录状态与调用权限分离。固定官方 `/v1/settings` 的 `allow_access === true` 是 Build 门槛，随后读取 `/v1/models`；两个只读请求均绑定同一当前账号指纹。目录 200、是否订阅都不单独代替服务端门槛，不做自动续期或生成探测。门禁拒绝／未知、认证失败、超时和目录空响应分别诊断。
+- Grok 当前精确安装版的动态模型 schema 已用禁外网、本地模拟目录验证能解析 `grok-4.7` 及 low／medium／high／xhigh。这个版本使用已验证动态能力与认证元数据求交，其他版本保留原生候选交集；匿名 fallback 的旧 `grok-4.5` 不再误删有证据的新模型。Worker 对源认证目录和派生 auth 链接禁止写入，不能借旧快照复活退出账号。
+- 设置继续只有必要单行账号摘要。详细 Grok 诊断在聊天和验收记录中，原生操作说明仅在账号终端中。
