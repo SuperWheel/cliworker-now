@@ -881,11 +881,39 @@ it('updates an unknown Antigravity account from grey to catalog failure and back
   await t.click('刷新模型')
   expect(dot()).toBe('failed')
   expect(t.button('Antigravity 设置').findByProps({ role: 'img' }).props['aria-label']).toBe(
-    '模型目录读取失败，请刷新模型重试',
+    '模型目录不可用',
   )
   await t.click('刷新模型')
   expect(dot()).toBe('unknown')
 })
+it.each(['rejected', 'empty'] as const)(
+  'keeps the authenticated account summary short and shows the useful model error from a %s catalog',
+  async (failure) => {
+    const reason = '模拟：无法确认当前自身账号，请登录后刷新'
+    const t = await setup({
+      accountStatus: accountFixture({
+        state: 'authenticated',
+        authMethod: 'oauth',
+        accountLabel: 'fixture@example.invalid',
+        actions: accountActions,
+      }),
+      catalogForCli: vi.fn(async (_parent, cli: CliId) => {
+        if (failure === 'rejected') throw new Error(`CliAccountBindingError: ${reason}`)
+        return remote({ cli, models: [], notice: `Error: CliAccountBindingError: ${reason}` })
+      }),
+    })
+    const summary = accountSummary(t.r)
+    expect(visibleText(summary.findByProps({ className: 'cwn-account-login' })).trim()).toBe('模型目录不可用')
+    expect(summary.props['data-account-state']).toBe('authenticated')
+    expect(visibleText(summary)).toContain('fixture@example.invalid')
+    expect(summary.findByProps({ className: 'cwn-account-status-dot' }).props['data-state']).toBe('failed')
+    expect(t.text()).toContain(reason)
+    expect(t.text()).not.toContain('Error:')
+    if (failure === 'rejected') expect(t.button('默认模型').props.disabled).toBe(true)
+    expect(t.button('保存默认值').props.disabled).toBe(true)
+    expect(t.configure).not.toHaveBeenCalled()
+  },
+)
 it('treats an empty catalog as failed while readable local credentials retain their evidence boundary', async () => {
   const t = await setup({
     catalogForCli: vi.fn(async (_parent, cli: CliId) =>

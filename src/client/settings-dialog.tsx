@@ -72,7 +72,7 @@ function connectionStatus(
     return { state: 'failed', label: account.error || account.data?.summary || '连接失败' }
   }
   if (catalogConnection === 'pending') return { state: 'pending', label: '正在读取模型目录' }
-  if (catalogConnection === 'failed') return { state: 'failed', label: '模型目录读取失败，请刷新模型重试' }
+  if (catalogConnection === 'failed') return { state: 'failed', label: '模型目录不可用' }
   if (!['authenticated', 'configured'].includes(account.data.state)) {
     return {
       state: 'unknown',
@@ -522,7 +522,8 @@ function CliSettings({
         settled = true
         setCatalog(next)
         onCatalogResult(cli, next.models.length > 0 ? 'success' : 'failed')
-        if (!next.models.length) setModelError(next.notice || '此 CLI 未返回可用模型，请登录或刷新重试')
+        if (!next.models.length)
+          setModelError(operationMessage(next.notice || '此 CLI 未返回可用模型，请登录或刷新重试'))
         const preferred = next.preference ? modelName(next.preference) : ''
         const saved = next.models.find(
           (item) =>

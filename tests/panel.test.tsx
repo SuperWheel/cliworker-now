@@ -749,7 +749,7 @@ it('worker model menu keeps its previous choices unavailable after a failed refr
       ok: true,
       value: JSON.stringify({ cli: 'antigravity', models: [{ id: 'old-model', efforts: ['low'] }] }),
     })
-    .mockRejectedValueOnce(new Error('模拟：原生目录读取失败'))
+    .mockRejectedValueOnce(new Error('CliAccountBindingError: 模拟：原生目录读取失败'))
     .mockResolvedValueOnce({
       ok: true,
       value: JSON.stringify({ cli: 'antigravity', models: [], notice: '模拟：请完成登录后刷新' }),
@@ -763,6 +763,7 @@ it('worker model menu keeps its previous choices unavailable after a failed refr
   await t.click('模型与强度')
   expect(t.text()).not.toContain('old-model')
   expect(t.text()).toContain('模拟：原生目录读取失败')
+  expect(t.text()).not.toContain('Error:')
   await t.click('重试')
   expect(t.text()).toContain('模拟：请完成登录后刷新')
   expect(
