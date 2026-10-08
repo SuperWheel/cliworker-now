@@ -3,6 +3,13 @@ import { lstat, open } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parse } from 'yaml'
 import { parseHermesOwnEnvironment } from './hermes-env.ts'
+import {
+  beginHermesNousCapabilities,
+  fetchHermesNousModels,
+  forgetHermesNousCapabilities,
+  HermesNousError,
+  selectHermesNousSource,
+} from './hermes-nous.ts'
 import { probeAccountModels, type AccountModelInput, type AccountModelScope } from './account-models.mjs'
 
 const object = (value: unknown): value is Record<string, any> =>
@@ -140,7 +147,8 @@ export async function hermesAccountModels(
   options: { signal?: AbortSignal; fetch?: typeof fetch } = {},
 ): Promise<AccountModelScope> {
   try {
-    const { config, auth, env } = await assertHermesOwnAccounts(home, options.signal)
+    const material = await assertHermesOwnAccounts(home, options.signal)
+    const { config, auth, env } = material
     if (!object(config) || !object(config.model) || config.model.provider !== provider) return unknown()
     if (config.providers?.[provider]?.enabled === false) return unknown()
     const cfg = config.model
@@ -149,7 +157,28 @@ export async function hermesAccountModels(
     // cannot be reconstructed faithfully from a public model catalog.
     if (cfg.extra_headers && Object.keys(cfg.extra_headers).length) return unknown()
     const inputs: AccountModelInput[] = []
-    if (provider === 'openai-codex') {
+    if (provider === 'nous') {
+      const source = selectHermesNousSource(material)
+      const generation = beginHermesNousCapabilities(home, source)
+      try {
+        const result = await fetchHermesNousModels(home, source, options, generation)
+        options.signal?.throwIfAborted()
+        const current = selectHermesNousSource(await assertHermesOwnAccounts(home, options.signal))
+        // A query never authorizes a credential that appeared while it was in flight.
+        // Stable task bindings intentionally ignore ordinary token rotation separately.
+        if (
+          current.agentKey !== source.agentKey ||
+          JSON.stringify(current.principal) !== JSON.stringify(source.principal) ||
+          JSON.stringify(current.route) !== JSON.stringify(source.route) ||
+          JSON.stringify(current.modelCooldowns) !== JSON.stringify(source.modelCooldowns)
+        )
+          throw new HermesNousError('Nous 账号已变化，请重新刷新模型')
+        return result
+      } catch (error) {
+        forgetHermesNousCapabilities(home, source, generation)
+        throw error
+      }
+    } else if (provider === 'openai-codex') {
       // This transport authenticates via a separate Codex app-server session;
       // Hermes' OAuth store cannot prove that other account's model scope.
       if (cfg.openai_runtime === 'codex_app_server' || cfg.api_mode === 'codex_app_server') return unknown()
@@ -279,8 +308,9 @@ export async function hermesAccountModels(
         return [{ ...model, cost }]
       }),
     }
-  } catch {
+  } catch (error) {
     options.signal?.throwIfAborted()
+    if (error instanceof HermesNousError) throw error
     return unknown()
   }
 }

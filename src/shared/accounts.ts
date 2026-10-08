@@ -1,6 +1,13 @@
 import type { CliId } from './types.ts'
 
 export type AccountAction = 'login' | 'logout' | 'manage'
+/** Safe display projection of one authenticated provider; never raw credentials or route URLs. */
+export interface AccountLogin {
+  providerLabel: string
+  authMethod: 'oauth' | 'api'
+  /** Optional safe account email for OAuth only; API identities must never be displayed. */
+  accountLabel?: string
+}
 export interface AccountStatus {
   cli: CliId
   installed: boolean
@@ -10,6 +17,8 @@ export interface AccountStatus {
   /** Display-only identity; never a token, API key, or key prefix. */
   authMethod?: 'oauth' | 'api'
   accountLabel?: string
+  /** Each current provider retains its own login method. Absent on older Hosts. */
+  logins?: AccountLogin[]
   /** A CLI status report or local session metadata, not a remote credential check. */
   verification?: 'cli' | 'local'
   actions: { id: AccountAction; label: string; description: string; target?: 'models' }[]

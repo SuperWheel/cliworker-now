@@ -78,7 +78,7 @@ describe('Hermes native accounts (explicit synthetic fixtures)', () => {
     expect((await readHermesAccount(config, signal())).state).toBe('unconfigured')
     save(config.hermesHome, '.env', 'OPENAI_API_KEY=synthetic-secret')
     const result = await readHermesAccount(config, signal())
-    expect(result.state).toBe('configured')
+    expect(result.state).toBe('authenticated')
     expect(result.accountLabel).toBeUndefined()
     expect(JSON.stringify(result)).not.toMatch(/synthetic|FIXTURE_API_KEY/)
   })
@@ -89,7 +89,7 @@ describe('Hermes native accounts (explicit synthetic fixtures)', () => {
     const before = readFileSync(join(config.hermesHome, 'auth.json'), 'utf8')
     const result = await readHermesAccount(config, signal())
     expect(result).toMatchObject({
-      state: 'configured',
+      state: 'authenticated',
       authMethod: 'oauth',
       verification: 'local',
       accountLabel: 'fixture@example.test',
@@ -104,29 +104,30 @@ describe('Hermes native accounts (explicit synthetic fixtures)', () => {
         ?.state,
     ).toBe('configured')
     const bad = oauth('sk-secret@example.test')
-    expect(projectHermesIdentity(bad)?.state).toBe('configured')
+    expect(projectHermesIdentity(bad)?.state).toBe('authenticated')
+    expect(projectHermesIdentity(bad)?.accountLabel).toBeUndefined()
     const missingRefresh = oauth()
     missingRefresh.providers['openai-codex'].tokens.refresh_token = ''
-    expect(projectHermesIdentity(missingRefresh)?.state).toBe('configured')
+    expect(projectHermesIdentity(missingRefresh)?.state).toBe('authenticated')
   })
 
-  it('projects native xAI OAuth but never chooses among ambiguous identities', () => {
+  it('projects native xAI and multiple known OAuth logins without choosing one identity', () => {
     const codex = oauth()
     const xai = { ...codex.providers['openai-codex'], auth_mode: 'oauth_device_code' }
     expect(
       projectHermesIdentity({ active_provider: 'xai-oauth', providers: { 'xai-oauth': xai } }),
-    ).toMatchObject({ state: 'configured', authMethod: 'oauth', accountLabel: 'fixture@example.test' })
+    ).toMatchObject({ state: 'authenticated', authMethod: 'oauth', accountLabel: 'fixture@example.test' })
     expect(projectHermesIdentity({ providers: { ...codex.providers, 'xai-oauth': xai } })?.state).toBe(
-      'configured',
+      'authenticated',
     )
     expect(projectHermesIdentity({ ...codex, active_provider: 'unknown' })?.state).toBe('configured')
   })
 
-  it('reports known API pool credentials as configured without exposing a key or making a remote claim', () => {
+  it('reports known own API pool credentials as API login without exposing a key or making a remote claim', () => {
     const result = projectHermesIdentity({
       credential_pool: { fixture: [{ auth_type: 'api_key', access_token: 'synthetic-api' }] },
     })
-    expect(result).toMatchObject({ state: 'configured', authMethod: 'api', verification: 'local' })
+    expect(result).toMatchObject({ state: 'authenticated', authMethod: 'api', verification: 'local' })
     expect(JSON.stringify(result)).not.toContain('synthetic-api')
   })
 

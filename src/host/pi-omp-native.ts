@@ -6,6 +6,8 @@ import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { parse as parseYaml } from 'yaml'
 import type { AccountIdentity } from './account-identity.ts'
+import { authenticatedAccountLogins, providerLogin, usableNativeApiKey } from './account-login.ts'
+import type { AccountLogin } from '../shared/accounts.ts'
 import type { PiOmpCli } from './pi-omp-adapter.ts'
 import { acquireOwnAccountLease, releaseOwnAccountLease, OWN_ACCOUNT_BUSY } from './own-account-lease.mjs'
 import {
@@ -21,6 +23,19 @@ const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'ob
 const defaultRoot = () => join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'cliworker-now')
 const runtimeEnv =
   /^(?:PATH|HOME|SHELL|TMPDIR|NODE_OPTIONS|NODE_PATH|ELECTRON_RUN_AS_NODE|OMP_AUTH_BROKER_.*|OMP_PROFILE|PI_PROFILE|PI_CONFIG_DIR|PI_CODING_AGENT_DIR|LD_.*|DYLD_.*)$/
+const knownProviderEnvironment: Record<string, string> = {
+  openai: 'OPENAI_API_KEY',
+  anthropic: 'ANTHROPIC_API_KEY',
+  google: 'GEMINI_API_KEY',
+  xai: 'XAI_API_KEY',
+  groq: 'GROQ_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
+  mistral: 'MISTRAL_API_KEY',
+  cerebras: 'CEREBRAS_API_KEY',
+  zai: 'ZAI_API_KEY',
+  'zhipu-coding-plan': 'ZHIPU_API_KEY',
+  'zai-coding-cn': 'ZAI_CODING_CN_API_KEY',
+}
 function configuredEnvironmentRefs(value: unknown, output = new Set<string>()) {
   if (typeof value === 'string' && /^[A-Z][A-Z0-9_]*$/.test(value)) output.add(value)
   if (object(value) || Array.isArray(value))
@@ -325,20 +340,7 @@ function mergeSources(sources: NativeSource[]) {
     )
       kinds.add('api')
   }
-  const knownEnv: Record<string, string> = {
-    openai: 'OPENAI_API_KEY',
-    anthropic: 'ANTHROPIC_API_KEY',
-    google: 'GEMINI_API_KEY',
-    xai: 'XAI_API_KEY',
-    groq: 'GROQ_API_KEY',
-    openrouter: 'OPENROUTER_API_KEY',
-    mistral: 'MISTRAL_API_KEY',
-    cerebras: 'CEREBRAS_API_KEY',
-    zai: 'ZAI_API_KEY',
-    'zhipu-coding-plan': 'ZHIPU_API_KEY',
-    'zai-coding-cn': 'ZAI_CODING_CN_API_KEY',
-  }
-  if (Object.values(knownEnv).some((key) => env[key])) kinds.add('api')
+  if (Object.values(knownProviderEnvironment).some((key) => env[key])) kinds.add('api')
   return { auth, providers, env, credentialProviders, cache, kinds, expired }
 }
 /** Internal binding material only. Never expose these values through public status. */
@@ -637,18 +639,51 @@ export async function inspectPiOmpNativeAccount(
   try {
     return await withSources(cli, { accountRoot: stateDirectory, ...options }, async (sources) => {
       signal.throwIfAborted()
-      const { kinds, expired } = mergeSources(sources)
-      if (kinds.size)
-        return {
-          state: 'configured',
-          verification: 'local',
-          ...(kinds.size === 1
-            ? { authMethod: [...kinds][0] === 'oauth' ? ('oauth' as const) : ('api' as const) }
-            : {}),
-          summary: '已配置原生账号',
-        }
-      if (expired)
+      const { auth, providers, env, credentialProviders, expired } = mergeSources(sources)
+      const logins: AccountLogin[] = []
+      const ownValue = (value: unknown, referenceOnly = false) =>
+        typeof value === 'string' &&
+        (referenceOnly
+          ? /^[A-Z][A-Z0-9_]*$/.test(value)
+          : Object.values(knownProviderEnvironment).includes(value))
+          ? env[value]
+          : value
+      const add = (provider: string, method: 'api' | 'oauth') => {
+        const config = providers[provider]
+        logins.push(
+          providerLogin(provider, method, {
+            baseUrl: ownValue(config?.baseUrl, true),
+            name: config?.name,
+          }),
+        )
+      }
+      let invalidOAuth = false
+      const inspect = (provider: string, type: string, value: Record<string, any>, disabled?: unknown) => {
+        if (credentialState(type, value, disabled) !== 'configured') return
+        if (type === 'api' || type === 'api_key') {
+          if (usableNativeApiKey(ownValue(value.key ?? value.apiKey))) add(provider, 'api')
+        } else if (
+          usableNativeApiKey(value.access) &&
+          (value.expires >= Date.now() || usableNativeApiKey(value.refresh))
+        )
+          add(provider, 'oauth')
+        else invalidOAuth = true
+      }
+      for (const [provider, value] of Object.entries(auth) as [string, Record<string, any>][])
+        inspect(provider, value.type, value)
+      for (const [provider, rows] of credentialProviders)
+        for (const row of rows)
+          inspect(provider, row.credential_type, JSON.parse(row.data), row.disabled_cause)
+      for (const [provider, value] of Object.entries(providers) as [string, Record<string, any>][]) {
+        if (usableNativeApiKey(ownValue(value.apiKey, true))) add(provider, 'api')
+      }
+      for (const [provider, variable] of Object.entries(knownProviderEnvironment))
+        if (usableNativeApiKey(env[variable])) add(provider, 'api')
+      if (logins.length) return authenticatedAccountLogins(logins)
+      if (expired || invalidOAuth)
         return { state: 'unauthenticated', verification: 'local', summary: '原生登录已失效，请重新登录' }
+      if (Object.keys(auth).length || credentialProviders.size || Object.keys(providers).length)
+        return { state: 'configured', verification: 'local', summary: '尚未配置有效凭据' }
       return { state: 'unconfigured', verification: 'local', summary: '尚未配置原生账号' }
     })
   } catch {

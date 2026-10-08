@@ -13,6 +13,7 @@ import { readOpenCodeProfile, OPENCODE_OAUTH_UNSUPPORTED } from './opencode-nati
 import { openCodeAuthDirectory } from './opencode-adapter.ts'
 import { effectiveHermesHome } from './hermes-account-context.ts'
 import { assertHermesOwnAccounts, hermesPoolEntryUnavailable } from './hermes-models.ts'
+import { HermesNousError, selectHermesNousSource } from './hermes-nous.ts'
 import { readZCodeBindingMaterial, zcodeAuthDirectory } from './zcode-adapter.ts'
 import { ProcessCleanupUnconfirmedError, type ProcessBackend, type RuntimeConfig } from './process.ts'
 
@@ -437,7 +438,15 @@ async function material(
     const source = await assertHermesOwnAccounts(root, signal)
     const provider = source.config.model?.provider
     const entries: BindingEntry[] = []
-    if (provider === 'openai-codex') {
+    if (provider === 'nous') {
+      try {
+        const nous = selectHermesNousSource(source)
+        entries.push({ provider, principal: nous.principal, route: nous.route })
+      } catch (error) {
+        if (error instanceof HermesNousError) throw new CliAccountBindingError(cli, error.message)
+        throw error
+      }
+    } else if (provider === 'openai-codex') {
       const state = source.auth.providers?.[provider]
       if (
         (source.auth.credential_pool?.[provider] ?? []).some((row: any) =>

@@ -5,6 +5,8 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path'
 import { safePiOmpAncestors } from './pi-omp-native.ts'
 import type { AccountIdentity } from './account-identity.ts'
+import { authenticatedAccountLogins, providerLogin, usableNativeApiKey } from './account-login.ts'
+import type { AccountLogin } from '../shared/accounts.ts'
 
 const object = (value: unknown): value is Record<string, any> =>
   !!value && typeof value === 'object' && !Array.isArray(value)
@@ -383,33 +385,41 @@ export async function inspectOpenCodeProfile(
 ): Promise<AccountIdentity> {
   try {
     const profile = await readOpenCodeProfile(authDirectory, options)
-    const types = new Set(
-      Object.values(profile.auth)
-        .filter(activeOpenCodeCredential)
-        .map((auth) => auth.type),
-    )
-    if (types.size)
-      return {
-        state: 'configured',
-        verification: 'local',
-        ...(types.size === 1 ? { authMethod: types.has('api') ? ('api' as const) : ('oauth' as const) } : {}),
-        summary: '已配置 OpenCode 账号',
+    const logins: AccountLogin[] = []
+    let expired = false
+    for (const [id, auth] of Object.entries(profile.auth)) {
+      if (!object(auth)) continue
+      const api = auth.type === 'api' && usableNativeApiKey(auth.key)
+      const oauthShape =
+        auth.type === 'oauth' &&
+        usableNativeApiKey(auth.access) &&
+        typeof auth.expires === 'number' &&
+        Number.isFinite(auth.expires) &&
+        (auth.refresh === undefined || typeof auth.refresh === 'string')
+      const oauth = oauthShape && (auth.expires > Date.now() || usableNativeApiKey(auth.refresh))
+      if (oauthShape && !oauth) expired = true
+      if (api || oauth) {
+        const config = profile.providers[id]
+        logins.push(
+          providerLogin(id, api ? 'api' : 'oauth', {
+            baseUrl: config?.options?.baseURL,
+            name: config?.name,
+          }),
+        )
       }
-    if (
-      Object.values(profile.auth).some(
-        (auth) =>
-          object(auth) &&
-          auth.type === 'oauth' &&
-          text(auth.access) &&
-          typeof auth.expires === 'number' &&
-          auth.expires <= Date.now(),
-      )
-    )
+    }
+    if (logins.length) return authenticatedAccountLogins(logins)
+    if (expired)
       return {
         state: 'unauthenticated',
         verification: 'local',
         summary: '登录已过期，请重新登录',
       }
+    if (
+      Object.values(profile.auth).some((auth) => object(auth) && auth.type === 'api') ||
+      (!Object.keys(profile.auth).length && Object.keys(profile.providers).length)
+    )
+      return { state: 'configured', verification: 'local', summary: '尚未配置有效凭据' }
     return Object.keys(profile.auth).length
       ? { state: 'unknown', verification: 'local', summary: '账号配置格式未知' }
       : { state: 'unconfigured', verification: 'local', summary: '尚未配置 OpenCode 账号' }

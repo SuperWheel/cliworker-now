@@ -50,7 +50,7 @@ it('reports an existing native OAuth account while refusing its model catalog an
     fetch = vi.fn(),
     before = readFileSync(f.file, 'utf8')
   expect(await inspectOpenCodeProfile(f.authDirectory, f.input)).toMatchObject({
-    state: 'configured',
+    state: 'authenticated',
     authMethod: 'oauth',
     verification: 'local',
   })

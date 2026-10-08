@@ -7,7 +7,7 @@ import type { AccountStatus } from '../shared/accounts.ts'
 
 export type AccountIdentity = Pick<
   AccountStatus,
-  'state' | 'summary' | 'authMethod' | 'accountLabel' | 'verification'
+  'state' | 'summary' | 'authMethod' | 'accountLabel' | 'verification' | 'logins'
 >
 export type AccountIdentitySource = (cli: CliId, signal: AbortSignal) => Promise<AccountIdentity | undefined>
 

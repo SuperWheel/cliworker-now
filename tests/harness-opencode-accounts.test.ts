@@ -99,7 +99,7 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
     })
     writeFileSync(path, raw, { mode: 0o600 })
     expect(await readOpenCodeAccount(config, signal())).toMatchObject({
-      state: 'configured',
+      state: 'authenticated',
       authMethod: 'oauth',
     })
     const terminal = await prepareOpenCodeAccount('/bin/opencode', 'login', config, signal())
@@ -168,7 +168,7 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
       }),
     )
     const state = await readOpenCodeAccount(config, signal())
-    expect(state).toMatchObject({ state: 'configured', authMethod: 'oauth', verification: 'local' })
+    expect(state).toMatchObject({ state: 'authenticated', authMethod: 'oauth', verification: 'local' })
     expect(state.accountLabel).toBeUndefined()
     expect(JSON.stringify(state)).not.toMatch(/synthetic|private-id/)
     expect(JSON.parse(readFileSync(file, 'utf8')).fixture.expires).toBeGreaterThan(Date.now())
@@ -207,7 +207,7 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
       }),
     )
     expect(await readOpenCodeAccount(config, signal())).toMatchObject({
-      state: 'configured',
+      state: 'authenticated',
       verification: 'local',
     })
   })

@@ -75,7 +75,7 @@ it('merges Pi native accounts, custom providers and cached models by provider wi
     'cached-only-model',
   )
   expect(await readFile(join(f.global, 'auth.json'), 'utf8')).toBe(before)
-  expect((await f.status()).state).toBe('configured')
+  expect((await f.status()).state).toBe('authenticated')
   expect(JSON.parse(await readFile(join(f.worker, 'settings.json'), 'utf8'))).toEqual({
     defaultThinkingLevel: 'medium',
   })
@@ -87,7 +87,7 @@ it('does not let an empty plugin auth file obscure a globally configured Pi acco
   const f = await fixture('pi')
   await save(f.global, 'auth.json', { example: { type: 'api', key: 'SYNTHETIC_GLOBAL_KEY' } })
   await save(f.account, 'auth.json', {})
-  expect((await f.status()).state).toBe('configured')
+  expect((await f.status()).state).toBe('authenticated')
   await snapshotPiOmpNative('pi', f.worker, f.options)
   expect(Object.keys(JSON.parse(await readFile(join(f.worker, 'auth.json'), 'utf8')))).toEqual(['example'])
 })
@@ -191,7 +191,7 @@ it('imports only OMP auth/catalog rows, preserving custom model env and native a
   } finally {
     db.close()
   }
-  expect((await f.status()).state).toBe('configured')
+  expect((await f.status()).state).toBe('authenticated')
   expect((await readFile(join(f.global, 'agent.db'))).equals(sourceBefore)).toBe(true)
 })
 it('rebuilds continuation credentials from current own sources, never the worker copy', async () => {

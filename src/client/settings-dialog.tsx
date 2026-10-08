@@ -56,6 +56,33 @@ function readEnabled(raw: string): Enabled {
   }
   return parsed.enabled
 }
+function providerLoginSummary(account: AccountStatus): { label: string; detail: string } | undefined {
+  if (!Array.isArray(account.logins)) return undefined
+  const unsafe = /\p{C}|[<>]|\b(?:Bearer|sk-|sk_|ghp_|ya29\.)/iu
+  const logins = account.logins.flatMap((login) => {
+    if (!login || !['oauth', 'api'].includes(login.authMethod)) return []
+    const provider = typeof login.providerLabel === 'string' ? login.providerLabel.trim() : ''
+    if (!provider || provider.length > 64 || unsafe.test(provider)) return []
+    const identity =
+      login.authMethod === 'oauth' && typeof login.accountLabel === 'string'
+        ? login.accountLabel.trim()
+        : ''
+    const email =
+      identity.length <= 254 && !unsafe.test(identity) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(identity)
+        ? identity
+        : ''
+    return [{ label: `${provider} ${login.authMethod === 'api' ? 'API 登录' : '账号登录'}`, email }]
+  })
+  if (!logins.length) return undefined
+  const detail = logins.map(({ label, email }) => (email ? `${label} ${email}` : label)).join(' · ')
+  return {
+    label: logins.length === 1 ? detail : logins.map(({ label }) => label).join(' · '),
+    detail,
+  }
+}
+function authenticatedLabel(account: AccountStatus): string {
+  return providerLoginSummary(account)?.label ?? (account.authMethod === 'api' ? 'API 登录' : '已登录')
+}
 function connectionStatus(enabled: boolean | undefined, account?: AccountEntry, settingsError = '') {
   if (enabled === false) return { state: 'disabled', label: '已关闭' }
   if (settingsError) return { state: 'failed', label: 'CLI 开关配置读取失败，请重新打开设置' }
@@ -72,7 +99,8 @@ function connectionStatus(enabled: boolean | undefined, account?: AccountEntry, 
       label: account.data.summary || '状态待确认',
     }
   }
-  if (account.data.state === 'authenticated') return { state: 'connected', label: '已登录' }
+  if (account.data.state === 'authenticated')
+    return { state: 'connected', label: authenticatedLabel(account.data) }
   return { state: 'unverified', label: '已配置' }
 }
 
@@ -387,6 +415,7 @@ function AccountSummary({
   const current = enabled === true && !settingsError && !account?.error
   const authenticated = current && data?.state === 'authenticated'
   const apiLogin = authenticated && data.authMethod === 'api'
+  const providerLogins = authenticated ? providerLoginSummary(data) : undefined
   const state = connection.state
   const label =
     enabled === false
@@ -402,9 +431,7 @@ function AccountSummary({
               : connection.state === 'pending'
                 ? '正在检查连接…'
                 : authenticated
-                  ? apiLogin
-                    ? 'API 登录'
-                    : '已登录'
+                  ? authenticatedLabel(data)
                   : data?.state === 'unconfigured'
                     ? data.installed
                       ? '未登录'
@@ -413,13 +440,22 @@ function AccountSummary({
                       ? '已配置'
                       : data?.summary || '状态待确认'
   return (
-    <div className="cwn-account-summary" data-account-state={current ? data?.state : undefined} role="status">
+    <div
+      className="cwn-account-summary"
+      data-account-state={current ? data?.state : undefined}
+      data-provider-logins={!!providerLogins}
+      role="status"
+    >
       <div className="cwn-account-status-line">
         <span className="cwn-account-login" data-state={state}>
           <span className="cwn-account-status-dot" data-state={state} aria-hidden="true" />
-          {label}
+          {providerLogins ? (
+            <span className="cwn-account-logins" title={providerLogins.detail} aria-label={label}>
+              {label}
+            </span>
+          ) : label}
         </span>
-        {authenticated && !apiLogin && data.accountLabel && (
+        {authenticated && !data.logins?.length && !apiLogin && data.accountLabel && (
           <span className="cwn-account-label" title={data.accountLabel}>
             {data.accountLabel}
           </span>

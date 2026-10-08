@@ -7,6 +7,7 @@ import { EFFORTS, type Effort, type ModelChoice, type TaskMode } from '../shared
 import type { EventInput, ProtocolResult } from './protocol.ts'
 import type { TokenUsage } from '../shared/telemetry.ts'
 import { hermesAccountModels, assertHermesOwnAccounts } from './hermes-models.ts'
+import { hermesNousEfforts, hermesNousMinimumTtl, selectHermesNousSource } from './hermes-nous.ts'
 import { hermesAccountEnvironment } from './hermes-account-context.ts'
 import { verifyHermesExecutable, hermesNativeCommand } from './hermes-installation.ts'
 
@@ -79,7 +80,7 @@ function selection(value: string): [string, string] {
   return [parsed[0], parsed[1]]
 }
 
-async function environment(stateDirectory: string, home: string) {
+async function environment(stateDirectory: string, home: string, nousMinimumTtl?: string) {
   await mkdir(stateDirectory, { recursive: true, mode: 0o700 })
   if ((await lstat(stateDirectory)).isSymbolicLink()) throw new Error('Unsafe Hermes state symlink')
   await chmod(stateDirectory, 0o700)
@@ -100,6 +101,9 @@ async function environment(stateDirectory: string, home: string) {
     HERMES_IGNORE_RULES: '1',
     HERMES_YOLO_MODE: '0',
     HERMES_ACCEPT_HOOKS: '0',
+    // Native supported per-process override: reuse a still-usable own invoke JWT
+    // instead of proactively refreshing every token below the 30-minute default.
+    ...(nousMinimumTtl === undefined ? {} : { HERMES_NOUS_MIN_KEY_TTL_SECONDS: nousMinimumTtl }),
   }
 }
 
@@ -128,6 +132,8 @@ async function requireConfiguration(home: string) {
  */
 async function reasoningEfforts(home: string, provider: string, model: string): Promise<Effort[]> {
   const fallback: Effort[] = ['default']
+  if (provider === 'nous')
+    return hermesNousEfforts(home, selectHermesNousSource(await assertHermesOwnAccounts(home)), model)
   if (provider !== 'openrouter') return fallback
   try {
     const cacheDirectory = join(home, 'cache')
@@ -175,9 +181,13 @@ export async function discoverHermes(
   await verifyHermesExecutable(executable, options.signal ?? AbortSignal.timeout(15000))
   const home = hermesHomeDirectory(hermesHome)
   await requireConfiguration(home)
-  await assertHermesOwnAccounts(home, options.signal)
+  const material = await assertHermesOwnAccounts(home, options.signal)
   options.signal?.throwIfAborted()
-  const env = await environment(stateDirectory, home)
+  const env = await environment(
+    stateDirectory,
+    home,
+    material.config.model?.provider === 'nous' ? String(hermesNousMinimumTtl(material.env)) : undefined,
+  )
   const get = async (key: string): Promise<unknown> => {
     options.signal?.throwIfAborted()
     const result = await capture(
@@ -189,8 +199,11 @@ export async function discoverHermes(
   }
   // Native launchers take a per-home install lock and may initialize a new profile's
   // runtime. Parallel scalar queries can race that first initialization.
-  const model = await get('model.default')
-  const provider = await get('model.provider')
+  // Nous has an authenticated native catalog contract. Its bounded own config is
+  // sufficient; do not start native initialization or its automatic OAuth refresh.
+  const model =
+    material.config.model?.provider === 'nous' ? material.config.model.default : await get('model.default')
+  const provider = material.config.model?.provider === 'nous' ? 'nous' : await get('model.provider')
   if (!nonempty(model) || !nonempty(provider) || provider === 'auto')
     throw new Error('请在 Hermes 登录设置中明确选择服务商和模型，然后刷新')
   const scope = await hermesAccountModels(home, provider, options)
@@ -220,7 +233,8 @@ export async function prepareHermes(
     throw new Error('Invalid Hermes session identity')
   const home = hermesHomeDirectory(input.hermesHome)
   await requireConfiguration(home)
-  await assertHermesOwnAccounts(home)
+  const material = await assertHermesOwnAccounts(home)
+  if (provider === 'nous') selectHermesNousSource(material)
   const efforts = await reasoningEfforts(home, provider, model)
   if (!efforts.includes(input.preference.effort))
     throw new Error('Hermes 未确认支持此思考强度，请刷新模型后重选')
@@ -243,7 +257,11 @@ export async function prepareHermes(
       '-q',
       input.prompt,
     ]),
-    env: await environment(input.stateDirectory, home),
+    env: await environment(
+      input.stateDirectory,
+      home,
+      provider === 'nous' ? String(hermesNousMinimumTtl(material.env)) : undefined,
+    ),
   }
 }
 

@@ -1105,6 +1105,135 @@ it('labels API authentication distinctly and never renders an API account label 
     'connected',
   )
 })
+it.each(['omp', 'pi', 'hermes', 'opencode'] as const)(
+  'shows %s own provider API authentication consistently in the account row and navigation',
+  async (cli) => {
+    const t = await setup({
+      accountStatus: vi.fn(async (_parent, id: CliId) => status(id, {
+        state: 'authenticated',
+        verification: 'local',
+        logins: [{ providerLabel: 'zai.cn', authMethod: 'api', accountLabel: 'SYNTHETIC_SECRET' }],
+      })),
+    })
+    await t.click(`${CLI_LABELS[cli]} 设置`)
+    const summary = accountSummary(t.r)
+    expect(visibleText(summary)).toContain('zai.cn API 登录')
+    expect(summary.findByProps({ className: 'cwn-account-status-dot' }).props['data-state']).toBe('connected')
+    const nav = t.button(`${CLI_LABELS[cli]} 设置`)
+    expect(nav.findByProps({ className: 'cwn-connection-dot' }).props['data-state']).toBe('connected')
+    expect(nav.findByProps({ role: 'img' }).props['aria-label']).toBe('zai.cn API 登录')
+    expect(summary.findAllByProps({ className: 'cwn-account-detail' })).toHaveLength(0)
+    expect(t.text()).not.toContain('SYNTHETIC_SECRET')
+    expect(terminal.started).not.toHaveBeenCalled()
+    expect(t.configure).not.toHaveBeenCalled()
+  },
+)
+it('retains each provider and login method while keeping mixed account identities out of the short line', async () => {
+  const t = await setup({
+    accountStatus: accountFixture({
+      state: 'authenticated',
+      logins: [
+        { providerLabel: 'OpenAI', authMethod: 'oauth', accountLabel: 'fixture@example.invalid' },
+        { providerLabel: 'zai.cn', authMethod: 'api', accountLabel: 'SYNTHETIC_API_SECRET' },
+        { providerLabel: 'OpenAI', authMethod: 'api' },
+      ],
+    }),
+  })
+  const label = 'OpenAI 账号登录 · zai.cn API 登录 · OpenAI API 登录'
+  const summary = accountSummary(t.r)
+  const line = summary.findByProps({ className: 'cwn-account-logins' })
+  expect(visibleText(line)).toBe(label)
+  expect(line.props['aria-label']).toBe(label)
+  expect(line.props.title).toBe('OpenAI 账号登录 fixture@example.invalid · zai.cn API 登录 · OpenAI API 登录')
+  expect(t.button('Antigravity 设置').findByProps({ role: 'img' }).props['aria-label']).toBe(label)
+  expect(t.text()).not.toContain('SYNTHETIC_API_SECRET')
+  expect(summary.findAllByProps({ className: 'cwn-account-label' })).toHaveLength(0)
+})
+it.each([
+  { identity: 'fixture@example.invalid', visible: true },
+  { identity: 'Bearer SYNTHETIC_SECRET', visible: false },
+  { identity: '<fixture@example.invalid>', visible: false },
+  { identity: 'fixture\n@example.invalid', visible: false },
+] as const)('shows only a safe optional OAuth email in provider login summaries: $identity', async ({ identity, visible }) => {
+  const t = await setup({
+    accountStatus: accountFixture({
+      state: 'authenticated',
+      logins: [{ providerLabel: 'Nous', authMethod: 'oauth', accountLabel: identity }],
+    }),
+  })
+  const line = accountSummary(t.r).findByProps({ className: 'cwn-account-logins' })
+  expect(visibleText(line)).toBe(`Nous 账号登录${visible ? ` ${identity}` : ''}`)
+  expect(line.props.title).toBe(visibleText(line))
+  if (!visible) expect(t.text()).not.toContain(identity)
+})
+it('does not render malformed provider projections or credential-shaped provider names', async () => {
+  const t = await setup({
+    accountStatus: accountFixture({
+      state: 'authenticated',
+      authMethod: 'api',
+      logins: [
+        { providerLabel: 'Bearer SYNTHETIC_SECRET', authMethod: 'api' },
+        { providerLabel: '<script>', authMethod: 'oauth' },
+        { providerLabel: 'zai.cn', authMethod: 'api' },
+      ],
+    }),
+  })
+  expect(visibleText(accountSummary(t.r))).toContain('zai.cn API 登录')
+  expect(t.text()).not.toMatch(/SYNTHETIC_SECRET|<script>/)
+})
+it('does not fall back to a legacy identity when all provider login projections are invalid', async () => {
+  const t = await setup({
+    accountStatus: accountFixture({
+      state: 'authenticated',
+      accountLabel: 'SYNTHETIC_LEGACY_SECRET',
+      logins: [{ providerLabel: 'sk-SYNTHETIC_KEY', authMethod: 'api', accountLabel: 'SYNTHETIC_API_SECRET' }],
+    }),
+  })
+  expect(visibleText(accountSummary(t.r))).toContain('已登录')
+  expect(t.text()).not.toMatch(/SYNTHETIC_LEGACY_SECRET|SYNTHETIC_KEY|SYNTHETIC_API_SECRET/)
+})
+it.each(['configured', 'unknown', 'unconfigured', 'unauthenticated', 'unavailable'] as const)(
+  'does not promote %s to logged in or expose provider identities from stale projections',
+  async (state) => {
+    const t = await setup({
+      accountStatus: accountFixture({
+        state,
+        summary: `模拟：${state}`,
+        logins: [{ providerLabel: 'STALE_PROVIDER', authMethod: 'oauth', accountLabel: 'stale@example.invalid' }],
+      }),
+    })
+    expect(t.button('Antigravity 设置').findByProps({ className: 'cwn-connection-dot' }).props['data-state']).not.toBe('connected')
+    expect(t.text()).not.toMatch(/STALE_PROVIDER|stale@example.invalid/)
+  },
+)
+it('preserves provider logins through a failed model refresh and removes them when refreshed account evidence fails', async () => {
+  const accountStatus = accountFixture({
+    state: 'authenticated',
+    logins: [
+      { providerLabel: 'OpenAI', authMethod: 'oauth' },
+      { providerLabel: 'zai.cn', authMethod: 'api' },
+    ],
+  })
+  const t = await setup({ accountStatus })
+  const label = 'OpenAI 账号登录 · zai.cn API 登录'
+  const models = deferred()
+  t.catalogForCli.mockReturnValueOnce(models.promise)
+  await t.click('刷新模型')
+  expect(visibleText(accountSummary(t.r))).toContain(label)
+  expect(t.button('默认模型').props.disabled).toBe(true)
+  expect(t.button('保存默认值').props.disabled).toBe(true)
+  await act(async () => models.reject(new Error('模拟：当前账号目录不可用')))
+  expect(visibleText(accountSummary(t.r))).toContain(label)
+  expect(t.button('Antigravity 设置').findByProps({ className: 'cwn-connection-dot' }).props['data-state']).toBe('connected')
+  const account = deferred()
+  accountStatus.mockReturnValueOnce(account.promise)
+  await t.click('刷新状态')
+  expect(visibleText(accountSummary(t.r))).toContain(label)
+  await act(async () => account.reject(new Error('模拟：账号读取失败')))
+  expect(t.text()).not.toMatch(/OpenAI 账号登录|zai.cn API 登录/)
+  expect(t.button('Antigravity 设置').findByProps({ className: 'cwn-connection-dot' }).props['data-state']).toBe('failed')
+  expect(t.configure).not.toHaveBeenCalled()
+})
 it('shows only the login state when the authenticated CLI has no account identity', async () => {
   const t = await setup({
     accountStatus: accountFixture({

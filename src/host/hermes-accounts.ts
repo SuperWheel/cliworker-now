@@ -5,6 +5,10 @@ import { join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { AccountAction } from '../shared/accounts.ts'
 import { accountEmail, localTokenExpired, type AccountIdentity } from './account-identity.ts'
+import type { AccountLogin } from '../shared/accounts.ts'
+import { authenticatedAccountLogins, providerLogin, usableNativeApiKey } from './account-login.ts'
+import { projectHermesNousSource } from './hermes-nous.ts'
+import { parseHermesOwnEnvironment } from './hermes-env.ts'
 import { confineExtended, privateDirectory } from './extended-adapters.ts'
 import { assertHermesOwnAccounts } from './hermes-models.ts'
 import { hermesHomeDirectory } from './hermes-adapter.ts'
@@ -46,38 +50,95 @@ function tokenEmail(value: unknown): string | undefined {
   }
 }
 
-/** Native shapes pinned to NousResearch/hermes-agent@4787e4d auth_codex.py/auth_xai.py.
- * Provider configurations and unrecognized credential pools remain merely configured.
+/** Native shapes from auth_codex.py/auth_xai.py and NousResearch/hermes-agent@6c80c327 auth_nous.py.
+ * Explicit own credentials project local login; provider declarations and unknown schemas do not.
  */
 export function projectHermesIdentity(raw: unknown): AccountIdentity | undefined {
   if (!record(raw)) throw new Error('Invalid Hermes auth metadata')
   const providers = record(raw.providers) ? raw.providers : {}
   const ids = nonempty(raw.active_provider) ? [raw.active_provider] : Object.keys(providers)
-  const identities: AccountIdentity[] = []
+  const logins: AccountLogin[] = []
   let expired = false
   for (const id of ids) {
     const state = providers[id]
+    if (id === 'nous' && record(state)) {
+      try {
+        const nous = projectHermesNousSource(raw)
+        logins.push({
+          ...providerLogin('nous', 'oauth'),
+          ...(nous.email ? { accountLabel: nous.email } : {}),
+        })
+      } catch (error) {
+        if (error instanceof Error && /过期/.test(error.message)) expired = true
+      }
+      continue
+    }
     if (!record(state) || !record(state.tokens)) continue
+    const tokens = state.tokens
     const recognized =
       (id === 'openai-codex' && state.auth_mode === 'chatgpt') ||
       (id === 'xai-oauth' && ['oauth_device_code', 'oauth_pkce'].includes(String(state.auth_mode)))
-    if (!recognized || !nonempty(state.tokens.access_token)) continue
+    if (
+      !recognized ||
+      !usableNativeApiKey(state.tokens.access_token) ||
+      state.disabled === true ||
+      (record(state.last_auth_error) && state.last_auth_error.relogin_required === true)
+    )
+      continue
+    const entries = record(raw.credential_pool) ? raw.credential_pool[id] : undefined
+    if (
+      entries !== undefined &&
+      (!Array.isArray(entries) ||
+        entries.some(
+          (entry) =>
+            !record(entry) ||
+            entry.auth_type !== 'oauth' ||
+            ![
+              'device_code',
+              'manual:device_code',
+              ...(id === 'openai-codex' ? ['manual:loopback_pkce'] : []),
+            ].includes(String(entry.source)) ||
+            entry.access_token !== tokens.access_token ||
+            entry.disabled === true ||
+            ['dead', 'exhausted'].includes(String(entry.last_status)),
+        ))
+    )
+      continue
     if (localTokenExpired(state.tokens.access_token)) {
       expired = true
       continue
     }
     const email = tokenEmail(state.tokens.id_token)
-    if (email)
-      identities.push({
-        state: 'configured',
-        authMethod: 'oauth',
-        accountLabel: email,
-        verification: 'local',
-        summary: '已配置 Hermes OAuth',
-      })
+    logins.push({
+      ...providerLogin(id === 'xai-oauth' ? 'xai' : id, 'oauth'),
+      ...(email ? { accountLabel: email } : {}),
+    })
   }
-  if (identities.length === 1) return identities[0]
-  if (expired && !identities.length)
+  const pools = record(raw.credential_pool) ? raw.credential_pool : {}
+  for (const [provider, entries] of Object.entries(pools)) {
+    if (!Array.isArray(entries)) continue
+    for (const entry of entries) {
+      if (
+        !record(entry) ||
+        entry.auth_type !== 'api_key' ||
+        entry.disabled === true ||
+        ['dead', 'exhausted'].includes(String(entry.last_status)) ||
+        entry.status === 'exhausted' ||
+        !['manual', 'config', ...(provider === 'openrouter' ? ['manual:openrouter_pkce'] : [])].includes(
+          String(entry.source ?? 'manual'),
+        ) ||
+        !usableNativeApiKey(entry.access_token ?? entry.runtime_api_key)
+      )
+        continue
+      logins.push(providerLogin(provider, 'api', { baseUrl: entry.base_url }))
+    }
+  }
+  if (logins.length) {
+    const identity = authenticatedAccountLogins(logins)
+    const only = identity.logins?.length === 1 ? identity.logins[0] : undefined
+    return { ...identity, ...(only?.accountLabel ? { accountLabel: only.accountLabel } : {}) }
+  }
+  if (expired)
     return {
       state: 'unauthenticated',
       verification: 'local',
@@ -96,7 +157,7 @@ export function projectHermesIdentity(raw: unknown): AccountIdentity | undefined
   return undefined
 }
 
-async function environmentCredentialPresent(path: string, signal: AbortSignal): Promise<boolean> {
+async function environmentLogins(path: string, signal: AbortSignal): Promise<AccountLogin[]> {
   let file: Awaited<ReturnType<typeof open>> | undefined
   const buffer = Buffer.alloc(64 * 1024 + 1)
   try {
@@ -114,24 +175,18 @@ async function environmentCredentialPresent(path: string, signal: AbortSignal): 
     if (length > 64 * 1024) throw new Error('Oversized Hermes environment')
     // Default generated config.yaml and commented .env templates do not prove an account exists.
     // Only explicit provider API-key assignments count; values never leave this local boolean check.
-    return buffer
-      .subarray(0, length)
-      .toString('utf8')
-      .split(/\r?\n/)
-      .some((line) => {
-        const match =
-          /^\s*(?:export\s+)?(?:OPENROUTER|OPENAI|ANTHROPIC|GEMINI|GOOGLE|GROQ|MISTRAL|DEEPSEEK|XAI|ZAI|KIMI|MINIMAX|NOUS)_API_KEY\s*=\s*(.*?)\s*$/.exec(
-            line,
-          )
-        if (!match) return false
-        const value = match[1]!
-          .replace(/\s+#.*$/, '')
-          .replace(/^(['"])(.*)\1$/, '$2')
-          .trim()
-        return !!value && !/^(?:your[_ -]|<|\$\{|placeholder|changeme)/i.test(value)
-      })
+    const env = parseHermesOwnEnvironment(buffer.subarray(0, length).toString('utf8'))
+    return Object.entries(env).flatMap(([name, value]) => {
+      const match =
+        /^(OPENROUTER|OPENAI|ANTHROPIC|GEMINI|GOOGLE|GROQ|MISTRAL|DEEPSEEK|XAI|ZAI|KIMI|MINIMAX|NOUS)_API_KEY(?:_\d+)?$/.exec(
+          name,
+        )
+      return match && usableNativeApiKey(value)
+        ? [providerLogin(match[1] === 'GEMINI' ? 'google' : match[1]!.toLowerCase(), 'api')]
+        : []
+    })
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
     throw error
   } finally {
     buffer.fill(0)
@@ -145,6 +200,7 @@ export async function readHermesAccount(
 ): Promise<AccountIdentity> {
   signal.throwIfAborted()
   let file: Awaited<ReturnType<typeof open>> | undefined
+  let identity: AccountIdentity | undefined
   const buffer = Buffer.alloc(64 * 1024 + 1)
   try {
     const home = effectiveHermesHome(config)
@@ -166,20 +222,20 @@ export async function readHermesAccount(
         length += result.bytesRead
       }
       if (length > 64 * 1024) throw new Error('Oversized Hermes auth file')
-      const identity = projectHermesIdentity(JSON.parse(buffer.subarray(0, length).toString('utf8')))
+      identity = projectHermesIdentity(JSON.parse(buffer.subarray(0, length).toString('utf8')))
       signal.throwIfAborted()
-      if (identity) return identity
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
-    const present = await environmentCredentialPresent(join(home, '.env'), signal)
-    return present
-      ? configured('api')
-      : {
-          state: 'unconfigured',
-          verification: 'local',
-          summary: '尚未配置 Hermes 账号',
-        }
+    const envLogins = await environmentLogins(join(home, '.env'), signal)
+    if (envLogins.length) return authenticatedAccountLogins([...(identity?.logins ?? []), ...envLogins])
+    return (
+      identity ?? {
+        state: 'unconfigured',
+        verification: 'local',
+        summary: '尚未配置 Hermes 账号',
+      }
+    )
   } catch (error) {
     signal.throwIfAborted()
     return (error as NodeJS.ErrnoException).code === 'ENOENT'
