@@ -420,15 +420,15 @@ export async function inspectPiOmpNativeAccount(
           ...(kinds.size === 1
             ? { authMethod: [...kinds][0] === 'oauth' ? ('oauth' as const) : ('api' as const) }
             : {}),
-          summary: '已读取原生账号配置；插件账号优先于同提供商的全局账号，未进行远程验证',
+          summary: '已配置原生账号',
         }
       if (expired)
         return { state: 'unauthenticated', verification: 'local', summary: '原生登录已失效，请重新登录' }
-      return { state: 'unconfigured', verification: 'local', summary: '尚未配置 Pi/OMP 原生账号' }
+      return { state: 'unconfigured', verification: 'local', summary: '尚未配置原生账号' }
     })
   } catch {
     signal.throwIfAborted()
-    return { state: 'unavailable', summary: '无法安全读取原生账号或模型配置，请在账号终端检查' }
+    return { state: 'unavailable', summary: '账号或模型配置读取失败，请检查配置' }
   }
 }
 

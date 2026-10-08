@@ -19,14 +19,13 @@ const record = (value: unknown): value is Record<string, unknown> =>
 
 async function managedIdentity(config: RuntimeConfig, signal: AbortSignal): Promise<AccountIdentity> {
   signal.throwIfAborted()
-  if (!config.zaiCredentialRef)
-    return { state: 'unconfigured', summary: '请在 Harness 原生模型设置中配置提供商凭据' }
+  if (!config.zaiCredentialRef) return { state: 'unconfigured', summary: '尚未配置备用 API' }
   let key: string | undefined
   try {
     key = await config.resolveCredential?.(config.zaiCredentialRef)
   } catch {
     signal.throwIfAborted()
-    return { state: 'unavailable', summary: 'Harness 凭据引用读取失败，请检查原生模型设置' }
+    return { state: 'unavailable', summary: '备用 API 读取失败，请检查宿主设置' }
   }
   signal.throwIfAborted()
   return key
@@ -34,9 +33,9 @@ async function managedIdentity(config: RuntimeConfig, signal: AbortSignal): Prom
         state: 'configured',
         authMethod: 'api',
         verification: 'local',
-        summary: 'API 凭据由 Harness 原生模型设置管理；未进行远程验证',
+        summary: '已配置备用 API',
       }
-    : { state: 'unavailable', summary: 'Harness 凭据引用无法解析，请检查原生模型设置' }
+    : { state: 'unavailable', summary: '备用 API 不可用，请检查宿主设置' }
 }
 
 export async function readPiOmpAccount(
@@ -60,9 +59,7 @@ async function withManagedSource(
   return {
     ...native,
     summary: `${native.summary}；${
-      managed.state === 'configured'
-        ? '另有 Harness 智谱凭据引用供对应 API 路由使用，不代表本 CLI 已登录'
-        : '另有 Harness 智谱凭据引用不可用，请检查宿主模型设置'
+      managed.state === 'configured' ? '已配置备用 API' : '备用 API 不可用，请检查宿主设置'
     }`,
   }
 }

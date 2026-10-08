@@ -279,7 +279,7 @@ describe('ZCode/Grok user-operated account helpers', () => {
       state: 'configured',
       authMethod: 'api',
       verification: 'local',
-      summary: expect.stringContaining('未进行远程验证'),
+      summary: '已配置 ZCode API',
     })
     expect(status.accountLabel).toBeUndefined()
     expect(JSON.stringify(status)).not.toContain('SYNTHETIC_SECRET')
@@ -342,6 +342,139 @@ describe('ZCode/Grok user-operated account helpers', () => {
 })
 
 // Native-shaped but entirely synthetic records. Never read or mutate a user's account.
+function nativeZCodeOAuth(family = 'bigmodel', identity = 'synthetic-current-user') {
+  const provider = `account:${family}-individual-coding-plan`
+  return {
+    'oauth:active_provider': family,
+    [`oauth:${family}:access_token`]: 'SYNTHETIC_ACCESS',
+    [`oauth:${family}:user_info`]: JSON.stringify(
+      family === 'zai'
+        ? { user_id: identity, email: 'fixture@example.invalid' }
+        : { id: identity, rawProfile: { user_id: identity, email: 'fixture@example.invalid' } },
+    ),
+    [`account-provider:${provider}:identity`]: identity,
+    [`account-provider:coding-plan:${provider}:account:${encodeURIComponent(identity)}:api-key`]:
+      'SYNTHETIC_BOUND_KEY',
+  }
+}
+it.each(['bigmodel', 'zai'])(
+  'recognizes the current native %s OAuth account independently of model rights',
+  (family) => {
+    const raw = nativeZCodeOAuth(family)
+    // Native Worker requests use the bound key, not the expired OAuth access token.
+    raw[`oauth:${family}:access_token`] =
+      `e30.${Buffer.from(JSON.stringify({ exp: 1 })).toString('base64url')}.synthetic`
+    const status = projectZCodeIdentity(raw, 'synthetic-secret')
+    expect(status).toMatchObject({
+      state: 'authenticated',
+      authMethod: 'oauth',
+      verification: 'local',
+      accountLabel: 'fixture@example.invalid',
+      summary: '已登录 ZCode',
+    })
+    expect(JSON.stringify(status)).not.toMatch(/SYNTHETIC|synthetic-current-user|e30\./)
+  },
+)
+it.each([
+  [
+    'missing current key',
+    (raw: Record<string, string>) => {
+      delete raw[
+        'account-provider:coding-plan:account:bigmodel-individual-coding-plan:account:synthetic-current-user:api-key'
+      ]
+      raw['account-provider:coding-plan:account:bigmodel-individual-coding-plan:account:old-user:api-key'] =
+        'SYNTHETIC_OLD_KEY'
+    },
+  ],
+  [
+    'orphaned key',
+    (raw: Record<string, string>) => {
+      delete raw['account-provider:account:bigmodel-individual-coding-plan:identity']
+    },
+  ],
+  [
+    'another active provider',
+    (raw: Record<string, string>) => {
+      raw['oauth:active_provider'] = 'zai'
+    },
+  ],
+  [
+    'missing native user info',
+    (raw: Record<string, string>) => {
+      delete raw['oauth:bigmodel:user_info']
+    },
+  ],
+  [
+    'another user info identity',
+    (raw: Record<string, string>) => {
+      raw['oauth:bigmodel:user_info'] = JSON.stringify({ id: 'another-user' })
+    },
+  ],
+  [
+    'conflicting native user IDs',
+    (raw: Record<string, string>) => {
+      raw['oauth:bigmodel:user_info'] = JSON.stringify({
+        id: 'synthetic-current-user',
+        rawProfile: { user_id: 'another-user' },
+      })
+    },
+  ],
+  [
+    'invalid native user ID',
+    (raw: Record<string, string>) => {
+      raw['oauth:bigmodel:user_info'] = JSON.stringify({
+        id: {},
+        rawProfile: { user_id: 'synthetic-current-user' },
+      })
+    },
+  ],
+  [
+    'unknown provider binding',
+    (raw: Record<string, string>) => {
+      for (const name of Object.keys(raw).filter((key) => key.startsWith('account-provider:'))) {
+        raw[
+          name.replace('account:bigmodel-individual-coding-plan', 'account:unknown-individual-coding-plan')
+        ] = raw[name]!
+        delete raw[name]
+      }
+    },
+  ],
+] as const)('does not promote %s to a ZCode login', (_reason, mutate) => {
+  const raw = nativeZCodeOAuth()
+  mutate(raw)
+  const result = projectZCodeIdentity(raw, 'synthetic-secret')
+  expect(result.state).not.toBe('authenticated')
+  expect(JSON.stringify(result)).not.toContain('SYNTHETIC')
+})
+it('keeps native manual API-key identities configured, even if an old OAuth profile names the same identity', () => {
+  const identity = `key-${createHash('sha256').update('SYNTHETIC_BOUND_KEY').digest('hex').slice(0, 24)}`
+  expect(projectZCodeIdentity(nativeZCodeOAuth('bigmodel', identity), 'synthetic-secret')).toMatchObject({
+    state: 'configured',
+    authMethod: 'api',
+    summary: '已配置 ZCode API',
+  })
+  const unmatchedFingerprint = nativeZCodeOAuth('bigmodel', `key-${'0'.repeat(24)}`)
+  expect(projectZCodeIdentity(unmatchedFingerprint, 'synthetic-secret').state).toBe('configured')
+  expect(projectZCodeIdentity({ arbitrary_key: 'SYNTHETIC_KEY' }, 'synthetic-secret').state).toBe(
+    'unconfigured',
+  )
+})
+it('clears a native ZCode login after its native identity, bound key and OAuth records are removed', () => {
+  expect(projectZCodeIdentity(nativeZCodeOAuth(), 'synthetic-secret').state).toBe('authenticated')
+  expect(projectZCodeIdentity({}, 'synthetic-secret')).toMatchObject({ state: 'unconfigured' })
+})
+it('preserves unknown native provider records without promoting them or calling them absent', () => {
+  const raw = {
+    'account-provider:account:future-individual-coding-plan:identity': 'SYNTHETIC_ID',
+    'account-provider:coding-plan:account:future-individual-coding-plan:account:SYNTHETIC_ID:api-key':
+      'SYNTHETIC_KEY',
+  }
+  expect(projectZCodeIdentity(raw, 'synthetic-secret')).toEqual({
+    state: 'unknown',
+    verification: 'local',
+    summary: '账号类型未知',
+  })
+})
 it('decrypts ZCode 0.16.9 records and exposes only the user-info identity', () => {
   const secret = 'synthetic-cipher-secret'
   const key = createHash('sha256').update(secret).digest()
@@ -356,14 +489,18 @@ it('decrypts ZCode 0.16.9 records and exposes only the user-info identity', () =
     'oauth:bigmodel:access_token': encrypt('SYNTHETIC-TOKEN'),
     'oauth:bigmodel:user_info': encrypt(
       JSON.stringify({
+        id: 'synthetic-user-id',
         displayName: 'Fixture',
-        rawProfile: { email: 'fixture@example.invalid', token: 'SECRET' },
+        rawProfile: { user_id: 'synthetic-user-id', email: 'fixture@example.invalid', token: 'SECRET' },
       }),
     ),
+    'account-provider:account:bigmodel-individual-coding-plan:identity': encrypt('synthetic-user-id'),
+    'account-provider:coding-plan:account:bigmodel-individual-coding-plan:account:synthetic-user-id:api-key':
+      encrypt('SYNTHETIC_BOUND_KEY'),
   }
   const status = projectZCodeIdentity(raw, secret)
   expect(status).toMatchObject({
-    state: 'configured',
+    state: 'authenticated',
     authMethod: 'oauth',
     verification: 'local',
     accountLabel: 'fixture@example.invalid',

@@ -428,13 +428,13 @@ export function readZCodePersonalIdentity(
         state: 'configured',
         authMethod: 'api',
         verification: 'local',
-        summary: '已读取 ZCode 本地 API 配置，未进行远程验证',
+        summary: '已配置 ZCode API',
       }
     return unknown
-      ? { state: 'unknown', verification: 'local', summary: '暂时无法识别 ZCode 个人账号配置' }
-      : { state: 'unconfigured', verification: 'local', summary: '尚未配置 ZCode 个人 API 凭据' }
+      ? { state: 'unknown', verification: 'local', summary: '账号配置格式未知' }
+      : { state: 'unconfigured', verification: 'local', summary: '尚未配置 ZCode API' }
   } catch {
-    return { state: 'unavailable', verification: 'local', summary: 'ZCode 个人账号配置无法安全读取或解析' }
+    return { state: 'unavailable', verification: 'local', summary: '账号配置读取失败，请检查配置' }
   }
 }
 function nativeOrder(base: string[], personal: string[], order: string[] = []): string[] {

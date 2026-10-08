@@ -229,6 +229,9 @@ it('starts an account action only when explicitly mounted and never enters a pro
   expect(terminals[0].options.disableStdin).toBe(false)
   expect(fixture.accountWatch).toHaveBeenCalledWith('parent', 'terminal-a', expect.any(AbortSignal))
   expect(fixture.accountWrite).not.toHaveBeenCalled()
+  const text = JSON.stringify(fixture.renderer.toJSON())
+  expect(text).toContain('模拟账号交互')
+  expect(text).not.toMatch(/插件不保存|关闭此窗口会结束|cwn-account-privacy/)
 })
 
 it('aborts an unmounted start and cleans up its late terminal id without opening a stream', async () => {
@@ -390,7 +393,7 @@ it('bounds the closing spinner and waits for cleanup before permitting a retry',
     await vi.advanceTimersByTimeAsync(12_000)
   })
   expect(fixture.renderer.root.findAllByProps({ 'data-state': 'ongoing' })).toHaveLength(0)
-  expect(JSON.stringify(fixture.renderer.toJSON())).toContain('清理完成前不会启动新的登录')
+  expect(JSON.stringify(fixture.renderer.toJSON())).toContain('终端关闭失败，请重试')
   expect(fixture.onClose).not.toHaveBeenCalled()
   await fixture.click('重试')
   expect(fixture.accountStart).toHaveBeenCalledOnce()

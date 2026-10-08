@@ -313,7 +313,7 @@ export async function inspectOpenCodeProfile(
         state: 'configured',
         verification: 'local',
         ...(types.size === 1 ? { authMethod: types.has('api') ? ('api' as const) : ('oauth' as const) } : {}),
-        summary: '已读取 OpenCode 原生账号配置；模型范围需单独验证',
+        summary: '已配置 OpenCode 账号',
       }
     if (
       Object.values(profile.auth).some(
@@ -328,17 +328,17 @@ export async function inspectOpenCodeProfile(
       return {
         state: 'unauthenticated',
         verification: 'local',
-        summary: 'OpenCode 本地登录已过期，请重新登录',
+        summary: '登录已过期，请重新登录',
       }
     return Object.keys(profile.auth).length
-      ? { state: 'unknown', verification: 'local', summary: '暂时无法确认 OpenCode 原生账号格式' }
-      : { state: 'unconfigured', verification: 'local', summary: '尚未配置 OpenCode 原生账号' }
+      ? { state: 'unknown', verification: 'local', summary: '账号配置格式未知' }
+      : { state: 'unconfigured', verification: 'local', summary: '尚未配置 OpenCode 账号' }
   } catch {
     options.signal?.throwIfAborted()
     return {
       state: 'unavailable',
       verification: 'local',
-      summary: 'OpenCode 原生账号配置无法安全读取，请检查配置',
+      summary: '账号配置读取失败，请检查配置',
     }
   }
 }

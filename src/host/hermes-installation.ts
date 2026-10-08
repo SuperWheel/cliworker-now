@@ -39,10 +39,10 @@ export async function verifyHermesExecutable(executable: string, signal: AbortSi
       current = shim[1] ?? shim[2]!
     } catch {
       signal.throwIfAborted()
-      throw new HermesExecutableError('Hermes CLI 启动入口或其实际程序不可用，请修复 Hermes 安装后刷新')
+      throw new HermesExecutableError('启动入口不可用，请修复安装')
     } finally {
       await file?.close()
     }
   }
-  throw new HermesExecutableError('Hermes CLI 启动脚本循环或层级异常，请修复安装后刷新')
+  throw new HermesExecutableError('启动脚本异常，请修复安装')
 }

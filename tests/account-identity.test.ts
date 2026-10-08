@@ -44,7 +44,7 @@ describe('bounded account identity projection', () => {
       accountLabel: 'person@example.com',
       verification: 'local',
     })
-    expect(result?.summary).toContain('未进行远程')
+    expect(result?.summary).toBe('已登录 Antigravity')
     expect(JSON.stringify(result)).not.toMatch(/SECRET|eyJ|access_token|refresh_token/)
   })
 

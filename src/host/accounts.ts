@@ -43,15 +43,15 @@ const instructionFor = (cli: CliId, action: AccountAction): string => {
   if (cli === 'antigravity')
     return action === 'manage'
       ? '在 Antigravity 原生终端中使用 /login 登录，或 /logout 退出。'
-      : `在 Antigravity 原生终端中输入 /${action} 并按 Enter；插件不会代你输入。`
+      : `在 Antigravity 原生终端中输入 /${action} 并按 Enter。`
   if (cli === 'kimi' && action !== 'login')
     return action === 'logout'
       ? '在 Kimi 原生终端中输入 /logout 并按 Enter，再选择要退出的提供商。'
       : '在 Kimi 原生终端中使用 /login 或 /logout 管理提供商与账号。'
-  if (action === 'manage') return '在原生 CLI 中管理账号；终端输入仅由你直接操作。'
+  if (action === 'manage') return '在原生 CLI 中管理账号。'
   return action === 'login'
     ? '按 CLI 原生提示完成登录；需要浏览器授权时由 CLI 打开浏览器。'
-    : '按 CLI 原生流程退出登录；关闭终端不会恢复已退出的账号。'
+    : '按 CLI 原生流程退出登录。'
 }
 const actionsFor = (cli: CliId, config: RuntimeConfig): AccountStatus['actions'] => {
   if (cli === 'pi' || cli === 'omp' || cli === 'hermes')
@@ -128,12 +128,12 @@ function summarize(cli: CliId, raw: string, exitCode: number | null): AccountIde
     if (exitCode === 0 && /^\S+\s+type=\S+\s+models=\d+\s+source=oauth\s*$/m.test(text))
       return {
         state: 'configured',
-        summary: '已配置 OAuth 提供商；登录有效性请在 CLI 内确认',
+        summary: '已配置 OAuth 提供商',
         authMethod: 'oauth',
         verification: 'cli',
       }
     if (exitCode === 0 && /^\S+\s+type=\S+\s+models=\d+\s+source=\S+\s*$/m.test(text))
-      return { state: 'configured', summary: '已配置提供商；可在账号终端管理' }
+      return { state: 'configured', summary: '已配置提供商' }
     if (exitCode === 0 && /^No providers configured\.\s*$/m.test(text))
       return { state: 'unconfigured', summary: '尚未配置提供商' }
   } else if (cli === 'mimo') {
@@ -143,17 +143,17 @@ function summarize(cli: CliId, raw: string, exitCode: number | null): AccountIde
       if (/\bType:\s*api\b|\bUser ID:/.test(text))
         return {
           state: 'authenticated',
-          summary: 'API 登录；CLI 报告本地凭据已配置，未进行远程校验',
+          summary: 'API 登录',
           authMethod: 'api',
           verification: 'local',
         }
-      return { state: 'configured', summary: '已配置 MiMo 凭据；CLI 未提供可显示的账号', verification: 'cli' }
+      return { state: 'configured', summary: '已配置 MiMo 账号', verification: 'cli' }
     }
     if (/Not logged in\. Run `mimo auth login` to log in\./.test(text))
       return { state: 'unconfigured', summary: '尚未登录 MiMo' }
   }
   if (exitCode !== 0) return { state: 'unavailable', summary: 'CLI 账号状态查询失败，请在账号终端检查' }
-  return { state: 'unknown', summary: '暂时无法确认登录状态，可打开账号终端检查' }
+  return { state: 'unknown', summary: '登录状态未知，请打开账号终端' }
 }
 
 function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -255,7 +255,7 @@ export class AccountManager {
           installed,
           ...(identity ?? {
             state: 'unknown' as const,
-            summary: 'CLI 已安装；请在原生账号终端查看和管理登录',
+            summary: '已安装，登录状态未知',
           }),
           actions: this.backend.spawnTerminal ? actionsFor(cli, this.config) : [],
         }

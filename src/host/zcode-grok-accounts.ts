@@ -33,11 +33,11 @@ export function zcodeGrokInstruction(cli: ZCodeGrokCli, action: AccountAction): 
   if (cli === 'zcode') {
     if (action === 'login') return '按 ZCode 原生提示完成 BigModel 授权；此账号供本插件的 ZCode 任务使用。'
     if (action === 'logout') return '此操作会退出该独立配置中的 Z.AI 和 BigModel Coding Plan 账号。'
-    return '在 ZCode 原生终端输入 /login 或 /logout 管理独立账号；插件不会代你输入。'
+    return '在 ZCode 原生终端输入 /login 或 /logout 管理账号。'
   }
   if (action === 'login') return '按 Grok 原生提示完成浏览器授权；使用 Grok 本机账号，插件任务读取同一账号。'
   if (action === 'logout') return '按 Grok 原生流程退出本机账号；其他使用该 Grok 账号的终端也将受到影响。'
-  return '在 Grok 原生终端管理账号；终端输入仅由你直接操作。'
+  return '在 Grok 原生终端管理账号。'
 }
 
 function storageRoot(config: RuntimeConfig, home: string): string {
@@ -70,26 +70,87 @@ export function projectZCodeIdentity(raw: unknown, secret: string): AccountIdent
     }
   }
   try {
-    for (const name of Object.keys(raw)) {
-      const match = /^account-provider:(.+):identity$/.exec(name)
-      if (!match) continue
-      const identity = decode(raw[name]).trim()
-      if (
-        identity &&
-        decode(
-          raw[`account-provider:coding-plan:${match[1]}:account:${encodeURIComponent(identity)}:api-key`],
-        ).trim()
-      )
-        return {
-          state: 'configured',
-          verification: 'local',
-          summary: '已读取 ZCode 当前原生账号绑定的 Worker 凭据，模型权限需单独验证',
-        }
+    const provider = decode(raw['oauth:active_provider']).trim()
+    const userInfo = (family: string): Record<string, unknown> | undefined => {
+      try {
+        const info: unknown = JSON.parse(decode(raw[`oauth:${family}:user_info`]))
+        return record(info) ? info : undefined
+      } catch {
+        return undefined
+      }
     }
-    const provider = decode(raw['oauth:active_provider'])
+    const label = (info: Record<string, unknown> | undefined): string | undefined => {
+      const profile = record(info?.rawProfile) ? info.rawProfile : undefined
+      const email = accountEmail(profile?.email) || accountEmail(info?.email) || accountEmail(info?.username)
+      const name = info?.displayName
+      const display =
+        typeof name === 'string' && name.length <= 80 && !/[\p{C}<>]|(?:Bearer|sk-|enc:v1:)/iu.test(name)
+          ? name.trim()
+          : undefined
+      return email || display || undefined
+    }
+    let bound = false
+    let apiBinding = false
+    for (const family of ['bigmodel', 'zai']) {
+      const nativeProvider = `account:${family}-individual-coding-plan`
+      const identity = decode(raw[`account-provider:${nativeProvider}:identity`]).trim()
+      if (!identity) continue
+      const apiKey = decode(
+        raw[`account-provider:coding-plan:${nativeProvider}:account:${encodeURIComponent(identity)}:api-key`],
+      ).trim()
+      if (!apiKey) continue
+      bound = true
+      // Native API setup also persists a binding, using a fingerprint identity.
+      // It remains API configuration rather than an OAuth login.
+      if (/^key-[a-f0-9]{24}$/.test(identity)) {
+        apiBinding ||= identity === `key-${createHash('sha256').update(apiKey).digest('hex').slice(0, 24)}`
+        continue
+      }
+      const info = userInfo(family)
+      const profile = record(info?.rawProfile) ? info.rawProfile : undefined
+      const userIds = (family === 'zai' ? [info?.user_id] : [info?.id, profile?.user_id]).filter(
+        (id) => id !== undefined,
+      )
+      if (
+        provider === family &&
+        userIds.length &&
+        userIds.every((id) => nonempty(id) && id.trim() === identity)
+      ) {
+        // Native login saves these together; native logout removes both binding
+        // entries. The Worker uses this key even after its OAuth access expires.
+        return {
+          state: 'authenticated',
+          authMethod: 'oauth',
+          verification: 'local',
+          accountLabel: label(info),
+          summary: '已登录 ZCode',
+        }
+      }
+    }
+    if (bound)
+      return {
+        state: 'configured',
+        verification: 'local',
+        ...(apiBinding ? { authMethod: 'api' as const } : {}),
+        summary: apiBinding ? '已配置 ZCode API' : '已配置 ZCode 账号',
+      }
+    if (
+      !provider &&
+      Object.keys(raw).some((name) => {
+        const match = /^account-provider:(.+):identity$/.exec(name)
+        return (
+          match &&
+          !['account:bigmodel-individual-coding-plan', 'account:zai-individual-coding-plan'].includes(
+            match[1]!,
+          ) &&
+          nonempty(raw[name])
+        )
+      })
+    )
+      return { state: 'unknown', verification: 'local', summary: '账号类型未知' }
     if (provider !== 'bigmodel' && provider !== 'zai')
       return provider
-        ? { state: 'unknown', verification: 'local', summary: '暂时无法识别 ZCode 登录服务商' }
+        ? { state: 'unknown', verification: 'local', summary: '登录服务商未知' }
         : { state: 'unconfigured', verification: 'local', summary: '尚未登录 ZCode' }
     const access = decode(raw[`oauth:${provider}:access_token`])
     const refresh = decode(raw[`oauth:${provider}:refresh_token`])
@@ -100,32 +161,14 @@ export function projectZCodeIdentity(raw: unknown, secret: string): AccountIdent
         state: 'unauthenticated',
         verification: 'local',
         authMethod: 'oauth',
-        summary: 'ZCode 本地访问令牌已过期，请在原生登录设置中确认或重新登录',
+        summary: '登录已过期，请重新登录',
       }
-    let info: unknown
-    try {
-      info = JSON.parse(decode(raw[`oauth:${provider}:user_info`]))
-    } catch {
-      /* optional label */
-    }
-    const profile = record(info) && record(info.rawProfile) ? info.rawProfile : undefined
-    const email =
-      accountEmail(profile?.email) ||
-      (record(info) ? accountEmail(info.email) || accountEmail(info.username) : undefined)
-    // A plain display name is allowed only from the native user-info record.
-    const name = record(info) ? info.displayName : undefined
-    const display =
-      typeof name === 'string' && name.length <= 80 && !/[\p{C}<>]|(?:Bearer|sk-|enc:v1:)/iu.test(name)
-        ? name.trim()
-        : undefined
     return {
       state: 'configured',
       authMethod: 'oauth',
       verification: 'local',
-      accountLabel: email || display || undefined,
-      summary: access
-        ? '已读取 ZCode 本地 OAuth 配置，登录有效性待原生确认'
-        : '仅保存 ZCode 续期凭据，登录有效性待原生确认',
+      accountLabel: label(userInfo(provider)),
+      summary: access ? '已配置 ZCode OAuth' : '已保存 ZCode 续期凭据',
     }
   } finally {
     key.fill(0)
@@ -152,15 +195,13 @@ export function projectGrokIdentity(raw: unknown, now = Date.now()): AccountIden
       authMethod: 'oauth',
       verification: 'local',
       accountLabel: accountEmail(value.email),
-      summary: active
-        ? '已读取 Grok 本地 OAuth 配置，登录有效性待原生确认'
-        : '仅保存 Grok 续期凭据，登录有效性待原生确认',
+      summary: active ? '已配置 Grok OAuth' : '已保存 Grok 续期凭据',
     }
   }
   return {
     state: accounts.length ? 'unauthenticated' : Object.keys(raw).length ? 'unknown' : 'unconfigured',
     verification: 'local',
-    summary: accounts.length ? '本地登录已过期，请重新登录' : '尚未发现可识别的 Grok 登录会话',
+    summary: accounts.length ? '本地登录已过期，请重新登录' : '尚未登录 Grok',
   }
 }
 
@@ -225,8 +266,8 @@ export async function zcodeGrokAccountStatus(
             zcodeAuthDirectory(config.zcodeAuthDirectory, storageRoot(config, home)),
             options.home ? { nativeHome: home } : {},
           )
-        : { state: 'unconfigured', verification: 'local', summary: '尚未登录，可打开账号终端登录' }
-      : { state: 'unavailable', verification: 'local', summary: '本地登录配置读取失败，可打开账号终端检查' }
+        : { state: 'unconfigured', verification: 'local', summary: '尚未登录' }
+      : { state: 'unavailable', verification: 'local', summary: '登录配置读取失败，请重试' }
   } finally {
     buffer.fill(0)
     await file?.close()

@@ -67,7 +67,7 @@ function connectionStatus(
   if (settingsError) return { state: 'failed', label: 'CLI 开关配置读取失败，请重新打开设置' }
   if (enabled === undefined || !account || account.loading) return { state: 'pending', label: '正在检查连接' }
   if (!account.error && account.data?.state === 'unconfigured')
-    return { state: 'unconfigured', label: account.data.summary || '尚未配置 CLI' }
+    return { state: 'unconfigured', label: account.data.installed ? '未登录' : '未安装' }
   if (account.error || !account.data || ['unavailable', 'unauthenticated'].includes(account.data.state)) {
     return { state: 'failed', label: account.error || account.data?.summary || '连接失败' }
   }
@@ -76,12 +76,11 @@ function connectionStatus(
   if (!['authenticated', 'configured'].includes(account.data.state)) {
     return {
       state: 'unknown',
-      label: 'CLI 已安装，连接状态待验证',
+      label: account.data.summary || '状态待确认',
     }
   }
-  if (account.data.state === 'authenticated' && account.data.verification === 'cli')
-    return { state: 'connected', label: 'CLI 报告账号已登录，未进行远程验证' }
-  return { state: 'unverified', label: '已读取本地账号配置，登录状态待验证' }
+  if (account.data.state === 'authenticated') return { state: 'connected', label: '已登录' }
+  return { state: 'unverified', label: '已配置' }
 }
 
 /** Native modal owns focus, dismissal, theme, elevation and entrance animation. */
@@ -406,82 +405,46 @@ function AccountSummary({
   const data = account?.data
   const current = enabled === true && !loading && !settingsError && !account?.error
   const authenticated = current && data?.state === 'authenticated'
-  const verifiedLogin = authenticated && data.verification === 'cli'
   const apiLogin = authenticated && data.authMethod === 'api'
   const state = connection.state
   const label =
     enabled === false
       ? '已关闭'
       : settingsError
-        ? '状态暂不可用'
+        ? '设置读取失败，请重新打开'
         : loading
           ? '正在读取登录信息…'
-          : account?.error
-            ? '状态暂不可用'
-            : connection.state === 'failed'
-              ? data?.state === 'unauthenticated'
-                ? '登录失效'
-                : '配置或连接失败'
-              : connection.state === 'pending'
-                ? '正在检查连接…'
-                : verifiedLogin
-                  ? apiLogin
-                    ? 'API 登录'
-                    : '已登录'
-                  : authenticated
-                    ? '本地登录信息 · 待验证'
-                    : data?.state === 'unconfigured'
-                      ? data.installed
-                        ? '未配置'
-                        : '未安装'
-                      : data?.state === 'configured'
-                        ? '本地配置 · 待验证'
-                        : connection.state === 'connected'
-                          ? '模型目录已连接'
-                          : '状态待确认'
-  const detail =
-    enabled === false
-      ? '开启后即可管理账号与模型。'
-      : settingsError
-        ? '请重新打开设置后重试'
-        : loading
-          ? ''
           : account?.error
             ? account.error
             : connection.state === 'failed'
               ? connection.label
-              : authenticated
-                ? !verifiedLogin
-                  ? '本地登录信息，未进行远程验证'
-                  : apiLogin
-                    ? '使用 CLI 当前配置的 API 凭据，未进行远程验证'
-                    : '登录状态由 CLI 提供，未进行远程验证'
-                : data?.state === 'configured'
-                  ? [data.summary, '本地凭据不代表登录有效，未进行远程验证'].filter(Boolean).join('；')
-                  : connection.state === 'connected'
-                    ? [data?.summary, connection.label].filter(Boolean).join('；')
-                    : (data?.summary ?? '')
+              : connection.state === 'pending'
+                ? '正在检查连接…'
+                : authenticated
+                  ? apiLogin
+                    ? 'API 登录'
+                    : '已登录'
+                  : data?.state === 'unconfigured'
+                    ? data.installed
+                      ? '未登录'
+                      : '未安装'
+                    : data?.state === 'configured'
+                      ? '已配置'
+                      : data?.summary || '状态待确认'
   return (
     <div className="cwn-account-summary" data-account-state={current ? data?.state : undefined} role="status">
       <div className="cwn-account-status-line">
-        <Tooltip label={detail || label} side="top" portal>
-          <span className="cwn-account-login" data-state={state}>
-            <span className="cwn-account-status-dot" data-state={state} aria-hidden="true" />
-            {label}
-          </span>
-        </Tooltip>
-        {authenticated && !apiLogin && (
+        <span className="cwn-account-login" data-state={state}>
+          <span className="cwn-account-status-dot" data-state={state} aria-hidden="true" />
+          {label}
+        </span>
+        {authenticated && !apiLogin && data.accountLabel && (
           <span className="cwn-account-label" title={data.accountLabel}>
-            {data.accountLabel || 'CLI 未提供账号信息'}
+            {data.accountLabel}
           </span>
         )}
         {authenticated && logout}
       </div>
-      {(!verifiedLogin || connection.state === 'failed') && detail && (
-        <div className="cwn-account-detail" role="status">
-          {detail}
-        </div>
-      )}
     </div>
   )
 }
@@ -647,59 +610,57 @@ function CliSettings({
                 ? '登录设置'
                 : '登录 / 切换账号'))
     return (
-      <Tooltip label={item?.description || account?.data?.summary || label} side="top" portal>
-        <Button
-          type="button"
-          variant={id === 'logout' ? 'ghost' : 'outline'}
-          size="md"
-          className={
-            id === 'logout'
-              ? 'cwn-account-logout'
-              : id === 'manage'
-                ? 'cwn-account-manage'
-                : 'cwn-account-login-action'
-          }
-          aria-label={label}
-          disabled={
-            inactive ||
-            accountLoading ||
-            !!account?.error ||
-            !!action ||
-            !item ||
-            (item.target === 'models' && !openNativeSettings)
-          }
-          onClick={() => {
-            if (!inactive && item) {
-              if (item.target === 'models') {
-                openNativeSettings?.()
-                return
-              }
-              setChosenAction(item)
-              setAction(item.id)
+      <Button
+        type="button"
+        variant={id === 'logout' ? 'ghost' : 'outline'}
+        size="md"
+        className={
+          id === 'logout'
+            ? 'cwn-account-logout'
+            : id === 'manage'
+              ? 'cwn-account-manage'
+              : 'cwn-account-login-action'
+        }
+        aria-label={label}
+        disabled={
+          inactive ||
+          accountLoading ||
+          !!account?.error ||
+          !!action ||
+          !item ||
+          (item.target === 'models' && !openNativeSettings)
+        }
+        onClick={() => {
+          if (!inactive && item) {
+            if (item.target === 'models') {
+              openNativeSettings?.()
+              return
             }
-          }}
-        >
-          {id === 'logout' ? (
-            <>
-              <Glyph name="logout" />
-              退出
-            </>
-          ) : item?.target === 'models' ? (
-            label
-          ) : id === 'manage' ? (
-            <>
-              <Glyph name="tool" />
-              账号终端
-            </>
-          ) : item?.label === '登录设置' ? (
-            '登录设置'
-          ) : account?.data?.state === 'authenticated' && account.data.verification === 'cli' ? (
-            '切换账号'
-          ) : (
-            '登录账号'
-          )}
-        </Button>
-      </Tooltip>
+            setChosenAction(item)
+            setAction(item.id)
+          }
+        }}
+      >
+        {id === 'logout' ? (
+          <>
+            <Glyph name="logout" />
+            退出
+          </>
+        ) : item?.target === 'models' ? (
+          label
+        ) : id === 'manage' ? (
+          <>
+            <Glyph name="tool" />
+            账号终端
+          </>
+        ) : item?.label === '登录设置' ? (
+          '登录设置'
+        ) : account?.data?.state === 'authenticated' ? (
+          '切换账号'
+        ) : (
+          '登录账号'
+        )}
+      </Button>
     )
   }
   return (
@@ -727,9 +688,7 @@ function CliSettings({
         </div>
       </div>
       <div className="cwn-cli-toggle-status" role="status">
-        {settingsError ||
-          toggleError ||
-          (enabled === false ? '已关闭；历史记录仍可查看，开启后可继续使用。' : '')}
+        {settingsError || toggleError || (enabled === false ? '已关闭' : '')}
       </div>
       <section className="cwn-settings-section" aria-label="账号与登录">
         <div className="cwn-settings-section-head">

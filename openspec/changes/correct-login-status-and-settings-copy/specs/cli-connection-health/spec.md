@@ -22,7 +22,7 @@
 - **THEN** 显示已登录，读取来源为 local 不使其降级；没有可用或续用凭据则保持登录失效
 
 #### Scenario: ZCode 当前原生账号
-- **WHEN** 支持的原生 provider 的当前 identity 与对应 coding-plan key 精确绑定
+- **WHEN** 受支持的当前原生 provider、原生用户记录和当前 identity 一致，且 identity 与对应 coding-plan key 精确绑定
 - **THEN** 显示已登录；旧 identity、孤立 key 或未知 provider 不能替代该证据
 
 ## ADDED Requirements

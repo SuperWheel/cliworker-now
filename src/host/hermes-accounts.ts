@@ -16,7 +16,7 @@ const configured = (authMethod?: 'oauth' | 'api'): AccountIdentity => ({
   state: 'configured',
   verification: 'local',
   ...(authMethod ? { authMethod } : {}),
-  summary: '已发现 Hermes 本地配置，可在账号终端查看登录详情',
+  summary: '已配置 Hermes 账号',
 })
 
 /** Only the display email from the native OAuth ID token is projected, never token text.
@@ -64,7 +64,7 @@ export function projectHermesIdentity(raw: unknown): AccountIdentity | undefined
         authMethod: 'oauth',
         accountLabel: email,
         verification: 'local',
-        summary: '已读取 Hermes 本地 OAuth 配置，登录有效性待原生确认',
+        summary: '已配置 Hermes OAuth',
       })
   }
   if (identities.length === 1) return identities[0]
@@ -73,7 +73,7 @@ export function projectHermesIdentity(raw: unknown): AccountIdentity | undefined
       state: 'unauthenticated',
       verification: 'local',
       authMethod: 'oauth',
-      summary: 'Hermes 本地访问令牌已过期，请在原生登录设置中确认或重新登录',
+      summary: '登录已过期，请重新登录',
     }
   // Do not choose an arbitrary identity when several providers are configured.
   const pool = record(raw.credential_pool) ? Object.values(raw.credential_pool).flat() : []
@@ -169,16 +169,16 @@ export async function readHermesAccount(
       : {
           state: 'unconfigured',
           verification: 'local',
-          summary: '尚未配置 Hermes 登录，可打开登录设置',
+          summary: '尚未配置 Hermes 账号',
         }
   } catch (error) {
     signal.throwIfAborted()
     return (error as NodeJS.ErrnoException).code === 'ENOENT'
-      ? { state: 'unconfigured', verification: 'local', summary: '尚未配置 Hermes 登录，可打开登录设置' }
+      ? { state: 'unconfigured', verification: 'local', summary: '尚未配置 Hermes 账号' }
       : {
           state: 'unavailable',
           verification: 'local',
-          summary: 'Hermes 本地账号配置读取失败，请在账号终端检查',
+          summary: '账号配置读取失败，请检查配置',
         }
   } finally {
     buffer.fill(0)

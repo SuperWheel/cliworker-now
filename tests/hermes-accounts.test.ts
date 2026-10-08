@@ -59,7 +59,7 @@ describe('Hermes native accounts (explicit synthetic fixtures)', () => {
     const { root } = fixture(),
       shim = join(root, 'hermes')
     writeFileSync(shim, `#!/bin/sh\nexec ${join(root, 'missing-install/bin/hermes')} "$@"\n`, { mode: 0o700 })
-    await expect(verifyHermesExecutable(shim, signal())).rejects.toThrow('实际程序不可用')
+    await expect(verifyHermesExecutable(shim, signal())).rejects.toThrow('启动入口不可用')
     writeFileSync(shim, '#!/bin/sh\nexec /bin/sh "$@"\n', { mode: 0o700 })
     await expect(verifyHermesExecutable(shim, signal())).resolves.toBeUndefined()
   })

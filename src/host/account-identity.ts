@@ -79,7 +79,7 @@ export function localAccountIdentity(
         return {
           state: 'unknown',
           verification: 'local',
-          summary: '暂时无法识别本地登录信息，可在账号终端查看',
+          summary: '登录格式未知，请打开账号终端',
         }
       const refreshable = credentialPresent(value.token.refresh_token)
       const expiry = typeof value.token.expiry === 'string' ? Date.parse(value.token.expiry) : NaN
@@ -92,7 +92,7 @@ export function localAccountIdentity(
         authMethod: 'oauth',
         verification: 'local',
         accountLabel: accountEmail(idTokenClaims(value.id_token)?.email),
-        summary: '本地登录会话已保存；未进行远程有效性校验',
+        summary: '已登录 Antigravity',
       }
     } catch (error) {
       signal.throwIfAborted()
@@ -101,7 +101,7 @@ export function localAccountIdentity(
       return {
         state: 'unavailable',
         verification: 'local',
-        summary: '暂时无法读取本地登录状态，可在账号终端查看',
+        summary: '登录状态读取失败，请重试',
       }
     } finally {
       buffer?.fill(0)

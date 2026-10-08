@@ -16,7 +16,7 @@ function projectAccount(value: unknown): AccountIdentity | undefined {
   if (value.account.type === 'chatgpt')
     return {
       state: 'authenticated',
-      summary: 'CLI 报告已通过 ChatGPT 登录',
+      summary: '已通过 ChatGPT 登录',
       authMethod: 'oauth',
       accountLabel: accountEmail(value.account.email),
       verification: 'cli',

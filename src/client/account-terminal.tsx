@@ -280,7 +280,7 @@ export function AccountTerminal({
     } catch {
       if (generation.current !== ownGeneration) return
       setPhase('failed')
-      setNotice('终端尚未完成清理，请再次关闭；清理完成前不会启动新的登录')
+      setNotice('终端关闭失败，请重试')
     }
   }
   return (
@@ -314,9 +314,6 @@ export function AccountTerminal({
           {notice}
         </p>
       )}
-      <p className="cwn-account-privacy">
-        输入直接交给此 CLI，插件不保存账号终端记录。关闭此窗口会结束该终端。
-      </p>
     </section>
   )
 }

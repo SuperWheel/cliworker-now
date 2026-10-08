@@ -181,7 +181,7 @@ it('keeps CLI navigation and dismissal available while account and model discove
     account.resolve(status('antigravity', { summary: 'stale-account' }))
   })
   expect(t.text()).not.toContain('stale-model')
-  expect(t.text()).not.toContain('stale-account')
+  expect(visibleText(accountSummary(t.r))).not.toContain('stale-account')
   await t.click('关闭设置')
   expect(t.r.toJSON()).toBe(null)
 })
@@ -221,7 +221,7 @@ it('never treats unknown account status as logged out or mounts a terminal witho
       }),
     ),
   })
-  expect(t.text()).toContain('模拟状态无法确认')
+  expect(visibleText(accountSummary(t.r))).toContain('模拟状态无法确认')
   expect(t.text()).not.toContain('未登录')
   expect(t.button('登录')).toBeUndefined()
   expect(terminal.started).not.toHaveBeenCalled()
@@ -639,22 +639,22 @@ it('shows truthful connection dots and distinguishes CLI availability from verif
   expect(t.button('Codex 设置').findByProps({ className: 'cwn-connection-dot' }).props['data-state']).toBe(
     'connected',
   )
-  expect(t.button('Codex 设置').findByProps({ role: 'img' }).props['aria-label']).toContain('账号已登录')
+  expect(t.button('Codex 设置').findByProps({ role: 'img' }).props['aria-label']).toBe('已登录')
   expect(
     t.button('Claude Code 设置').findByProps({ className: 'cwn-connection-dot' }).props['data-state'],
   ).toBe('failed')
   expect(t.button('Antigravity 设置').findByProps({ role: 'img' }).props['aria-label']).toBe(
-    'CLI 已安装，连接状态待验证',
+    'antigravity 模拟状态待确认',
   )
 })
 it.each(['zcode', 'grok', 'omp', 'pi', 'hermes', 'opencode'] as const)(
-  'keeps %s local account evidence neutral before and after its model directory loads',
+  'keeps %s configured credentials neutral before and after its model directory loads',
   async (cli) => {
     const models = deferred()
     const t = await setup({
       accountStatus: vi.fn(async (_parent, id: CliId) =>
         status(id, {
-          state: 'authenticated',
+          state: 'configured',
           verification: 'local',
           authMethod: 'oauth',
           accountLabel: 'fixture@example.invalid',
@@ -675,7 +675,7 @@ it.each(['zcode', 'grok', 'omp', 'pi', 'hermes', 'opencode'] as const)(
     expect(t.button(nav).findByProps({ className: 'cwn-connection-dot' }).props['data-state']).toBe(
       'unverified',
     )
-    expect(visibleText(accountSummary(t.r))).toContain('待验证')
+    expect(visibleText(accountSummary(t.r))).toContain('已配置')
     expect(visibleText(accountSummary(t.r))).not.toContain('已登录')
     expect(terminal.started).not.toHaveBeenCalled()
     expect(t.configure).not.toHaveBeenCalled()
@@ -847,15 +847,13 @@ it('keeps unknown accounts grey even after reading models and shows configured c
   expect(t.button('Kimi 设置').findByProps({ className: 'cwn-connection-dot' }).props['data-state']).toBe(
     'unverified',
   )
-  expect(t.button('Kimi 设置').findByProps({ role: 'img' }).props['aria-label']).toBe(
-    '已读取本地账号配置，登录状态待验证',
-  )
+  expect(t.button('Kimi 设置').findByProps({ role: 'img' }).props['aria-label']).toBe('已配置')
   await act(async () => models.resolve(catalog('antigravity')))
   expect(
     t.button('Antigravity 设置').findByProps({ className: 'cwn-connection-dot' }).props['data-state'],
   ).toBe('unknown')
   expect(t.button('Antigravity 设置').findByProps({ role: 'img' }).props['aria-label']).toBe(
-    'CLI 已安装，连接状态待验证',
+    'antigravity 模拟状态待确认',
   )
 })
 
@@ -947,8 +945,9 @@ it.each(['unconfigured', 'unauthenticated', 'unavailable', 'unknown', 'configure
     expect(nav).toBe(state === 'unconfigured' ? 'unconfigured' : 'failed')
     expect(summary).toBe(nav)
     expect(t.text()).toContain('此 CLI 未返回可用模型')
-    if (state === 'unconfigured') expect(visibleText(accountSummary(t.r))).toContain('未配置')
-    if (state === 'unauthenticated') expect(visibleText(accountSummary(t.r))).toContain('登录失效')
+    if (state === 'unconfigured') expect(visibleText(accountSummary(t.r))).toContain('未登录')
+    if (state === 'unauthenticated')
+      expect(visibleText(accountSummary(t.r))).toContain('模拟：unauthenticated')
   },
 )
 
@@ -968,7 +967,7 @@ it('recovers both indicators after a failed catalog without restarting account a
   expect(dots()).toEqual(['failed', 'failed'])
   await t.click('刷新模型')
   expect(dots()).toEqual(['unverified', 'unverified'])
-  expect(visibleText(accountSummary(t.r))).toContain('未进行远程验证')
+  expect(visibleText(accountSummary(t.r))).toContain('已配置')
   expect(terminal.started).not.toHaveBeenCalled()
 })
 
@@ -1012,7 +1011,7 @@ it('refreshes an invalid login to a readable configuration without writing prefe
   )
   await t.click('刷新状态')
   expect(dots()).toEqual(['unverified', 'unverified'])
-  expect(visibleText(accountSummary(t.r))).toContain('未进行远程验证')
+  expect(visibleText(accountSummary(t.r))).toContain('已配置')
   expect(t.button('默认模型').findAllByType('span')[0].children).toContain('simulation-saved')
   expect(t.configure).not.toHaveBeenCalled()
   expect(terminal.started).not.toHaveBeenCalled()
@@ -1049,7 +1048,7 @@ it('labels API authentication distinctly and never renders an API account label 
     'connected',
   )
 })
-it('uses an honest fallback when the authenticated OAuth CLI does not provide an account identity', async () => {
+it('shows only the login state when the authenticated CLI has no account identity', async () => {
   const t = await setup({
     accountStatus: accountFixture({
       state: 'authenticated',
@@ -1059,39 +1058,55 @@ it('uses an honest fallback when the authenticated OAuth CLI does not provide an
     }),
   })
   expect(visibleText(accountSummary(t.r))).toContain('已登录')
-  expect(visibleText(accountSummary(t.r))).toContain('CLI 未提供账号信息')
+  expect(visibleText(accountSummary(t.r))).not.toContain('CLI 未提供账号信息')
 })
-it('discloses when an account identity comes from local login information rather than remote verification', async () => {
-  const t = await setup({
-    accountStatus: accountFixture({
-      state: 'authenticated',
-      authMethod: 'oauth',
-      verification: 'local',
-      accountLabel: 'fixture-local@example.invalid',
-      summary: '模拟：本地登录信息',
-    }),
-  })
-  expect(visibleText(accountSummary(t.r))).toContain('fixture-local@example.invalid')
-  expect(visibleText(accountSummary(t.r))).toContain('本地登录信息，未进行远程验证')
-  expect(visibleText(accountSummary(t.r))).not.toContain('已登录')
-  expect(accountSummary(t.r).findByProps({ className: 'cwn-account-status-dot' }).props['data-state']).toBe(
-    'unverified',
-  )
-  expect(accountSummary(t.r).findAllByProps({ label: '本地登录信息，未进行远程验证' })).toHaveLength(1)
-})
+it.each(CLI_IDS)(
+  'shows %s native authenticated sessions in one line regardless of local evidence source',
+  async (cli) => {
+    const t = await setup({
+      accountStatus: vi.fn(async (_parent, id: CliId) =>
+        status(id, {
+          state: 'authenticated',
+          authMethod: 'oauth',
+          verification: 'local',
+          accountLabel: 'fixture-local@example.invalid',
+          summary: '模拟：本地登录信息；未进行远程验证；本地凭据不代表登录有效',
+          actions: accountActions,
+        }),
+      ),
+    })
+    if (cli !== 'antigravity') await t.click(`${CLI_LABELS[cli]} 设置`)
+    const summary = accountSummary(t.r)
+    expect(visibleText(summary)).toContain('fixture-local@example.invalid')
+    expect(visibleText(summary)).toContain('已登录')
+    expect(summary.findByProps({ className: 'cwn-account-status-dot' }).props['data-state']).toBe('connected')
+    expect(
+      t.button(`${CLI_LABELS[cli]} 设置`).findByProps({ className: 'cwn-connection-dot' }).props[
+        'data-state'
+      ],
+    ).toBe('connected')
+    expect(summary.findAllByProps({ className: 'cwn-account-detail' })).toHaveLength(0)
+    expect(t.text()).not.toMatch(
+      /未进行远程验证|本地凭据不代表|模拟登录能力说明|模拟退出能力说明|模拟管理能力说明/,
+    )
+    expect(t.button('登录 / 切换账号').children).toContain('切换账号')
+    expect(terminal.started).not.toHaveBeenCalled()
+    expect(t.configure).not.toHaveBeenCalled()
+  },
+)
 it.each([
-  { authMethod: 'oauth', verification: 'cli', source: '登录状态由 CLI 提供，未进行远程验证' },
-  { authMethod: 'api', verification: 'cli', source: '使用 CLI 当前配置的 API 凭据，未进行远程验证' },
-  { authMethod: 'api', verification: 'local', source: '本地登录信息，未进行远程验证' },
+  { state: 'authenticated', authMethod: 'api', verification: 'local', label: 'API 登录' },
+  { state: 'configured', authMethod: 'api', verification: 'cli', label: '已配置' },
+  { state: 'unconfigured', authMethod: undefined, verification: 'local', label: '未登录' },
 ] as const)(
-  'keeps $authMethod/$verification provenance in its tooltip without adding static form notes',
-  async ({ authMethod, verification, source }) => {
+  'shows only the short $label state without repeating Host summary or static protocol notes',
+  async ({ state, authMethod, verification, label }) => {
     const t = await setup({
       accountStatus: accountFixture({
-        state: 'authenticated',
+        state,
         authMethod,
         verification,
-        summary: '模拟：Host 账号说明',
+        summary: '模拟：Host 账号说明；未进行远程验证；本地凭据不代表登录有效',
       }),
       catalogForCli: vi.fn(async (_parent, cli: CliId) =>
         remote({
@@ -1101,17 +1116,26 @@ it.each([
         }),
       ),
     })
-    const visible = visibleText(t.r.root)
-    if (verification === 'local') expect(visible).toContain(source)
-    else expect(visible).not.toContain(source)
-    expect(visible).not.toContain('模拟：CLI 协议适配静态备注')
-    expect(visible).not.toContain('仅影响此项目、此 CLI 之后新建的子 Agent')
-    expect(visible).not.toContain('已有会话保留原配置')
-    expect(accountSummary(t.r).findAllByProps({ label: source })).toHaveLength(1)
+    expect(visibleText(accountSummary(t.r))).toContain(label)
+    expect(accountSummary(t.r).findAllByProps({ className: 'cwn-account-detail' })).toHaveLength(0)
+    expect(t.text()).not.toMatch(
+      /模拟：Host 账号说明|未进行远程验证|本地凭据不代表|模拟：CLI 协议适配静态备注/,
+    )
     expect(t.button('默认模型')).toBeDefined()
     expect(t.button('默认思考强度')).toBeDefined()
   },
 )
+it.each([
+  { state: 'unauthenticated', summary: '登录已过期，请重新登录' },
+  { state: 'unavailable', summary: 'CLI 路径无效，请重新安装' },
+] as const)('preserves the actionable $state reason in the account row', async ({ state, summary }) => {
+  const t = await setup({ accountStatus: accountFixture({ state, summary }) })
+  expect(visibleText(accountSummary(t.r))).toContain(summary)
+  expect(accountSummary(t.r).findAllByProps({ className: 'cwn-account-detail' })).toHaveLength(0)
+  expect(accountSummary(t.r).findByProps({ className: 'cwn-account-status-dot' }).props['data-state']).toBe(
+    'failed',
+  )
+})
 it('keeps the account summary mounted during refresh and failure without displaying stale login success or identity', async () => {
   const accountStatus = accountFixture({
     state: 'authenticated',

@@ -374,3 +374,11 @@ Hermes 与角色功能共享同一 WorkerRuntime；名称、角色快照与原�
 - ZCode 安全读取当前 identity 精确绑定的 individual coding-plan key，与对应原生路由的账号模型范围相交。只对 ZCode Anthropic 兼容路由镜像其原生双认证头；官方 individual provider 在精确官方端点使用原生已定义的 GLM 别名表，将接口的小写 ID 投影到原生 canonical ID，执行 ID 保持不变，其他路由仍精确匹配；未知账号模式、旧 identity 或不能重建的自定义 headers 不放行。`ZCODE_CREDENTIAL_SECRET` 仅显式传给 ZCode 子进程，Host 解密与登录/执行使用同一来源，不进入 argv、文件或响应。
 - Grok ACP 公共目录不能证明当前账号 Worker 权限，缺少该证据时隐藏候选并说明限制。Hermes 只对可忠实重建的原生 OpenRouter / Codex OAuth 路由验证账号范围，保留原生已选模型及其能力；账号池按所有可能凭据的共同支持范围筛选，禁用 provider、未知端点或外部 `codex_app_server` 账号不放行。损坏的 Hermes 固定 exec 入口在查询和启动前明确报错，不启动安装器。
 - 模型列表的证据来自只读账号元数据和原生 Worker 能力，不能保证未来余额或每次生成成功。未进行计费生成试探、OAuth 刷新或自动登录；本机结果、模拟 UI 与残留限制分别见任务记录。
+
+
+## 2026-10-08：v0.6.10 原生已登录状态与单行账号信息
+
+- 修正 v0.6.9 把 `verification=local` 当成未登录的错误。该字段只描述读取来源；`authenticated` 的原生状态、可续用登录会话及当前账号精确绑定均可显示已登录。Antigravity consumer 会话有有效 access 或 refresh 时保持登录；ZCode 受支持 individual provider 的当前 identity、绑定 key 和原生用户记录一致时显示 OAuth 已登录。手填 API 身份、孤立/旧 key、普通配置及 Host 引用不因此提升为原生登录。
+- 登录状态与模型范围分开：不要求发送模型请求才能显示已登录，模型筛选仍沿用当前账号和原生执行路由。原生文件保持只读，状态刷新不会提交登录或刷新 OAuth。
+- 设置账号区统一为一行短状态及必要身份/原因，删除正常状态 detail、二次拼接和静态防御性文案；账号终端仅保留操作指导、进程状态和简短失败原因。不是把长说明用省略号藏起来；账号身份本身可保留完整 title。
+- 刷新失效、CLI 身份检查、失败重试、权限和进程范围清理保持原有实现。网关形状和存储兼容，隔离验收后再更新 Desktop。

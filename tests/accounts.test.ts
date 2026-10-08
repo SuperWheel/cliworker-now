@@ -280,7 +280,7 @@ describe('account status safety (synthetic CLI output)', () => {
     const f = fixture()
     f.identity.mockResolvedValue({
       state: 'authenticated',
-      summary: '本地登录会话已保存；未进行远程有效性校验',
+      summary: '已登录 Antigravity',
       authMethod: 'oauth',
       accountLabel: 'person@example.com',
       verification: 'local',

@@ -92,7 +92,7 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
     expect(state).toMatchObject({
       state: 'unconfigured',
       verification: 'local',
-      summary: expect.stringContaining('不代表本 CLI 已登录'),
+      summary: expect.stringContaining('已配置备用 API'),
     })
     expect(await readOpenCodeAccount(config, signal())).toMatchObject({
       state: 'unconfigured',
@@ -100,7 +100,7 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
     expect(JSON.stringify(state)).not.toContain('synthetic-')
     expect(
       await readPiOmpAccount('pi', { ...config, resolveCredential: async () => undefined }, signal()),
-    ).toMatchObject({ state: 'unconfigured', summary: expect.stringContaining('引用不可用') })
+    ).toMatchObject({ state: 'unconfigured', summary: expect.stringContaining('备用 API 不可用') })
     const failed = await readPiOmpAccount(
       'pi',
       {
