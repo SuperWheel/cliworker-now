@@ -26,7 +26,8 @@ vi.mock('../src/host/adapters.ts', () => ({
   resolveCliExecutable: vi.fn(async (cli: string) => `/synthetic/${cli}`),
   captureCatalogMetadata: vi.fn(async () => JSON.stringify(fixture.status)),
 }))
-vi.mock('../src/host/first-party-models.ts', () => ({
+vi.mock('../src/host/first-party-models.ts', async (original) => ({
+  ...(await original<typeof import('../src/host/first-party-models.ts')>()),
   readFirstPartyModelSources: vi.fn(async (cli: string) => fixture.sources[cli] ?? []),
 }))
 vi.mock('../src/host/codex-account.ts', () => ({ readCodexAccount: vi.fn(async () => fixture.codex) }))
@@ -272,6 +273,13 @@ it('keeps OAuth rotation stable, but changes on account switch and rejects logou
   agy('different-user')
   expect(await run('antigravity')).not.toBe(first)
   rmSync(join(fixture.home, '.gemini/jetski-standalone-oauth-token'))
+  await expect(run('antigravity')).rejects.toMatchObject({ code: 'CLI_OWN_ACCOUNT_REQUIRED' })
+})
+
+it('rejects an Antigravity route change even when its old consumer login file remains', async () => {
+  agy()
+  await run('antigravity')
+  write(join(fixture.home, '.gemini/antigravity-cli/settings.json'), { modelProvider: 'gemini' })
   await expect(run('antigravity')).rejects.toMatchObject({ code: 'CLI_OWN_ACCOUNT_REQUIRED' })
 })
 

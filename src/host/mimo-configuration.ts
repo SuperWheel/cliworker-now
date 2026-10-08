@@ -2,6 +2,7 @@ import { constants } from 'node:fs'
 import { lstat, open, readdir, realpath } from 'node:fs/promises'
 import { homedir, userInfo } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
+import type { AccountIdentity } from './account-identity.ts'
 
 export class MimoConfigurationError extends Error {
   constructor(message: string) {
@@ -100,6 +101,44 @@ async function readConfiguration(path: string, signal: AbortSignal): Promise<str
     bytes?.fill(0)
     await file?.close()
   }
+}
+
+/** Auth.Service reads this file independently of model/project configuration. */
+export async function readMimoOwnAuth(signal: AbortSignal): Promise<Record<string, any>> {
+  const { data } = mimoConfigurationPaths()
+  for (const directory of [process.env.MIMOCODE_HOME, data]) if (directory) await ownDirectory(directory)
+  const text = await readConfiguration(join(data, 'auth.json'), signal)
+  if (!text) return {}
+  try {
+    const auth = JSON.parse(text)
+    if (!auth || typeof auth !== 'object' || Array.isArray(auth)) throw unavailable()
+    return auth
+  } catch {
+    throw unavailable()
+  }
+}
+
+export async function readMimoAccount(signal: AbortSignal): Promise<AccountIdentity> {
+  const auth = (await readMimoOwnAuth(signal)).xiaomi
+  signal.throwIfAborted()
+  if (!auth) return { state: 'unconfigured', summary: '尚未登录 MiMo', verification: 'local' }
+  // The built-in browser login persists ApiAuth, including optional uid/base_url metadata.
+  if (auth.type === 'api' && typeof auth.key === 'string' && auth.key.trim())
+    return { state: 'authenticated', summary: 'MiMo 登录', authMethod: 'api', verification: 'local' }
+  return { state: 'configured', summary: '已配置 MiMo 账号，请检查登录', verification: 'local' }
+}
+
+/** Only unavoidable external inputs remain relevant in an isolated account terminal. */
+export async function assertMimoAccountConfiguration(signal: AbortSignal): Promise<void> {
+  if (Object.values(await readMimoOwnAuth(signal)).some((value) => value?.type === 'wellknown'))
+    throw remote()
+  if (process.platform === 'darwin')
+    for (const path of [
+      join('/Library/Managed Preferences', userInfo().username, 'ai.opencode.managed.plist'),
+      '/Library/Managed Preferences/ai.opencode.managed.plist',
+    ])
+      if (await exists(path)) throw unavailable()
+  signal.throwIfAborted()
 }
 
 /** Native Config.Service expands references before returning metadata, so inspect before spawning it. */

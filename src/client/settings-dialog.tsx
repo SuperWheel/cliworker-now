@@ -44,7 +44,6 @@ interface Catalog {
   notice?: string
 }
 type Enabled = Record<CliId, boolean>
-type CatalogConnection = 'unknown' | 'pending' | 'success' | 'failed'
 interface AccountEntry {
   loading: boolean
   data?: AccountStatus
@@ -57,22 +56,16 @@ function readEnabled(raw: string): Enabled {
   }
   return parsed.enabled
 }
-function connectionStatus(
-  enabled: boolean | undefined,
-  account?: AccountEntry,
-  catalogConnection: CatalogConnection = 'unknown',
-  settingsError = '',
-) {
+function connectionStatus(enabled: boolean | undefined, account?: AccountEntry, settingsError = '') {
   if (enabled === false) return { state: 'disabled', label: '已关闭' }
   if (settingsError) return { state: 'failed', label: 'CLI 开关配置读取失败，请重新打开设置' }
-  if (enabled === undefined || !account || account.loading) return { state: 'pending', label: '正在检查连接' }
+  if (enabled === undefined || !account || (account.loading && !account.data))
+    return { state: 'pending', label: '正在检查连接' }
   if (!account.error && account.data?.state === 'unconfigured')
     return { state: 'unconfigured', label: account.data.installed ? '未登录' : '未安装' }
   if (account.error || !account.data || ['unavailable', 'unauthenticated'].includes(account.data.state)) {
     return { state: 'failed', label: account.error || account.data?.summary || '连接失败' }
   }
-  if (catalogConnection === 'pending') return { state: 'pending', label: '正在读取模型目录' }
-  if (catalogConnection === 'failed') return { state: 'failed', label: '模型目录不可用' }
   if (!['authenticated', 'configured'].includes(account.data.state)) {
     return {
       state: 'unknown',
@@ -105,10 +98,6 @@ function OpenSettingsDialog({
   const [togglingCli, setTogglingCli] = useState<CliId>()
   const [toggleErrors, setToggleErrors] = useState<Partial<Record<CliId, string>>>({})
   const [accounts, setAccounts] = useState<Partial<Record<CliId, AccountEntry>>>({})
-  const [verifiedCatalogs, setVerifiedCatalogs] = useState<Partial<Record<CliId, CatalogConnection>>>({})
-  const catalogResult = useCallback((id: CliId, verified: CatalogConnection) => {
-    setVerifiedCatalogs((old) => ({ ...old, [id]: verified }))
-  }, [])
   const enabledRef = useRef(enabled)
   enabledRef.current = enabled
   const probes = useRef(new Map<CliId, AbortController>())
@@ -122,7 +111,6 @@ function OpenSettingsDialog({
       previous?.abort()
       const controller = new AbortController()
       probes.current.set(id, controller)
-      catalogResult(id, 'unknown')
       setAccounts((old) => ({ ...old, [id]: { data: old[id]?.data, loading: true } }))
       void (async () => {
         try {
@@ -140,7 +128,7 @@ function OpenSettingsDialog({
         }
       })()
     },
-    [api, sessionId, catalogResult],
+    [api, sessionId],
   )
 
   useEffect(() => {
@@ -199,7 +187,6 @@ function OpenSettingsDialog({
       if (!controller.signal.aborted) {
         enabledRef.current = next
         setEnabled(next)
-        if (!next[id]) catalogResult(id, 'unknown')
       }
     } catch (error) {
       if (!controller.signal.aborted) setToggleErrors((old) => ({ ...old, [id]: operationMessage(error) }))
@@ -260,12 +247,7 @@ function OpenSettingsDialog({
           >
             <div className="cwn-settings-cli-group-inner">
               {order.map((id) => {
-                const connection = connectionStatus(
-                  enabled?.[id],
-                  accounts[id],
-                  verifiedCatalogs[id],
-                  settingsError,
-                )
+                const connection = connectionStatus(enabled?.[id], accounts[id], settingsError)
                 return (
                   <Button
                     key={id}
@@ -310,9 +292,8 @@ function OpenSettingsDialog({
             cli={cli}
             enabled={enabled?.[cli]}
             account={accounts[cli]}
-            connection={connectionStatus(enabled?.[cli], accounts[cli], verifiedCatalogs[cli], settingsError)}
+            connection={connectionStatus(enabled?.[cli], accounts[cli], settingsError)}
             onRefreshAccount={(replace) => refreshAccount(cli, replace)}
-            onCatalogResult={catalogResult}
             onToggle={(next) => void toggleCli(cli, next)}
             toggleBusy={!!togglingCli}
             toggling={togglingCli === cli}
@@ -403,7 +384,7 @@ function AccountSummary({
   connection: ReturnType<typeof connectionStatus>
 }) {
   const data = account?.data
-  const current = enabled === true && !loading && !settingsError && !account?.error
+  const current = enabled === true && !settingsError && !account?.error
   const authenticated = current && data?.state === 'authenticated'
   const apiLogin = authenticated && data.authMethod === 'api'
   const state = connection.state
@@ -412,7 +393,7 @@ function AccountSummary({
       ? '已关闭'
       : settingsError
         ? '设置读取失败，请重新打开'
-        : loading
+        : loading && !data
           ? '正在读取登录信息…'
           : account?.error
             ? account.error
@@ -457,7 +438,6 @@ function CliSettings({
   account,
   connection,
   onRefreshAccount,
-  onCatalogResult,
   onToggle,
   toggleBusy,
   toggling,
@@ -472,7 +452,6 @@ function CliSettings({
   account?: AccountEntry
   connection: ReturnType<typeof connectionStatus>
   onRefreshAccount: (replace?: boolean) => void
-  onCatalogResult: (cli: CliId, verified: CatalogConnection) => void
   onToggle: (enabled: boolean) => void
   toggleBusy: boolean
   toggling: boolean
@@ -501,17 +480,14 @@ function CliSettings({
     setSaved(false)
     if (!enabled) {
       setModelLoading(false)
-      onCatalogResult(cli, 'unknown')
       return
     }
     setModelLoading(true)
-    onCatalogResult(cli, 'pending')
     // A changed account invalidates the old model scope. Start discovery only
     // after this account check settles, including a fresh independent read if
     // the CLI cannot report an account identity.
-    if (!account || account.loading) return () => onCatalogResult(cli, 'unknown')
+    if (!account || account.loading) return
     const controller = new AbortController()
-    let settled = false
     void (async () => {
       try {
         const next: Catalog = JSON.parse(
@@ -519,9 +495,7 @@ function CliSettings({
         )
         if (next.cli !== cli) throw new Error('收到不匹配的 CLI 模型目录，请重试')
         if (controller.signal.aborted) return
-        settled = true
         setCatalog(next)
-        onCatalogResult(cli, next.models.length > 0 ? 'success' : 'failed')
         if (!next.models.length)
           setModelError(operationMessage(next.notice || '此 CLI 未返回可用模型，请登录或刷新重试'))
         const preferred = next.preference ? modelName(next.preference) : ''
@@ -541,9 +515,7 @@ function CliSettings({
         )
       } catch (error) {
         if (!controller.signal.aborted) {
-          settled = true
           setCatalog(undefined)
-          onCatalogResult(cli, 'failed')
           setModel('')
           setModelError(operationMessage(error))
         }
@@ -553,9 +525,8 @@ function CliSettings({
     })()
     return () => {
       controller.abort()
-      if (!settled) onCatalogResult(cli, 'unknown')
     }
-  }, [api, sessionId, cli, enabled, account, modelRevision, onCatalogResult])
+  }, [api, sessionId, cli, enabled, account, modelRevision])
   const inactive = !enabled || toggling
   const settingsPending = enabled === undefined && !settingsError
   const accountLoading = !settingsError && enabled !== false && (!account || account.loading)

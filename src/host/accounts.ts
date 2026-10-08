@@ -1,9 +1,5 @@
 import { isExtendedCli } from './extended-adapters.ts'
-import {
-  assertFirstPartyConfiguration,
-  firstPartyEnvironment,
-  MimoConfigurationError,
-} from './first-party-models.ts'
+import { firstPartyEnvironment, MimoConfigurationError } from './first-party-models.ts'
 import type { SubprocessTerminalHandle } from '@deepseek-ai/dsh-subprocess'
 import { randomUUID } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
@@ -36,6 +32,8 @@ import { readPiOmpAccount, readOpenCodeAccount, prepareOpenCodeAccount } from '.
 import { prepareHermesAccount, readHermesAccount } from './hermes-accounts.ts'
 import { verifyHermesExecutable, HermesExecutableError } from './hermes-installation.ts'
 import { preparePiOmpAccountTerminal } from './pi-omp-accounts.ts'
+import { readMimoAccount } from './mimo-configuration.ts'
+import { prepareMimoAccountTerminal } from './first-party-account-context.ts'
 
 const STATUS_TIMEOUT = 10_000
 const STARTUP_TIMEOUT = 30_000
@@ -180,6 +178,14 @@ interface ParentScope {
   pending: Set<Promise<unknown>>
 }
 
+interface StatusQuery {
+  cli: CliId
+  controller: AbortController
+  operation: Promise<AccountStatus>
+  subscribers: Set<{ signal: AbortSignal }>
+  settled: boolean
+}
+
 interface AccountSession {
   id: string
   parent: string
@@ -205,6 +211,7 @@ export class AccountManager {
   private readonly sessions = new Map<string, AccountSession>()
   private readonly reserved = new Set<CliId>()
   private readonly unsafeQueries = new Set<CliId>()
+  private readonly statusQueries = new Map<string, StatusQuery>()
   private readonly pending = new Set<Promise<unknown>>()
   private readonly parents = new Map<string, ParentScope>()
   private readonly parentClosings = new Map<string, Promise<void>>()
@@ -224,8 +231,52 @@ export class AccountManager {
 
   async status(cli: CliId, cwd: string, signal: AbortSignal): Promise<AccountStatus> {
     validateCli(cli)
-    const operation = this.readStatus(cli, projectDirectory(cwd), signal)
-    return this.track(operation)
+    if (signal.aborted || this.controller.signal.aborted) throw new Error('账号状态查询已取消')
+    const directory = projectDirectory(cwd)
+    const key = JSON.stringify([cli, directory])
+    let query = this.statusQueries.get(key)
+    if (query && [...query.subscribers].every((reader) => reader.signal.aborted)) query.controller.abort()
+    // The abandoned process still owns cleanup; a new reader must not overlap it.
+    if (query?.controller.signal.aborted) {
+      await abortable(
+        query.operation.catch(() => undefined),
+        signal,
+      )
+      return this.status(cli, directory, signal)
+    }
+    if (!query) {
+      const controller = new AbortController()
+      query = {
+        cli,
+        controller,
+        operation: this.track(this.readStatus(cli, directory, controller.signal)),
+        subscribers: new Set(),
+        settled: false,
+      }
+      this.statusQueries.set(key, query)
+      const current = query
+      void current.operation
+        .finally(() => {
+          current.settled = true
+          if (this.statusQueries.get(key) === current) this.statusQueries.delete(key)
+        })
+        .catch(() => undefined)
+    }
+    const reader = { signal }
+    query.subscribers.add(reader)
+    try {
+      // Share only the running read, never a completed login/authorization result.
+      return await abortable(query.operation, signal)
+    } catch (error) {
+      if (signal.aborted) throw new Error('账号状态查询已取消')
+      throw error
+    } finally {
+      query.subscribers.delete(reader)
+      if (!query.subscribers.size && !query.settled) {
+        query.controller.abort()
+        await query.operation.catch(() => undefined)
+      }
+    }
   }
 
   private async readStatus(cli: CliId, cwd: string, signal: AbortSignal): Promise<AccountStatus> {
@@ -246,7 +297,13 @@ export class AccountManager {
       const executable = await resolveCliExecutable(cli, this.backend, this.config, control)
       installed = true
       control.throwIfAborted()
-      await assertFirstPartyConfiguration(cli, cwd, control)
+      if (cli === 'mimo')
+        return {
+          cli,
+          installed,
+          ...(await readMimoAccount(control)),
+          actions: this.backend.spawnTerminal ? actionsFor(cli, this.config) : [],
+        }
       if (cli === 'hermes') await verifyHermesExecutable(executable, control)
       if (isExtendedCli(cli)) {
         const identity = await abortable(
@@ -279,6 +336,18 @@ export class AccountManager {
           }),
           actions: this.backend.spawnTerminal ? actionsFor(cli, this.config) : [],
         }
+      }
+      if (cli === 'codex') {
+        // One effective-store read handles file/keyring accounts and display
+        // identity. Older servers fall back to the native status command below.
+        const identity = await readCodexAccount(this.backend, this.config, executable, cwd, control)
+        if (identity)
+          return {
+            cli,
+            installed,
+            ...identity,
+            actions: this.backend.spawnTerminal ? actionsFor(cli, this.config) : [],
+          }
       }
       const argv =
         cli === 'codex'
@@ -313,12 +382,7 @@ export class AccountManager {
       const readers = [read(child.stdout), read(child.stderr)]
       try {
         const [outcome] = await abortable(Promise.all([child.done, ...readers]), control)
-        let status = summarize(cli, raw, outcome.exitCode)
-        if (cli === 'codex' && status.state === 'authenticated' && status.authMethod === 'oauth') {
-          const identity = await readCodexAccount(this.backend, this.config, executable, cwd, control)
-          // A logout/account switch between the two reads replaces the first result.
-          if (identity) status = identity
-        }
+        const status = summarize(cli, raw, outcome.exitCode)
         return {
           cli,
           installed,
@@ -412,6 +476,7 @@ export class AccountManager {
     if (this.reserved.has(cli)) throw new Error('此 CLI 已有账号终端，请先关闭后重试')
     const directory = projectDirectory(cwd)
     this.reserved.add(cli)
+    for (const query of this.statusQueries.values()) if (query.cli === cli) query.controller.abort()
     let scope = this.parents.get(parent)
     if (!scope) {
       scope = { controller: new AbortController(), pending: new Set() }
@@ -446,7 +511,6 @@ export class AccountManager {
     let instruction = instructionFor(cli, action)
     try {
       const executable = await resolveCliExecutable(cli, this.backend, this.config, startup)
-      await assertFirstPartyConfiguration(cli, cwd, startup)
       if (cli === 'hermes') await verifyHermesExecutable(executable, startup)
       startup.throwIfAborted()
       let launch: { argv: string[]; cwd: string; env?: Record<string, string> } = {
@@ -454,7 +518,17 @@ export class AccountManager {
         env: firstPartyEnvironment(cli),
         cwd,
       }
-      if (cli === 'zcode' || cli === 'grok') {
+      if (cli === 'mimo') {
+        const prepared = await prepareMimoAccountTerminal(
+          executable,
+          action,
+          this.config.stateDirectory ??
+            join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'cliworker-now'),
+          startup,
+        )
+        launch = prepared
+        release = prepared.cleanup
+      } else if (cli === 'zcode' || cli === 'grok') {
         const prepared = await zcodeGrokAccountLaunch(
           cli,
           action,

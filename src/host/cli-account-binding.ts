@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { CLI_LABELS, type CliId } from '../shared/types.ts'
 import { captureCatalogMetadata, resolveCliExecutable } from './adapters.ts'
 import { readCodexAccount } from './codex-account.ts'
+import { assertAgyNativeAccountRoute } from './agy-models.ts'
 import { readFirstPartyModelSources } from './first-party-models.ts'
 import { readPiOmpAccountMaterial, safePiOmpAncestors } from './pi-omp-native.ts'
 import { readOpenCodeProfile, OPENCODE_OAUTH_UNSUPPORTED } from './opencode-native.ts'
@@ -262,6 +263,7 @@ async function material(
 ): Promise<BindingMaterial> {
   const home = homedir()
   if (cli === 'antigravity') {
+    await assertAgyNativeAccountRoute(signal, home)
     const root = join(home, '.gemini')
     const auth = await document(join(root, 'jetski-standalone-oauth-token'), signal)
     const principal =

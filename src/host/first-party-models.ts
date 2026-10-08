@@ -154,8 +154,15 @@ export function parseMimoModelRecords(output: string): Record<string, any>[] {
   for (const line of output.split(/\r?\n/)) {
     if (!pending && !route && !line.trim()) continue
     if (!pending && !route) {
-      if (!id(line.trim()) || !line.includes('/')) throw new Error('MiMo 模型目录格式无效')
-      route = line.trim()
+      // Native models emits a human-readable context-window suffix before its JSON.
+      // Accept that verified header shape, then bind the ID to the JSON below.
+      const header = line
+        .trim()
+        .match(
+          /^(\S+)(?: — window [\d.,]+[A-Za-z]*(?:, budget [\d.,]+[A-Za-z]*)?, compacts at [\d.,]+[A-Za-z]*)?$/,
+        )
+      if (!header || !id(header[1]) || !header[1]!.includes('/')) throw new Error('MiMo 模型目录格式无效')
+      route = header[1]!
       continue
     }
     pending += line + '\n'
@@ -213,7 +220,11 @@ export function mimoModelSources(
       !['@ai-sdk/openai', '@ai-sdk/openai-compatible', '@ai-sdk/anthropic'].includes(api.npm)
     )
       continue
-    const baseUrl = options.baseURL ?? api.url
+    // MiMo's built-in Xiaomi login plugin loads its own ApiAuth metadata first;
+    // explicit provider options are then merged last by the native resolver.
+    const loginBase =
+      provider === 'xiaomi' && auth[provider]?.type === 'api' ? auth[provider].metadata?.base_url : undefined
+    const baseUrl = options.baseURL ?? loginBase ?? api.url
     if (!literal(baseUrl)) continue
     sources.push({
       provider,

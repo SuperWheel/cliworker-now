@@ -192,7 +192,9 @@ OMP（Oh My Pi）与 Pi Coding Agent 是两个独立 CLI；安装、账号、模
 
 账号发现和执行绑定同一来源；保存选型、新任务、排队出队和续聊都会重新核对账号、模型与强度。换号或退出会阻止旧任务启动，历史任务换号后需新建任务；升级前未记录账号绑定的历史任务也需新建，原对话保留。插件不读取其他 CLI 的凭据，也不继承 Harness API 凭据；旧 `zaiCredentialRef` 配置兼容读取但不生效。旧派生认证快照会按当前自身来源重建，原生账号、历史会话和偏好保留；失效偏好需重新选择。
 
-当前账号范围边界：Antigravity、Grok，以及 Claude／Kimi／MiMo 的未支持 OAuth 模式及 OpenCode OAuth暂显示空列表。Claude 自身设置中的 API Key、Kimi 自身 API 配置、MiMo 自身认证或可核对的本地配置可按账号列表筛选。Codex 支持已核验的官方文件账号路径，keyring 或自定义路由缺少范围证据时不放行。Hermes 需在自身配置关闭 `auth.adopt_external_logins`，账号终端也禁止导入 Codex／Claude 凭据。MiMo 目前只接受可核验的本地配置，文件／环境插值和远程组织配置需先移除。OpenCode 原生 OAuth 写回缺少账号版本保护，暂只开放自身 API 配置。插件不会替用户修改原生账号。
+Antigravity 使用自身原生登录和实时 `agy models` 目录，只展示原生返回的模型及强度变体。账号读取先完成，模型查询的等待或失败不会把已登录账号改为未登录。重复的在途账号读取会合并，后续刷新与执行授权仍读取当前账号。
+
+当前账号范围边界：Grok，以及 Claude／Kimi 的未支持 OAuth 模式及 OpenCode OAuth暂显示空列表。Claude 自身设置中的 API Key、Kimi 自身 API 配置、MiMo 原生网页登录写入的自身 API 认证，以及可核对的本地配置，按账号列表筛选；保留网页登录附带的官方服务地址。Codex 支持已核验的官方文件账号路径，keyring 或自定义路由缺少范围证据时不放行。Hermes 需在自身配置关闭 `auth.adopt_external_logins`，账号终端也禁止导入 Codex／Claude 凭据。MiMo 目前只接受可核验的本地配置，文件／环境插值和远程组织配置需先移除。OpenCode 原生 OAuth 写回缺少账号版本保护，暂只开放自身 API 配置。插件不会替用户修改原生账号。
 
 ```mermaid
 flowchart LR

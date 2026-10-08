@@ -171,7 +171,7 @@ function fixture(overrides: Partial<RuntimeConfig> = {}) {
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve))
 
 describe('account status safety (synthetic CLI output)', () => {
-  it('rejects MiMo file interpolation before status or account terminal starts', async () => {
+  it('keeps MiMo native login available when model configuration contains external references', async () => {
     const f = fixture()
     mkdirSync(join(f.cwd, 'mimo/config'), { recursive: true })
     writeFileSync(
@@ -180,13 +180,15 @@ describe('account status safety (synthetic CLI output)', () => {
         provider: { openai: { options: { apiKey: '{file:~/.codex/auth.json}' } } },
       }),
     )
-    expect(await f.manager.status('mimo', f.cwd, f.signal)).toMatchObject({ state: 'unavailable' })
+    expect(await f.manager.status('mimo', f.cwd, f.signal)).toMatchObject({ state: 'unconfigured' })
     expect(f.backend.spawn).not.toHaveBeenCalled()
-    await expect(f.manager.start('synthetic-parent', 'mimo', 'login', f.cwd, f.signal)).rejects.toThrow(
-      'MiMo 配置含外部引用',
-    )
-    expect(f.backend.spawnTerminal).not.toHaveBeenCalled()
+    const opened = await f.manager.start('synthetic-parent', 'mimo', 'login', f.cwd, f.signal)
+    const spec = vi.mocked(f.backend.spawnTerminal!).mock.calls[0][0]
+    expect(spec.cwd).not.toBe(f.cwd)
+    expect(spec.env).toMatchObject({ MIMOCODE_DISABLE_PROJECT_CONFIG: '1', MIMOCODE_MIMO_ONLY: '1' })
+    await f.manager.stop('synthetic-parent', opened.id)
     expect(f.manager.isBusy('mimo')).toBe(false)
+    expect(existsSync(spec.cwd!)).toBe(false)
   })
 
   it('blocks task/account admission when native status cleanup cannot be confirmed', async () => {
@@ -239,7 +241,13 @@ describe('account status safety (synthetic CLI output)', () => {
     const kimiCall = vi.mocked(f.backend.spawn).mock.calls.at(-1)![0]
     expect(kimiCall.argv.slice(1)).toEqual(['provider', 'list'])
     expect(kimiCall.argv).not.toContain('--json')
-    f.status('Provider: MiMo\nUser ID: private-uid\n')
+    mkdirSync(join(f.cwd, 'mimo/data'), { recursive: true })
+    writeFileSync(
+      join(f.cwd, 'mimo/data/auth.json'),
+      JSON.stringify({
+        xiaomi: { type: 'api', key: 'synthetic-mimo-key', metadata: { uid: 'private-uid' } },
+      }),
+    )
     const mimo = await f.manager.status('mimo', f.cwd, f.signal)
     expect(mimo).toMatchObject({ state: 'authenticated', authMethod: 'api', verification: 'local' })
     expect(JSON.stringify(mimo)).not.toContain('private-uid')
@@ -271,10 +279,14 @@ describe('account status safety (synthetic CLI output)', () => {
       authMethod: 'oauth',
       verification: 'cli',
     })
+    expect(f.backend.spawn).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(f.backend.spawn).mock.calls[0]![0].argv).toContain('app-server')
+    f.codexAccount(null)
     f.status('Not logged in', 1)
     const loggedOut = await f.manager.status('codex', f.cwd, f.signal)
     expect(loggedOut.state).toBe('unconfigured')
     expect(loggedOut.accountLabel).toBeUndefined()
+    f.codexAccount({ type: 'apiKey' })
     f.status('Logged in using an API key - sk-SECRET')
     const api = await f.manager.status('codex', f.cwd, f.signal)
     expect(api.authMethod).toBe('api')
@@ -378,6 +390,82 @@ describe('account status safety (synthetic CLI output)', () => {
     expect(f.backend.spawnTerminal).not.toHaveBeenCalled()
   })
 
+  it('shares overlapping status reads while one reader can cancel independently', async () => {
+    const f = fixture()
+    const resolution = deferred<string>()
+    vi.mocked(f.backend.resolveExecutable).mockReturnValueOnce(resolution.promise)
+    f.status(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', email: 'synthetic@example.com' }))
+    const first = new AbortController()
+    const a = f.manager.status('claude', f.cwd, first.signal)
+    const b = f.manager.status('claude', f.cwd, f.signal)
+    first.abort()
+    await expect(a).rejects.toThrow('已取消')
+    expect(f.backend.resolveExecutable).toHaveBeenCalledTimes(1)
+    resolution.resolve('/synthetic/claude')
+    await expect(b).resolves.toMatchObject({ state: 'authenticated' })
+    expect(f.backend.spawn).toHaveBeenCalledTimes(1)
+    f.status(JSON.stringify({ loggedIn: false }))
+    await expect(f.manager.status('claude', f.cwd, f.signal)).resolves.toMatchObject({
+      state: 'unconfigured',
+    })
+    expect(f.backend.spawn).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps different CLI/project status requests independent and concurrent', async () => {
+    const f = fixture()
+    const otherProject = join(f.cwd, 'other-project')
+    mkdirSync(otherProject)
+    const resolutions = [deferred<string>(), deferred<string>(), deferred<string>()]
+    for (const resolution of resolutions)
+      vi.mocked(f.backend.resolveExecutable).mockReturnValueOnce(resolution.promise)
+    const operations = [
+      f.manager.status('claude', f.cwd, f.signal),
+      f.manager.status('claude', otherProject, f.signal),
+      f.manager.status('kimi', f.cwd, f.signal),
+    ]
+    expect(f.backend.resolveExecutable).toHaveBeenCalledTimes(3)
+    resolutions.forEach((value, i) => value.resolve(`/synthetic/${i === 2 ? 'kimi' : 'claude'}`))
+    await Promise.all(operations)
+    expect(f.backend.spawn).toHaveBeenCalledTimes(3)
+  })
+
+  it('waits for the last cancelled reader cleanup before allowing a fresh query', async () => {
+    const f = fixture()
+    const output = new PassThrough()
+    const done = deferred<SubprocessOutcome>()
+    const cleanup = deferred<boolean>()
+    const controller = new AbortController()
+    vi.mocked(f.backend.spawn).mockReturnValueOnce({
+      stdout: output,
+      stderr: undefined,
+      stdin: undefined,
+      control: undefined,
+      collected: {},
+      done: done.promise,
+      terminate: vi.fn(() => {
+        output.end()
+        done.resolve({ exitCode: null, signal: 'SIGTERM' })
+      }),
+      waitForExit: () => cleanup.promise,
+    })
+    const old = f.manager.status('claude', f.cwd, controller.signal)
+    const rejection = expect(old).rejects.toThrow('已取消')
+    await tick()
+    controller.abort()
+    let cancelled = false
+    void old.catch(() => {
+      cancelled = true
+    })
+    const next = f.manager.status('claude', f.cwd, f.signal)
+    await tick()
+    expect(cancelled).toBe(false)
+    expect(f.backend.spawn).toHaveBeenCalledTimes(1)
+    cleanup.resolve(true)
+    await rejection
+    await next
+    expect(f.backend.spawn).toHaveBeenCalledTimes(2)
+  })
+
   it('keeps absent default installations grey but reports explicit executable and read errors', async () => {
     const missing = Object.assign(new Error('synthetic SECRET'), { code: 'ENOENT' })
     const absent = fixture()
@@ -465,7 +553,8 @@ describe('user-operated account terminals (synthetic PTY)', () => {
     const opened = await f.manager.start('parent', cli, action, f.cwd, f.signal)
     const spec = vi.mocked(f.backend.spawnTerminal!).mock.calls[0][0]
     expect(spec.argv.slice(1)).toEqual(expected)
-    expect(spec.cwd).toBe(f.cwd)
+    if (cli === 'mimo') expect(spec.cwd).not.toBe(f.cwd)
+    else expect(spec.cwd).toBe(f.cwd)
     expect(spec.terminalType).toBe('xterm-256color')
     expect(f.terminal.write).not.toHaveBeenCalled()
     if (cli === 'antigravity' || (cli === 'kimi' && action === 'logout'))

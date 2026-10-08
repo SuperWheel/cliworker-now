@@ -669,7 +669,7 @@ it.each(['zcode', 'grok', 'omp', 'pi', 'hermes', 'opencode'] as const)(
       'unverified',
     )
     await t.click(nav)
-    expect(t.button(nav).findAllByProps({ 'data-loading': true })).toHaveLength(1)
+    expect(t.button(nav).findAllByProps({ 'data-loading': true })).toHaveLength(0)
     expect(t.button('保存默认值').props.disabled).toBe(true)
     await act(async () => models.resolve(catalog(cli)))
     expect(t.button(nav).findByProps({ className: 'cwn-connection-dot' }).props['data-state']).toBe(
@@ -682,26 +682,38 @@ it.each(['zcode', 'grok', 'omp', 'pi', 'hermes', 'opencode'] as const)(
   },
 )
 
-it('invalidates successful model choices and connection indicators during a refresh and after failure', async () => {
-  const read = deferred()
-  const t = await setup({ accountStatus: accountFixture({ state: 'authenticated', verification: 'cli' }) })
-  expect(t.button('保存默认值').props.disabled).toBe(false)
-  t.catalogForCli.mockReturnValueOnce(read.promise)
-  await t.click('刷新模型')
-  expect(t.button('Antigravity 设置').findAllByProps({ 'data-loading': true })).toHaveLength(1)
-  expect(visibleText(t.button('默认模型'))).toContain('选择模型')
-  expect(t.button('默认模型').props.disabled).toBe(true)
-  expect(t.button('保存默认值').props.disabled).toBe(true)
-  await t.submit()
-  await act(async () => read.reject(new Error('模拟：当前账号无可用模型')))
-  expect(
-    t.button('Antigravity 设置').findByProps({ className: 'cwn-connection-dot' }).props['data-state'],
-  ).toBe('failed')
-  expect(t.text()).not.toContain('antigravity-fixture')
-  expect(t.button('保存默认值').props.disabled).toBe(true)
-  expect(t.text()).toContain('模拟：当前账号无可用模型')
-  expect(t.configure).not.toHaveBeenCalled()
-})
+it.each(['antigravity', 'mimo'] as const)(
+  'keeps %s logged in while invalidating model choices during a catalog refresh and failure',
+  async (cli) => {
+    const read = deferred()
+    const t = await setup({
+      accountStatus: vi.fn(async (_parent, id: CliId) =>
+        status(id, { state: 'authenticated', verification: 'cli' }),
+      ),
+    })
+    await t.click(`${CLI_LABELS[cli]} 设置`)
+    expect(t.button('保存默认值').props.disabled).toBe(false)
+    t.catalogForCli.mockReturnValueOnce(read.promise)
+    await t.click('刷新模型')
+    expect(t.button(`${CLI_LABELS[cli]} 设置`).findAllByProps({ 'data-loading': true })).toHaveLength(0)
+    expect(visibleText(accountSummary(t.r))).toContain('已登录')
+    expect(visibleText(t.button('默认模型'))).toContain('选择模型')
+    expect(t.button('默认模型').props.disabled).toBe(true)
+    expect(t.button('保存默认值').props.disabled).toBe(true)
+    await t.submit()
+    await act(async () => read.reject(new Error('模拟：当前账号无可用模型')))
+    expect(
+      t.button(`${CLI_LABELS[cli]} 设置`).findByProps({ className: 'cwn-connection-dot' }).props[
+        'data-state'
+      ],
+    ).toBe('connected')
+    expect(visibleText(accountSummary(t.r))).toContain('已登录')
+    expect(t.text()).not.toContain(`${cli}-fixture`)
+    expect(t.button('保存默认值').props.disabled).toBe(true)
+    expect(t.text()).toContain('模拟：当前账号无可用模型')
+    expect(t.configure).not.toHaveBeenCalled()
+  },
+)
 
 it('waits for a refreshed account before reading its new model scope and ignores the superseded catalog', async () => {
   const oldModels = deferred(),
@@ -720,6 +732,10 @@ it('waits for a refreshed account before reading its new model scope and ignores
   expect(catalogForCli).toHaveBeenCalledTimes(2)
   expect(catalogForCli.mock.calls[1]![2].aborted).toBe(true)
   expect(t.button('保存默认值').props.disabled).toBe(true)
+  expect(visibleText(accountSummary(t.r))).toContain('已登录')
+  expect(
+    t.button('Antigravity 设置').findByProps({ className: 'cwn-connection-dot' }).props['data-state'],
+  ).toBe('connected')
   await act(async () => oldModels.resolve(catalog('antigravity', 'stale-account-model')))
   expect(t.text()).not.toContain('stale-account-model')
   await act(async () =>
@@ -727,6 +743,10 @@ it('waits for a refreshed account before reading its new model scope and ignores
   )
   expect(catalogForCli).toHaveBeenCalledTimes(3)
   expect(t.button('保存默认值').props.disabled).toBe(true)
+  expect(visibleText(accountSummary(t.r))).toContain('已配置')
+  expect(
+    t.button('Antigravity 设置').findByProps({ className: 'cwn-connection-dot' }).props['data-state'],
+  ).toBe('unverified')
   await act(async () => freshModels.resolve(catalog('antigravity', 'new-account-model')))
   expect(t.text()).toContain('new-account-model')
   expect(t.text()).not.toContain('original-model')
@@ -837,9 +857,9 @@ it('keeps unknown accounts grey even after reading models and shows configured c
       status(cli, { state: cli === 'kimi' ? 'configured' : 'unknown' }),
     ),
   })
-  expect(t.button('Antigravity 设置').findAllByProps({ 'data-loading': true })).toHaveLength(1)
+  expect(t.button('Antigravity 设置').findAllByProps({ 'data-loading': true })).toHaveLength(0)
   expect(t.button('Antigravity 设置').findByProps({ role: 'img' }).props['aria-label']).toBe(
-    '正在读取模型目录',
+    'antigravity 模拟状态待确认',
   )
   expect(t.button('Codex 设置').findByProps({ className: 'cwn-connection-dot' }).props['data-state']).toBe(
     'unknown',
@@ -868,7 +888,7 @@ it('dismisses an open model menu when its CLI is disabled and does not reopen it
   expect(t.button('默认模型').props['aria-expanded']).toBe(false)
 })
 
-it('updates an unknown Antigravity account from grey to catalog failure and back after an explicit retry', async () => {
+it('keeps an unknown Antigravity account grey across catalog failure and retry', async () => {
   const catalogForCli = vi
     .fn()
     .mockResolvedValueOnce(catalog('antigravity'))
@@ -879,9 +899,10 @@ it('updates an unknown Antigravity account from grey to catalog failure and back
     t.button('Antigravity 设置').findByProps({ className: 'cwn-connection-dot' }).props['data-state']
   expect(dot()).toBe('unknown')
   await t.click('刷新模型')
-  expect(dot()).toBe('failed')
+  expect(dot()).toBe('unknown')
+  expect(t.text()).toContain('模拟目录连接失败')
   expect(t.button('Antigravity 设置').findByProps({ role: 'img' }).props['aria-label']).toBe(
-    '模型目录不可用',
+    'antigravity 模拟状态待确认',
   )
   await t.click('刷新模型')
   expect(dot()).toBe('unknown')
@@ -903,10 +924,10 @@ it.each(['rejected', 'empty'] as const)(
       }),
     })
     const summary = accountSummary(t.r)
-    expect(visibleText(summary.findByProps({ className: 'cwn-account-login' })).trim()).toBe('模型目录不可用')
+    expect(visibleText(summary.findByProps({ className: 'cwn-account-login' })).trim()).toBe('已登录')
     expect(summary.props['data-account-state']).toBe('authenticated')
     expect(visibleText(summary)).toContain('fixture@example.invalid')
-    expect(summary.findByProps({ className: 'cwn-account-status-dot' }).props['data-state']).toBe('failed')
+    expect(summary.findByProps({ className: 'cwn-account-status-dot' }).props['data-state']).toBe('connected')
     expect(t.text()).toContain(reason)
     expect(t.text()).not.toContain('Error:')
     if (failure === 'rejected') expect(t.button('默认模型').props.disabled).toBe(true)
@@ -914,7 +935,7 @@ it.each(['rejected', 'empty'] as const)(
     expect(t.configure).not.toHaveBeenCalled()
   },
 )
-it('treats an empty catalog as failed while readable local credentials retain their evidence boundary', async () => {
+it('keeps configured credentials neutral when the model catalog is empty', async () => {
   const t = await setup({
     catalogForCli: vi.fn(async (_parent, cli: CliId) =>
       cli === 'antigravity' ? remote({ cli, models: [] }) : catalog(cli),
@@ -923,7 +944,7 @@ it('treats an empty catalog as failed while readable local credentials retain th
   })
   const dot = (label: string) =>
     t.button(label).findByProps({ className: 'cwn-connection-dot' }).props['data-state']
-  expect(dot('Antigravity 设置')).toBe('failed')
+  expect(dot('Antigravity 设置')).toBe('unverified')
   expect(dot('Codex 设置')).toBe('unverified')
   await t.click('Codex 设置')
   expect(t.text()).toContain('codex-fixture')
@@ -970,7 +991,15 @@ it.each(['unconfigured', 'unauthenticated', 'unavailable', 'unknown', 'configure
     const summary = accountSummary(t.r).findByProps({ className: 'cwn-account-status-dot' }).props[
       'data-state'
     ]
-    expect(nav).toBe(state === 'unconfigured' ? 'unconfigured' : 'failed')
+    expect(nav).toBe(
+      state === 'unconfigured'
+        ? 'unconfigured'
+        : state === 'configured'
+          ? 'unverified'
+          : state === 'unknown'
+            ? 'unknown'
+            : 'failed',
+    )
     expect(summary).toBe(nav)
     expect(t.text()).toContain('此 CLI 未返回可用模型')
     if (state === 'unconfigured') expect(visibleText(accountSummary(t.r))).toContain('未登录')
@@ -979,7 +1008,7 @@ it.each(['unconfigured', 'unauthenticated', 'unavailable', 'unknown', 'configure
   },
 )
 
-it('recovers both indicators after a failed catalog without restarting account actions or altering preferences', async () => {
+it('keeps account indicators unchanged after retrying a failed catalog without restarting account actions or altering preferences', async () => {
   const read = vi
     .fn()
     .mockRejectedValueOnce(new Error('模拟：目录损坏'))
@@ -992,7 +1021,7 @@ it('recovers both indicators after a failed catalog without restarting account a
     t.button('Antigravity 设置').findByProps({ className: 'cwn-connection-dot' }).props['data-state'],
     accountSummary(t.r).findByProps({ className: 'cwn-account-status-dot' }).props['data-state'],
   ]
-  expect(dots()).toEqual(['failed', 'failed'])
+  expect(dots()).toEqual(['unverified', 'unverified'])
   await t.click('刷新模型')
   expect(dots()).toEqual(['unverified', 'unverified'])
   expect(visibleText(accountSummary(t.r))).toContain('已配置')
@@ -1164,7 +1193,7 @@ it.each([
     'failed',
   )
 })
-it('keeps the account summary mounted during refresh and failure without displaying stale login success or identity', async () => {
+it('preserves the last confirmed account while refreshing and replaces it after an account failure', async () => {
   const accountStatus = accountFixture({
     state: 'authenticated',
     authMethod: 'oauth',
@@ -1181,9 +1210,14 @@ it('keeps the account summary mounted during refresh and failure without display
   )
   await t.click('刷新状态')
   expect(accountSummary(t.r)).toBe(before)
-  expect(visibleText(accountSummary(t.r))).not.toContain('stale-fixture@example.invalid')
-  expect(visibleText(accountSummary(t.r))).not.toContain('已登录')
-  expect(accountSummary(t.r).findAllByProps({ 'data-state': 'connected' })).toHaveLength(0)
+  expect(visibleText(accountSummary(t.r))).toContain('stale-fixture@example.invalid')
+  expect(visibleText(accountSummary(t.r))).toContain('已登录')
+  expect(accountSummary(t.r).findByProps({ className: 'cwn-account-status-dot' }).props['data-state']).toBe(
+    'connected',
+  )
+  expect(t.button('Antigravity 设置').findAllByProps({ 'data-loading': true })).toHaveLength(0)
+  expect(t.button('刷新状态').props.disabled).toBe(true)
+  expect(t.button('保存默认值').props.disabled).toBe(true)
   await act(async () => refresh.reject(new Error('模拟：账号状态刷新失败')))
   expect(accountSummary(t.r)).toBe(before)
   expect(visibleText(accountSummary(t.r))).toContain('模拟：账号状态刷新失败')

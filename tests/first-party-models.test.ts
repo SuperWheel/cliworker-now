@@ -117,6 +117,32 @@ describe('first-party model scopes', () => {
     ).toEqual([])
     expect(mimoModelSources([mimo()], { disabled_providers: ['own'] }, auth, '/synthetic')).toEqual([])
   })
+  it('MiMo browser-login metadata follows the native Xiaomi route precedence only', () => {
+    const model = mimo({ providerID: 'xiaomi' })
+    const auth = {
+      xiaomi: { type: 'api', key: 'own-login', metadata: { base_url: 'https://own.invalid/v1' } },
+    }
+    expect(mimoModelSources([model], {}, auth, '/synthetic')[0]?.baseUrl).toBe('https://own.invalid/v1')
+    expect(
+      mimoModelSources(
+        [model],
+        { provider: { xiaomi: { options: { baseURL: 'https://configured.invalid/v1' } } } },
+        auth,
+        '/synthetic',
+      )[0]?.baseUrl,
+    ).toBe('https://configured.invalid/v1')
+    expect(mimoModelSources([mimo()], {}, { own: auth.xiaomi }, '/synthetic')[0]?.baseUrl).toBe(
+      mimo().api.url,
+    )
+    expect(
+      mimoModelSources(
+        [model],
+        {},
+        { xiaomi: { ...auth.xiaomi, metadata: { base_url: '{env:FOREIGN}' } } },
+        '/synthetic',
+      ),
+    ).toEqual([])
+  })
   it('MiMo accepts only a literal own-config key that matches the resolved native route', () => {
     const config = { provider: { own: { options: { apiKey: 'own-inline-key' } } } }
     const verified = { own: { key: 'own-inline-key', sourceId: '/synthetic/mimocode.json' } }
@@ -174,6 +200,20 @@ describe('first-party model scopes', () => {
       '身份',
     )
     expect(() => parseMimoModelRecords('own/native-model\n{')).toThrow('不完整')
+  })
+  it('parses native MiMo context-window headers without turning the suffix into a model ID', () => {
+    for (const suffix of [' — window 1M, compacts at 961K', ' — window 128K, budget 64K, compacts at 59.8K'])
+      expect(
+        parseMimoModelRecords(`own/native-model${suffix}\n${JSON.stringify(mimo(), null, 2)}\n`),
+      ).toEqual([mimo()])
+    expect(() =>
+      parseMimoModelRecords(
+        `foreign/native-model — window 1M, compacts at 961K\n${JSON.stringify(mimo())}\n`,
+      ),
+    ).toThrow('身份不匹配')
+    expect(() =>
+      parseMimoModelRecords(`own/native-model unverified suffix\n${JSON.stringify(mimo())}\n`),
+    ).toThrow('格式无效')
   })
   it('MiMo discovery and execution share the environment that disables foreign SDK sources', () => {
     expect(firstPartyEnvironment('mimo')).toMatchObject({
