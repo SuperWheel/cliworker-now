@@ -1,10 +1,10 @@
-# Spec Delta
+# cli-account-isolation Specification
 
 ## Purpose
 
 约束全部 CLI 只读取并使用自身登录或独立 API 配置，在模型发现、选择、排队与续聊中保持同一账号来源，阻止跨 CLI 凭据回退和旧快照复活。
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: 自身账号来源
 所有活跃 CLI SHALL 仅使用自身原生账号目录、插件内该 CLI 登录目录、自己配置的 API Key 和私有环境文件。Host 凭据引用、通用密钥环境、其他 CLI 账号文件和 SDK 跨 CLI 自动导入 MUST 不成为账号来源。原生登录同一服务商属于本 CLI 自身来源，不按服务商名称误判跨 CLI。
@@ -35,6 +35,10 @@ Host SHALL 以不含秘密的账号来源版本绑定目录与任务，在保存
 #### Scenario: 权限与强度撤销
 - **WHEN** 账号未变但所选模型或强度不再可用
 - **THEN** 启动前拒绝，不发送 prompt，不选择替代项
+
+#### Scenario: 原生续期无法保护当前账号
+- **WHEN** OpenCode OAuth 等原生续期缺少版本条件写回，无法阻止退出或换号后恢复旧凭据
+- **THEN** 保留真实登录状态，该模式返回空目录并拒绝执行；同一 CLI 自身 API 配置仍可按当前账号范围开放
 
 ### Requirement: 安全迁移及生命周期
 升级 SHALL 停用旧 Host 路由和派生认证快照，只清理可确定由插件生成的配置；原生账号、插件登录账号、会话和偏好 MUST 保留。凭据不得返回客户端或入日志，清理未确认退出的进程前不能删除快照或放行后续任务。

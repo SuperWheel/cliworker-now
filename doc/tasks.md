@@ -596,3 +596,24 @@
 - [x] 隔离 Harness 以明确模拟数据覆盖6种账号界面，AGY/ZCode绿色、OMP已配置、Pi/OpenCode未登录、Hermes错误；账号文本高度均22px，detail为0，错误与按钮不重叠，不通过省略长段落伪装单行。刷新后旧成功消失、模型禁用，失败重试和模型强度联动通过。证据 `.test-data/cli-settings-0610-ui/ui-verification.json` 及3张 `*-simulation.png`；自有页面0、服务正常退出、18750端口无监听。
 - [x] 正式更新前9个worker均已结束、账号终端0，旧lib备份 `.cache/desktop-before-cli-settings-0610/lib`；重启 Desktop 后实看 Antigravity/ZCode 绿色、Hermes短错误单行。打开 AGY 时正常模型查询仍加载，切换 Hermes 后取消，未作为新模型验收。17份既有worker/偏好/开关/角色文件集合与SHA256均不变，未保存偏好或提交账号操作。CUA原生截图在本次工具记录，摘要 `.test-data/cli-settings-0610/desktop-verification.json`。
 - [x] 正式包 `artifacts/dsh-cliworker-now-0.6.10.tgz` 共207项，与本机构建逐项一致，无凭据、测试或运行文件；SHA256 `933283004984885e4495c5a57ca70ade8c6c4e52a6753536e586d61326c4de96`。Desktop链接仍指向本仓库。验收摘要 `artifacts/dsh-cliworker-now-0.6.10-verification.json`。
+
+
+## v0.6.11 — 全部 CLI 自身账号与模型隔离（2026-10-08）
+
+- [x] 按已批准方案覆盖全部 11 个 CLI；OpenSpec `isolate-cli-account-models` 先行，规划提交 `a3db50f`，实现分阶段提交 `1703dd5`、`be73f58`、`d47a61f`、`6679d71`。移除 Harness 凭据解析和注入、父进程通用 API 密钥、跨 CLI 自动读取及可确认的插件合成路由；保留本 CLI 原生账号、插件登录目录、自有配置中的 API Key 和限定目录的私有 `.env`。旧 Host 引用仅兼容解析，不再使用。
+- [x] 模型与强度按本 CLI 原生能力和当前自身账号范围求交，前五 CLI 同样不接受公共目录、旧缓存、Claude 固定别名或无账号免费模型作为可调用依据。Host 私有账号绑定覆盖保存、新建、出队及续聊，任务准备后再次核对；换号、退出、撤权、模型或强度失效均拒绝。无绑定的升级前历史保留查看，但要求新建任务，不替旧会话认领当前账号。
+- [x] Pi/OMP 独立核验安装身份和账号优先级，OAuth 续期以稳定主体、当前来源和原生锁／SQLite 条件更新约束；Host 租约只在进程范围确认退出后释放。Hermes 的交互导入入口也受跨 CLI 凭据读取禁令保护。MiMo 在原生配置初始化前拒绝未经核验的环境／文件插值、托管远程配置及外部 provider 导入，检查覆盖目录和执行；账号状态只读自身 Auth，登录终端使用隔离的配置上下文。
+- [x] 最终源码 `pnpm typecheck`、`pnpm test`（52 文件／869 项）、`pnpm build:preview`、`git diff --check` 通过。测试使用明确模拟的账号、模型服务和临时目录，覆盖全部 CLI 的外部账号拒绝、自有范围、旧缓存／快照、账号切换／退出、相同模型、无效强度、取消和进程清理失败；真实本机 PTY、Seatbelt 和回环测试在允许环境中执行。日志 `.test-data/cli-isolation-0611/{typecheck-restored-final,full-test-restored-final,preview-restored-final}.log`；最终源码与 preview 逐字节相同，受测源码／测试／构建输入另存 SHA-256 核对。
+- [x] 较早阶段的本机离线来源审计未发起原生子命令、网络、登录刷新或模型生成。Antigravity、Codex、ZCode、Grok、OMP 的本地来源绑定可确认；Pi、Hermes、OpenCode 未确认自身可用账号；Claude、Kimi、MiMo 需原生命令的部分跳过，未冒充真实成功。脱敏记录 `.test-data/cli-isolation-0611/native-source-audit.json`。
+- 保留能力边界：Grok 尚无已核验的当前账号模型范围；Claude/Kimi 的未支持 OAuth、Codex 未支持的凭据存储或自定义路由、无可核验稳定主体的 Pi/OMP OAuth 均不放行。OpenCode 1.18.21 OAuth 原生续期没有安全的版本条件写回，不能保证外部退出不被旧进程恢复，因此保留真实登录状态，但模型与执行暂不开放；自身 API 配置可按范围使用。Hermes 本机原启动入口仍失效，本轮未修复其安装。未知范围显示空列表及简短原因，不以模型生成探测补证。
+
+- 用户实机反馈后修复 Antigravity/MiMo 回归：账号显示与模型目录状态解耦；Antigravity 恢复自身 consumer 原生 models 目录；MiMo 安全读取自身 Auth、隔离账号终端免受项目模型配置影响，保留网页登录 API metadata.base_url，并解析原生 verbose 头部 window/compacts 信息。身份确认不必等待模型列表；重复在途状态读取合并但不缓存结果，Codex 先单次原生 account/read，OMP 仅缓存按真实安装版本绑定的能力检查。
+- 本机恢复证据：Antigravity 原生 models 单次查询 4.578 秒返回 14 个原生变体，0 生成；用户明确授权的 MiMo 官方 GET /v1/models 仅 1 次，HTTP 200、688 毫秒、9 个账号模型，与 6 个原生代码候选相交保留 5 个，剔除账号未支持的 mimo-v2.5-pro-ultraspeed 与不适用的音频条目。证据 `.test-data/cli-isolation-0611/{agy-native-model-metadata,mimo-native-models,mimo-authorized-model-scope}.json`。此前 MiMo 网络诊断被自动审批拒绝，取得专门授权后才执行，没有绕过。
+- 本机账号状态读取各测 10 次：Antigravity 首次 4.26ms／中位 0.28ms，MiMo 首次 0.45ms／中位 0.17ms，两者 authenticated；0 子进程、0 网络、0 生成。该耗时仅指 Host 本地账号读取，不当作整页或远端模型加载耗时。证据 `login-load-benchmark.json`。
+
+- [x] 最终隔离界面验收覆盖全部 11 CLI：无账号灰点／空模型／禁用保存；自身 API 模型与强度切换；模型刷新失效、失败和恢复；Antigravity/MiMo 模型待加载或失败仍保持已登录；账号刷新保留身份直到新结果；Pi/OpenCode 原始异常类前缀移除。账号行实测均为 22px，4 张截图实看。最初 fixture 缺少独立包名，曾解析到旧 Client；修正后全部重跑，并从浏览器网络层下载实际脚本，核对与最终 preview 的可执行字节完全相同。证据 `.test-data/cli-settings-0611-ui/ui-verification.json`，Client SHA-256 `81224fef478bc740f7f3bb40f2e9ae8c61554a8066b0fd0fcf7e5ed51f80fa75`；旧轮次只作历史记录，不作为最终通过依据。模拟服务、浏览器页及 18751 监听已清理。
+- [x] 最终更新前确认 10 个历史 Worker、0 活动任务、0 账号／任务桥进程；保留原 0.6.10 lib 备份，正式构建后重启 Desktop。实机 Antigravity 在模型加载时已显示登录与一行身份，随后下拉菜单出现 7 组模型（14 个原生强度变体）；MiMo 导航为绿色，自身账号读数与唯一授权模型查询另有证据。为避免重复远端查询，未打开真实 MiMo 详情页，详情布局由隔离模拟覆盖。Pi/OpenCode 均未登录且模型／强度／保存禁用，原因保持一行。关闭设置回到原会话，未登录／退出、未保存偏好、未生成模型内容。证据 `desktop-verification.json`，原生界面截图保留在本次 CUA 记录。
+- [x] 数据核对：最终更新前基线的 44 份账号、配置、历史、偏好文件全部哈希不变；另行核对 MiMo 原生账号／配置／Git exclude 的前后哈希及早于本次任务的修改时间。较早首次基线有 2 份配置（Codex/Hermes）在首次正式更新前发生变化，归因未确定，保留当前内容未回滚；该阶段凭据、历史和偏好均未变。记录 `original-state-check-pre-release.json`、`post-update-state-check.json`、`post-final-update-state-check.json`、`mimo-native-source-check.json`，不将最终基线结果扩大为整段会话所有配置从未变化。
+- [x] 正式包 `artifacts/dsh-cliworker-now-0.6.11.tgz` 共 237 文件，SHA-256 `8db29b1dddd050d6f4b813724fe413b199823bad0a2ba758ab3531bcf2259523`。包内容与构建核对一致，动态辅助模块相对导入完整，无测试／账号／缓存／运行数据。Host 与 preview 逐字节相同；Client 仅构建位置产生的 node_modules 区域注释路径不同，可执行文本完全相同。验证报告 `artifacts/dsh-cliworker-now-0.6.11-verification.json`；真实模型生成 0。
+
+- [x] 3 个能力域的 8 条增量需求逐条同步主规格并核对文本一致；归档前 6 项严格校验、归档后 5 项主规格严格校验通过，任务 9/9，活动变更 0。归档为 `openspec/changes/archive/2026-10-08-isolate-cli-account-models`；能力限制和未做模型生成的边界保留在本记录及规格中。源码、文档和归档分阶段本地提交，不推送。

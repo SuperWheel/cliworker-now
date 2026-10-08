@@ -7,7 +7,7 @@
 ## Requirements
 
 ### Requirement: 原生模型和服务商发现
-ZCode、Grok、Pi、OMP、Hermes、OpenCode SHALL 从各自原生目录或已有配置发现候选模型，不得固定为 GLM-5.3-Flash。六个 CLI 的可选模型 MUST 经过当前账号和 Worker 路由的可用性筛选，不能直接呈现提供商大全。模型 SHALL 保留 provider 与原生 model 标识，区分可选项与隐藏、无效或缺乏账号支持证据的条目。目录读取失败 MUST 提供错误，不得用编造模型填补。
+全部 11 个活跃 CLI SHALL 从各自原生目录或已有配置发现候选模型，不得固定为 GLM-5.3-Flash。所有 CLI 的可选模型 MUST 经过当前账号和 Worker 路由的可用性筛选，不能直接呈现提供商大全。模型 SHALL 保留 provider 与原生 model 标识，区分可选项与隐藏、无效或缺乏账号支持证据的条目。目录读取失败 MUST 提供错误，不得用编造模型填补。
 
 #### Scenario: ZCode 多账号目录
 - **WHEN** 原生目录与当前账号支持范围相交后包含多个可见服务商及 GLM-5.3、GLM-5.3-Flash、GLM-5.2 等模型
@@ -15,14 +15,18 @@ ZCode、Grok、Pi、OMP、Hermes、OpenCode SHALL 从各自原生目录或已有
 
 #### Scenario: Pi 和 OMP 多接口
 - **WHEN** CLI 的已有配置包含多个有账号支持证据的服务商模型或有效自定义模型
-- **THEN** 列表保留通过筛选的原生模型，不仅显示 Host 引用的单个 GLM 模型；未登录提供商和无账号支持证据的通用条目不展示
+- **THEN** 列表保留通过筛选的原生模型，禁止补入 Host 账号模型；未登录提供商和无账号支持证据的通用条目不展示
 
 #### Scenario: 目录损坏
 - **WHEN** 原生目录或配置无法读取、解析或探测失败
-- **THEN** 返回可解释错误，状态灯能反映该错误，不能虚构成功目录
+- **THEN** 模型区域显示可解释错误，不能虚构成功目录；账号状态灯保持账号检查的真实结果
+
+#### Scenario: Antigravity 原生账号目录
+- **WHEN** Antigravity 自身 consumer 登录有效，原生 models 命令返回当前账号可选模型
+- **THEN** 使用本次原生目录并按实际报告的变体生成强度，不因为没有通用服务商模型接口而封锁原生目录；退出或自定义来源改变时重新检查
 
 ### Requirement: 原生选型执行与账号隔离
-选择的原生模型和服务商 SHALL 传递至对应 CLI 执行与观察模型核验；模型及推理参数 MUST 有原生能力证据。Pi、OMP SHALL 识别并使用已有原生账号配置；显式配置的旧 Host 智谱引用保持兼容，且不得注入无关 provider 或改写用户原生账号配置。
+选择的原生模型和服务商 SHALL 传递至对应 CLI 执行与观察模型核验；模型及推理参数 MUST 有原生能力证据。所有 CLI SHALL 只识别并使用自身原生或插件内自身账号；旧 Host 智谱引用只兼容解析且不再生效，禁止注入其他账号或改写原生账号。
 
 #### Scenario: 使用非 GLM 模型
 - **WHEN** 用户选择原生已配置的非 GLM 服务商模型
@@ -38,7 +42,7 @@ ZCode、Grok、Pi、OMP、Hermes、OpenCode SHALL 从各自原生目录或已有
 
 #### Scenario: 旧智谱引用
 - **WHEN** 项目沿用旧 Host 智谱引用和已有 GLM-5.3-Flash 偏好
-- **THEN** 保持该偏好可读及对应 CLI 路由，不自动扩大授权到其他 CLI 或 provider
+- **THEN** 保留旧偏好供查看，禁用 Host 来源路由并要求重新选择本 CLI 自身账号模型，不自动映射其他 provider
 
 #### Scenario: 推理选项
 - **WHEN** 原生模型未提供可映射的强度或只支持启用／关闭推理
@@ -60,7 +64,7 @@ ZCode、Grok、Pi、OMP、Hermes、OpenCode SHALL 从各自原生目录或已有
 - **THEN** 界面说明该证据范围，仍保留实际调用可能出现订阅或认证失败的结果
 
 ### Requirement: 按账号与执行路由筛选
-ZCode、Grok、Pi、OMP、Hermes、OpenCode SHALL 结合当前认证有效性、原生账号模型范围、原生候选配置及绑定当前账号的可核查路由证据筛选可选模型。未登录、已知失效、账号不支持、仅在公共大全或自定义配置中存在但没有账号支持证据、或已知不适用于 Worker 的模型 MUST 不进入设置、首次派遣和 Worker 改选选项。无法确认账号范围时 SHALL 隐藏未经确认的候选并说明证据边界，不通过批量计费任务猜测。
+全部 11 个活跃 CLI SHALL 结合当前认证有效性、原生账号模型范围、原生候选配置及绑定当前账号的可核查路由证据筛选可选模型。未登录、已知失效、账号不支持、仅在公共大全或自定义配置中存在但没有账号支持证据、或已知不适用于 Worker 的模型 MUST 不进入设置、首次派遣和 Worker 改选选项。无法确认账号范围时 SHALL 隐藏未经确认的候选并说明证据边界，不通过批量计费任务猜测。
 
 #### Scenario: OAuth 账号模型范围
 - **WHEN** 已登录 OAuth 账号只公布一部分可用模型
@@ -97,6 +101,10 @@ ZCode、Grok、Pi、OMP、Hermes、OpenCode SHALL 结合当前认证有效性、
 #### Scenario: 刷新失效与返回身份不符
 - **WHEN** 设置或 Worker 改选重新查询期间、查询失败，或返回的 CLI 与所选 CLI 不同
 - **THEN** 旧目录不可继续选择；原有存储偏好不变，派遣必须重新验证精确模型及强度
+
+#### Scenario: 前五 CLI 候选与匿名免费模型
+- **WHEN** 只有 Codex 旧缓存、Claude 固定别名、Kimi/MiMo 配置候选或匿名免费公共入口，没有本 CLI 当前账号支持证据
+- **THEN** 不展示也不允许调用；使用同 CLI 原生账号范围或支持的只读服务商查询确认，无法确认则空目录和短原因
 
 ### Requirement: 简化名称与模型去重
 设置、首次派遣、Worker 改选和任务卡片 SHALL 仅显示模型名称，去除 provider／account 前缀及括号附注，内部完整原生 ID SHALL 保留。相同原生模型 SHALL 在可见选项中去重，不能仅凭相似显示名称合并不同型号或将不同路由的能力合并。有效的既有选择 SHALL 保持精确路由，不可用时请求重新选择而非静默切换。
