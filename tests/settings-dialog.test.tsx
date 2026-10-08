@@ -1151,6 +1151,27 @@ it.each(CLI_IDS)(
     expect(t.configure).not.toHaveBeenCalled()
   },
 )
+it('opens the native Kimi account manager with its explicit action label without logging out', async () => {
+  const accountStatus = vi.fn(async (_parent, cli: CliId) => status(cli, {
+    state: 'authenticated',
+    authMethod: 'oauth',
+    verification: 'local',
+    actions: [
+      { id: 'login', label: '管理登录', description: '模拟：由用户在原生终端管理登录' },
+      { id: 'logout', label: '退出登录', description: '模拟退出' },
+      { id: 'manage', label: '账号终端', description: '模拟账号终端' },
+    ],
+  }))
+  const t = await setup({ accountStatus })
+  await t.click('Kimi 设置')
+  expect(t.button('管理登录').children).toContain('管理登录')
+  expect(visibleText(accountSummary(t.r))).toContain('已登录')
+  await t.click('管理登录')
+  expect(terminal.started).toHaveBeenCalledWith('kimi', 'login')
+  expect(terminal.started).not.toHaveBeenCalledWith('kimi', 'logout')
+  expect(t.r.root.findByProps({ role: 'dialog', 'aria-label': 'Kimi · 管理登录' })).toBeTruthy()
+  expect(t.configure).not.toHaveBeenCalled()
+})
 it.each([
   { state: 'authenticated', authMethod: 'api', verification: 'local', label: 'API 登录' },
   { state: 'configured', authMethod: 'api', verification: 'cli', label: '已配置' },

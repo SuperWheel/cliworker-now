@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { StringDecoder } from 'node:string_decoder'
 import { EFFORTS, type Effort, type ModelChoice, type TaskMode } from '../shared/types.ts'
 import type { EventInput, ProtocolResult } from './protocol.ts'
+import { assertGrokNativeEnvironment, discoverGrokAccountModels } from './grok-models.ts'
 
 export interface GrokInput {
   executable: string
@@ -71,6 +72,9 @@ async function state(stateDirectory: string, project?: string) {
     root,
     env: {
       GROK_HOME: home,
+      GROK_AUTH_PATH: join(home, 'auth.json'),
+      XAI_API_KEY: '',
+      GROK_CODE_XAI_API_KEY: '',
       TMPDIR: tmp,
       GROK_MEMORY: '0',
       GROK_SUBAGENTS: '0',
@@ -86,6 +90,7 @@ async function state(stateDirectory: string, project?: string) {
 export async function prepareGrok(
   input: GrokInput,
 ): Promise<{ argv: string[]; env: Record<string, string> }> {
+  assertGrokNativeEnvironment()
   if (!input.preference.model.trim()) throw new Error('Grok model must be selected')
   if (!EFFORTS.includes(input.preference.effort)) throw new Error('Invalid Grok effort')
   if (!['plan', 'accept-edits'].includes(input.mode)) throw new Error('Invalid Grok mode')
@@ -116,12 +121,19 @@ export async function prepareGrok(
 }
 export async function discoverGrok(
   executable: string,
-  capture: (argv: string[], env?: Record<string, string>) => Promise<string>,
+  capture: (argv: string[], env?: Record<string, string>, phase?: 'native-candidates') => Promise<string>,
   stateDirectory: string,
+  options: { signal?: AbortSignal; home?: string; fetch?: typeof fetch } = {},
 ): Promise<ModelChoice[]> {
+  options.signal?.throwIfAborted()
+  assertGrokNativeEnvironment()
   const prepared = await state(stateDirectory)
   const raw: unknown = JSON.parse(
-    await capture([process.execPath, bridgePath(), executable, prepared.root], prepared.env),
+    await capture(
+      [process.execPath, bridgePath(), executable, prepared.root],
+      prepared.env,
+      'native-candidates',
+    ),
   )
   if (!Array.isArray(raw)) throw new Error('Invalid Grok catalog')
   const models = raw.map((x): ModelChoice => {
@@ -142,10 +154,13 @@ export async function discoverGrok(
   })
   if (!models.length || new Set(models.map((x) => x.id)).size !== models.length)
     throw new Error('Grok 模型目录为空或重复')
-  // ACP initialize is deliberately anonymous and returns the public directory.
-  // Installed Grok 1.0.0 has no verified read-only account/Worker entitlement
-  // response here. A local login or native candidate never grants a subscription.
-  throw new Error('Grok 原生目录只提供公共候选，当前账号的 Worker 模型权限尚无法确认；未验证的模型已隐藏')
+  options.signal?.throwIfAborted()
+  const version = await capture([executable, '--version'], prepared.env, 'native-candidates')
+  options.signal?.throwIfAborted()
+  return discoverGrokAccountModels(models, {
+    ...options,
+    nativeDynamicSchema: version.trim() === 'grok 1.0.0 (3cd0d0cbcebe)',
+  })
 }
 /** Native streaming-json parser from installed 1.0.0 docs; no fabricated execution evidence. */
 export class GrokProtocol {

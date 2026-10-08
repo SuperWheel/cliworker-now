@@ -27,7 +27,9 @@ import {
 } from './pi-omp-adapter.ts'
 import { prepareOpenCode, discoverOpenCode, openCodeAuthDirectory } from './opencode-adapter.ts'
 import { prepareHermes, discoverHermes, hermesHomeDirectory } from './hermes-adapter.ts'
+import { hermesCommandInstallationHome } from './hermes-installation.ts'
 import { hermesSandbox } from './hermes-sandbox.ts'
+import { effectiveHermesHome } from './hermes-account-context.ts'
 import { prepareGrok, discoverGrok } from './grok-adapter.ts'
 
 export const EXTENDED_CLIS = ['zcode', 'grok', 'omp', 'pi', 'hermes', 'opencode'] as const
@@ -181,7 +183,7 @@ export async function extendedLaunch(
               authDirectory: openCodeAuthDirectory(config.stateDirectory),
             })
           : cli === 'hermes'
-            ? await prepareHermes({ ...input, hermesHome: config.hermesHome })
+            ? await prepareHermes({ ...input, hermesHome: effectiveHermesHome(config) })
             : cli === 'grok'
               ? await prepareGrok(input)
               : undefined
@@ -194,28 +196,34 @@ export async function extendedLaunch(
     ELECTRON_RUN_AS_NODE: '1',
   }
   try {
+    const argv =
+      cli === 'hermes'
+        ? hermesSandbox(
+            privateArgv(launch.argv),
+            state,
+            project,
+            mode,
+            effectiveHermesHome(config),
+            hermesCommandInstallationHome(launch.argv) ?? hermesHomeDirectory(config.hermesHome),
+          )
+        : confineExtended(
+            privateArgv(launch.argv),
+            state,
+            project,
+            mode,
+            temporary,
+            cli === 'opencode' ? openCodeAuthDirectory(config.stateDirectory) : undefined,
+            cli === 'pi' || cli === 'omp',
+            'leaseDirectory' in launch && typeof launch.leaseDirectory === 'string'
+              ? launch.leaseDirectory
+              : undefined,
+          )
+    if (cli === 'grok') {
+      const grokHome = (launch.env as Record<string, string> | undefined)?.GROK_HOME
+      argv[2] += `\n(deny file-write* (subpath ${JSON.stringify(join(homedir(), '.grok'))})${grokHome ? ` (literal ${JSON.stringify(join(grokHome, 'auth.json'))})` : ''})\n`
+    }
     return {
-      argv:
-        cli === 'hermes'
-          ? hermesSandbox(
-              privateArgv(launch.argv),
-              state,
-              project,
-              mode,
-              hermesHomeDirectory(config.hermesHome),
-            )
-          : confineExtended(
-              privateArgv(launch.argv),
-              state,
-              project,
-              mode,
-              temporary,
-              cli === 'opencode' ? openCodeAuthDirectory(config.stateDirectory) : undefined,
-              cli === 'pi' || cli === 'omp',
-              'leaseDirectory' in launch && typeof launch.leaseDirectory === 'string'
-                ? launch.leaseDirectory
-                : undefined,
-            ),
+      argv,
       env,
       ...('activate' in launch && launch.activate ? { activate: launch.activate } : {}),
       cleanup: async () => {
@@ -258,7 +266,14 @@ export async function extendedCatalog(
     try {
       const confined =
         cli === 'hermes'
-          ? hermesSandbox(privateArgv(argv), state, state, 'plan', hermesHomeDirectory(config.hermesHome))
+          ? hermesSandbox(
+              privateArgv(argv),
+              state,
+              state,
+              'plan',
+              effectiveHermesHome({ ...config, stateDirectory: config.stateDirectory ?? stateDirectory }),
+              hermesCommandInstallationHome(argv) ?? hermesHomeDirectory(config.hermesHome),
+            )
           : confineExtended(
               privateArgv(argv),
               state,
@@ -306,9 +321,15 @@ export async function extendedCatalog(
               { signal },
             )
           : cli === 'hermes'
-            ? await discoverHermes(executable, run, state, config.hermesHome, { signal })
+            ? await discoverHermes(
+                executable,
+                run,
+                state,
+                effectiveHermesHome({ ...config, stateDirectory: config.stateDirectory ?? stateDirectory }),
+                { signal },
+              )
             : cli === 'grok'
-              ? await discoverGrok(executable, run, state)
+              ? await discoverGrok(executable, run, state, { signal })
               : undefined
   if (!models) throw new Error('未知 CLI')
   signal?.throwIfAborted()

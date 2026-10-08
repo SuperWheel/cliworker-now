@@ -32,6 +32,7 @@ import { readPiOmpAccount, readOpenCodeAccount, prepareOpenCodeAccount } from '.
 import { prepareHermesAccount, readHermesAccount } from './hermes-accounts.ts'
 import { verifyHermesExecutable, HermesExecutableError } from './hermes-installation.ts'
 import { preparePiOmpAccountTerminal } from './pi-omp-accounts.ts'
+import { readKimiAccount, KIMI_MANAGE_LOGIN, prepareKimiAccountDirectory } from './kimi-accounts.ts'
 import { readMimoAccount } from './mimo-configuration.ts'
 import { prepareMimoAccountTerminal } from './first-party-account-context.ts'
 
@@ -72,7 +73,7 @@ const actionsFor = (cli: CliId, config: RuntimeConfig): AccountStatus['actions']
     id,
     label:
       id === 'login'
-        ? cli === 'opencode'
+        ? cli === 'opencode' || cli === 'kimi'
           ? '登录设置'
           : '登录 / 切换账号'
         : id === 'logout'
@@ -130,20 +131,6 @@ function summarize(cli: CliId, raw: string, exitCode: number | null): AccountIde
     } catch {
       return { state: 'unavailable', summary: '账号状态响应无法解析，请在账号终端检查' }
     }
-  } else if (cli === 'kimi') {
-    // The non-JSON command prints only IDs/type/model counts/source. Configuration
-    // existence does not validate a cached token; never label this authenticated.
-    if (exitCode === 0 && /^\S+\s+type=\S+\s+models=\d+\s+source=oauth\s*$/m.test(text))
-      return {
-        state: 'configured',
-        summary: '已配置 OAuth 提供商',
-        authMethod: 'oauth',
-        verification: 'cli',
-      }
-    if (exitCode === 0 && /^\S+\s+type=\S+\s+models=\d+\s+source=\S+\s*$/m.test(text))
-      return { state: 'configured', summary: '已配置提供商' }
-    if (exitCode === 0 && /^No providers configured\.\s*$/m.test(text))
-      return { state: 'unconfigured', summary: '尚未配置提供商' }
   } else if (cli === 'mimo') {
     if (exitCode === 0 && /Provider: MiMo\b/.test(text)) {
       // Installed whoami source emits User ID only in the type === 'api'
@@ -355,7 +342,7 @@ export class AccountManager {
           : cli === 'claude'
             ? ['auth', 'status', '--json']
             : cli === 'kimi'
-              ? ['provider', 'list']
+              ? ['provider', 'list', '--json']
               : ['auth', 'whoami']
       const child = this.backend.spawn({
         argv: [executable, ...argv],
@@ -382,12 +369,21 @@ export class AccountManager {
       const readers = [read(child.stdout), read(child.stderr)]
       try {
         const [outcome] = await abortable(Promise.all([child.done, ...readers]), control)
-        const status = summarize(cli, raw, outcome.exitCode)
+        const status =
+          cli === 'kimi' && outcome.exitCode === 0
+            ? await readKimiAccount(raw, control)
+            : summarize(cli, raw, outcome.exitCode)
         return {
           cli,
           installed,
           ...status,
-          actions: this.backend.spawnTerminal ? actionsFor(cli, this.config) : [],
+          actions: this.backend.spawnTerminal
+            ? actionsFor(cli, this.config).map((item) =>
+                cli === 'kimi' && item.id === 'login' && status.state === 'authenticated'
+                  ? { ...item, label: '管理登录', description: '在原生终端管理 Kimi 登录' }
+                  : item,
+              )
+            : [],
         }
       } finally {
         try {
@@ -518,7 +514,24 @@ export class AccountManager {
         env: firstPartyEnvironment(cli),
         cwd,
       }
-      if (cli === 'mimo') {
+      if (cli === 'kimi') {
+        if (action === 'login') {
+          const current = await this.readStatus(cli, cwd, startup)
+          startup.throwIfAborted()
+          if (current.state === 'authenticated' && current.authMethod === 'oauth') {
+            launch.argv = [executable]
+            instruction = KIMI_MANAGE_LOGIN
+          }
+        }
+        const prepared = await prepareKimiAccountDirectory(
+          this.config.stateDirectory ??
+            join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'cliworker-now'),
+          startup,
+        )
+        launch.cwd = prepared.cwd
+        release = prepared.cleanup
+        if (action !== 'login') instruction = `若出现 Trust 提示，请自行确认此空账号目录；${instruction}`
+      } else if (cli === 'mimo') {
         const prepared = await prepareMimoAccountTerminal(
           executable,
           action,

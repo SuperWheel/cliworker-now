@@ -170,22 +170,29 @@ export async function preparePiOmpAccountTerminal(
           ? [input.executable, 'setup']
           : [process.execPath, fileURLToPath(new URL('./pi-login.mjs', import.meta.url)), input.executable]
     }
+    const argv = confineExtended(
+      [process.execPath, fileURLToPath(new URL('./private-launch.mjs', import.meta.url)), ...nativeArgv],
+      runtime,
+      runtime,
+      'plan',
+      undefined,
+      agent,
+      true,
+    )
+    if (cli === 'omp') {
+      // OMP's native logger uses configRoot/logs, beside its agent directory.
+      // Allow only that canonical private subtree, never the account root.
+      const logs = await privateDirectory(join(account, 'logs'))
+      argv[2] += `\n(allow file-write* (subpath ${JSON.stringify(logs)}))\n`
+    }
     return {
-      argv: confineExtended(
-        [process.execPath, fileURLToPath(new URL('./private-launch.mjs', import.meta.url)), ...nativeArgv],
-        runtime,
-        runtime,
-        'plan',
-        undefined,
-        agent,
-        true,
-      ),
+      argv,
       // Avoid loading project files while operating account controls.
       cwd: runtime,
       env,
       instruction:
         input.action === 'login'
-          ? '在原生登录界面选择提供商并完成授权；关闭终端会保留已登录的账号。'
+          ? '选择提供商并完成登录。'
           : '输入 /login 或 /logout 管理终端账号；现有任务保留已选择的模型与凭据。',
       cleanup,
     }

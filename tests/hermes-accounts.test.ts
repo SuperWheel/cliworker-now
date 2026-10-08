@@ -19,6 +19,7 @@ import {
   projectHermesIdentity,
   readHermesAccount,
 } from '../src/host/hermes-accounts.ts'
+import { effectiveHermesHome } from '../src/host/hermes-account-context.ts'
 import { verifyHermesExecutable } from '../src/host/hermes-installation.ts'
 
 const roots: string[] = []
@@ -180,21 +181,64 @@ describe('Hermes native accounts (explicit synthetic fixtures)', () => {
     expect(login.argv[2]).not.toContain(project)
     expect(login.cwd).not.toBe(manage.cwd)
     expect(login.env).toMatchObject({
-      HERMES_HOME: config.hermesHome,
+      HERMES_HOME: join(config.stateDirectory, 'accounts/hermes'),
       HERMES_SAFE_MODE: '1',
       HERMES_YOLO_MODE: '0',
     })
     expect(login.env).not.toHaveProperty('HOME')
     expect(Object.keys(login.env).some((key) => /API_KEY|TOKEN/.test(key))).toBe(false)
-    for (const path of [login.cwd, login.env.TMPDIR!, config.hermesHome])
+    for (const path of [login.cwd, login.env.TMPDIR!, login.env.HERMES_HOME!])
       expect(statSync(path).mode & 0o777).toBe(0o700)
-    save(config.hermesHome, 'auth.json', oauth())
+    save(login.env.HERMES_HOME!, 'auth.json', oauth())
     await login.cleanup()
     await login.cleanup()
     await manage.cleanup()
     expect(existsSync(login.cwd)).toBe(false)
     expect(existsSync(manage.cwd)).toBe(false)
-    expect(JSON.parse(readFileSync(join(config.hermesHome, 'auth.json'), 'utf8'))).toEqual(oauth())
+    expect(JSON.parse(readFileSync(join(login.env.HERMES_HOME!, 'auth.json'), 'utf8'))).toEqual(oauth())
+  })
+
+  it('opens an empty own menu despite global external imports and never falls back after logout', async () => {
+    const { config, project } = fixture()
+    save(config.hermesHome, 'config.yaml', 'auth:\n  adopt_external_logins: true\n')
+    save(config.hermesHome, 'auth.json', {
+      credential_pool: {
+        copilot: [{ source: 'gh_cli', auth_type: 'api_key', access_token: 'synthetic-global' }],
+      },
+    })
+    const before = readFileSync(join(config.hermesHome, 'auth.json'), 'utf8')
+    expect(effectiveHermesHome(config)).toBe(config.hermesHome)
+    const login = await prepareHermesAccount('login', '/fixture/hermes', project, config, signal())
+    try {
+      const own = login.env.HERMES_HOME!
+      expect(own).not.toBe(config.hermesHome)
+      expect(effectiveHermesHome(config)).toBe(own)
+      expect(existsSync(join(own, 'auth.json'))).toBe(false)
+      expect((await readHermesAccount(config, signal())).state).toBe('unconfigured')
+      save(own, 'auth.json', oauth())
+      expect((await readHermesAccount(config, signal())).authMethod).toBe('oauth')
+      rmSync(join(own, 'auth.json'))
+      expect((await readHermesAccount(config, signal())).state).toBe('unconfigured')
+      rmSync(own, { recursive: true })
+      expect(effectiveHermesHome(config)).toBe(own)
+      expect((await readHermesAccount(config, signal())).state).toBe('unconfigured')
+      expect(readFileSync(join(config.hermesHome, 'auth.json'), 'utf8')).toBe(before)
+    } finally {
+      await login.cleanup()
+    }
+  })
+
+  it('fails closed for tampered selection markers instead of falling back to global accounts', async () => {
+    const { config, project } = fixture()
+    const login = await prepareHermesAccount('login', '/fixture/hermes', project, config, signal())
+    await login.cleanup()
+    const marker = join(config.stateDirectory, 'accounts/hermes-source.json')
+    expect(statSync(marker).mode & 0o777).toBe(0o600)
+    writeFileSync(marker, '{"source":"global"}')
+    expect((await readHermesAccount(config, signal())).state).toBe('unavailable')
+    await expect(
+      prepareHermesAccount('manage', '/fixture/hermes', project, config, signal()),
+    ).rejects.toThrow('来源记录')
   })
 
   it('rejects unsupported logout and cancellation before creating state', async () => {

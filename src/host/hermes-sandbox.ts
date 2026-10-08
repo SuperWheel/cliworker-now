@@ -42,6 +42,7 @@ export function hermesSandbox(
   project: string,
   mode: TaskMode,
   home: string,
+  installationHome?: string,
 ): string[] {
   if (process.platform !== 'darwin') throw new Error('Hermes 当前仅验收 macOS 沙箱；本平台暂不能运行')
   if (!argv.length || argv.some((value) => value.includes('\0'))) throw new Error('Invalid Hermes command')
@@ -67,6 +68,31 @@ export function hermesSandbox(
     'state.db.auto-maintenance.lock',
   ].map((name) => checkedPath(nativeHome, join(nativeHome, name), 'file'))
 
+  const runtime = hermesRuntimeWrites(nativeHome)
+  if (installationHome && installationHome !== nativeHome) {
+    const installed = hermesRuntimeWrites(installationHome)
+    runtime.directories.push(...installed.directories)
+    runtime.files.push(...installed.files)
+  }
+  directories.push(...runtime.directories)
+  files.push(...runtime.files)
+  const literal = (path: string) => `(literal ${JSON.stringify(path)})`
+  const subpath = (path: string) => `(subpath ${JSON.stringify(path)})`
+  const writable = [privateRoot, ...directories, ...(mode === 'accept-edits' ? [workspace] : [])]
+  const policy = `(version 1)\n(allow default)\n(deny file-write*)\n(allow file-write* ${writable.map(subpath).join(' ')} ${[...files, '/dev/null', '/dev/tty'].map(literal).join(' ')})\n`
+  return [
+    '/usr/bin/sandbox-exec',
+    '-p',
+    policy + hermesAccountIsolationPolicy(nativeHome, workspace, installationHome ? [installationHome] : []),
+    ...argv,
+  ]
+}
+
+/** Only existing official install lock/lease paths; never native account/source writes. */
+export function hermesRuntimeWrites(home: string): { directories: string[]; files: string[] } {
+  const nativeHome = validateHermesHomeDirectory(home)
+  const directories: string[] = [],
+    files: string[] = []
   const installs = checkedPath(nativeHome, join(nativeHome, 'installs'), 'directory')
   let entries: string[] = []
   try {
@@ -116,14 +142,11 @@ export function hermesSandbox(
       if (!missing(error)) throw error
     }
   }
-  const literal = (path: string) => `(literal ${JSON.stringify(path)})`
-  const subpath = (path: string) => `(subpath ${JSON.stringify(path)})`
-  const writable = [privateRoot, ...directories, ...(mode === 'accept-edits' ? [workspace] : [])]
-  const policy = `(version 1)\n(allow default)\n(deny file-write*)\n(allow file-write* ${writable.map(subpath).join(' ')} ${[...files, '/dev/null', '/dev/tty'].map(literal).join(' ')})\n`
-  return [
-    '/usr/bin/sandbox-exec',
-    '-p',
-    policy + hermesAccountIsolationPolicy(nativeHome, workspace),
-    ...argv,
-  ]
+  return { directories, files }
+}
+
+export function hermesRuntimePolicy(home: string): string {
+  const { directories, files } = hermesRuntimeWrites(home)
+  if (!directories.length && !files.length) return ''
+  return `\n(allow file-write* ${directories.map((path) => `(subpath ${JSON.stringify(path)})`).join(' ')} ${files.map((path) => `(literal ${JSON.stringify(path)})`).join(' ')})\n`
 }

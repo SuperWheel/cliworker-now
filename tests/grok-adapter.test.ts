@@ -75,14 +75,16 @@ describe('Grok adapter (synthetic fixtures; real execution not subscription-vali
       discoverGrok(
         '/bin/grok',
         async (argv, env) => {
+          if (argv.includes('--version')) return 'grok 1.0.0 (3cd0d0cbcebe)'
           expect(argv[1]).toMatch(/grok-catalog\.mjs$/)
           expect(argv).not.toContain('--single')
           expect(env?.GROK_TELEMETRY_ENABLED).toBe('0')
           return JSON.stringify(models)
         },
         directory(),
+        { home: directory(), fetch: vi.fn() },
       ),
-    ).rejects.toThrow('公共候选')
+    ).rejects.toThrow('请先登录')
     await expect(
       discoverGrok(
         '/bin/grok',

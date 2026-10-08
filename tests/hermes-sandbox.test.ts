@@ -36,7 +36,10 @@ function fixture() {
   ])
     mkdirSync(path, { recursive: true })
   for (const name of ['config.yaml', '.env', 'auth.json', 'hermes-agent/source.py'])
-    writeFileSync(join(home, name), 'synthetic protected fixture')
+    writeFileSync(
+      join(home, name),
+      name === '.env' ? '# synthetic protected fixture' : 'synthetic protected fixture',
+    )
   writeFileSync(join(generation, '.lease-managed'), '')
   writeFileSync(join(pmGeneration, '.lease-managed'), '')
   writeFileSync(
@@ -130,7 +133,9 @@ describe.skipIf(process.platform !== 'darwin')(
       expect(result.protected.every((item: unknown) => item === 'EPERM' || item === 'EACCES')).toBe(true)
       expect(result.project).toBe(mode === 'accept-edits' ? true : 'EPERM')
       for (const name of ['config.yaml', '.env', 'auth.json', 'hermes-agent/source.py'])
-        expect(readFileSync(join(f.home, name), 'utf8')).toBe('synthetic protected fixture')
+        expect(readFileSync(join(f.home, name), 'utf8')).toBe(
+          name === '.env' ? '# synthetic protected fixture' : 'synthetic protected fixture',
+        )
     })
     it('a symlink made after policy creation cannot turn a log path into credential writes', () => {
       const f = fixture()

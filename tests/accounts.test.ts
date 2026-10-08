@@ -1,6 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PassThrough, Readable, Writable } from 'node:stream'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -73,6 +82,7 @@ function fixture(overrides: Partial<RuntimeConfig> = {}) {
   const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'cwn-account-test-')))
   roots.push(cwd)
   vi.stubEnv('MIMOCODE_HOME', join(cwd, 'mimo'))
+  vi.stubEnv('KIMI_CODE_HOME', join(cwd, 'kimi'))
   const output = new PassThrough()
   const result = deferred<SubprocessOutcome>()
   const cleanup = deferred<void>()
@@ -236,11 +246,16 @@ describe('account status safety (synthetic CLI output)', () => {
 
   it('distinguishes configured, unknown, unconfigured, and query failures without guessing credentials', async () => {
     const f = fixture()
-    f.status('managed:kimi-code  type=kimi  models=4  source=oauth\n')
-    expect(await f.manager.status('kimi', f.cwd, f.signal)).toMatchObject({ state: 'configured' })
+    f.status(
+      JSON.stringify({
+        providers: {
+          'managed:kimi-code': { type: 'kimi', oauth: { storage: 'file', key: 'oauth/kimi-code' } },
+        },
+      }),
+    )
+    expect(await f.manager.status('kimi', f.cwd, f.signal)).toMatchObject({ state: 'unconfigured' })
     const kimiCall = vi.mocked(f.backend.spawn).mock.calls.at(-1)![0]
-    expect(kimiCall.argv.slice(1)).toEqual(['provider', 'list'])
-    expect(kimiCall.argv).not.toContain('--json')
+    expect(kimiCall.argv.slice(1)).toEqual(['provider', 'list', '--json'])
     mkdirSync(join(f.cwd, 'mimo/data'), { recursive: true })
     writeFileSync(
       join(f.cwd, 'mimo/data/auth.json'),
@@ -497,7 +512,7 @@ describe('account status safety (synthetic CLI output)', () => {
 
   it('distinguishes fresh absence, malformed responses and explicit authentication rejection', async () => {
     const f = fixture()
-    f.status('No providers configured.\n')
+    f.status(JSON.stringify({ providers: {} }))
     expect(await f.manager.status('kimi', f.cwd, f.signal)).toMatchObject({ state: 'unconfigured' })
     f.status('Not logged in. Run `mimo auth login` to log in.')
     expect(await f.manager.status('mimo', f.cwd, f.signal)).toMatchObject({ state: 'unconfigured' })
@@ -540,6 +555,43 @@ describe('account status safety (synthetic CLI output)', () => {
 })
 
 describe('user-operated account terminals (synthetic PTY)', () => {
+  it('opens an actionable Kimi management TUI for the current login without logging out or forcing auth', async () => {
+    const f = fixture({ kimiExecutable: '/synthetic/kimi' })
+    mkdirSync(join(f.cwd, 'kimi/credentials'), { recursive: true })
+    const tokenPath = join(f.cwd, 'kimi/credentials/kimi-code.json')
+    const token = JSON.stringify({
+      access_token: 'synthetic-current',
+      refresh_token: 'synthetic-refresh',
+      expires_at: 0,
+    })
+    writeFileSync(tokenPath, token, { mode: 0o600 })
+    f.status(
+      JSON.stringify({
+        providers: {
+          'managed:kimi-code': { type: 'kimi', oauth: { storage: 'file', key: 'oauth/kimi-code' } },
+        },
+      }),
+    )
+    const status = await f.manager.status('kimi', f.cwd, f.signal)
+    expect(status.state).toBe('authenticated')
+    expect(status.actions.find((item) => item.id === 'login')?.label).toBe('管理登录')
+    const opened = await f.manager.start('p', 'kimi', 'login', f.cwd, f.signal)
+    const spec = vi.mocked(f.backend.spawnTerminal!).mock.calls[0]![0]
+    expect(spec.argv).toEqual(['/synthetic/kimi'])
+    expect(spec.cwd).not.toBe(f.cwd)
+    expect(existsSync(join(spec.cwd, '.git'))).toBe(true)
+    expect(JSON.parse(readFileSync(join(spec.cwd, '.mcp.json'), 'utf8'))).toEqual({ mcpServers: {} })
+    expect(opened.instruction).toContain('/logout')
+    expect(opened.instruction).toContain('/login')
+    expect(opened.instruction).toContain('Trust')
+    expect(f.terminal.write).not.toHaveBeenCalled()
+    expect(JSON.stringify(spec.argv)).not.toMatch(/logout|force|synthetic-current/)
+    await expect((await import('node:fs/promises')).readFile(tokenPath, 'utf8')).resolves.toBe(token)
+    await f.manager.stop('p', opened.id)
+    expect(existsSync(spec.cwd)).toBe(false)
+    await expect((await import('node:fs/promises')).readFile(tokenPath, 'utf8')).resolves.toBe(token)
+  })
+
   it.each([
     ['codex', 'login', ['login']],
     ['claude', 'logout', ['auth', 'logout']],
@@ -553,7 +605,7 @@ describe('user-operated account terminals (synthetic PTY)', () => {
     const opened = await f.manager.start('parent', cli, action, f.cwd, f.signal)
     const spec = vi.mocked(f.backend.spawnTerminal!).mock.calls[0][0]
     expect(spec.argv.slice(1)).toEqual(expected)
-    if (cli === 'mimo') expect(spec.cwd).not.toBe(f.cwd)
+    if (cli === 'mimo' || cli === 'kimi') expect(spec.cwd).not.toBe(f.cwd)
     else expect(spec.cwd).toBe(f.cwd)
     expect(spec.terminalType).toBe('xterm-256color')
     expect(f.terminal.write).not.toHaveBeenCalled()

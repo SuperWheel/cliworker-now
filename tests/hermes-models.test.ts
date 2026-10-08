@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, symlinkSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { hermesAccountModels } from '../src/host/hermes-models.ts'
@@ -230,6 +230,125 @@ it('requires the native external-login opt-out and rejects imported credential p
       },
     }),
   )
+  expect((await hermesAccountModels(root, 'openrouter', { fetch })).state).toBe('unknown')
+  expect(fetch).not.toHaveBeenCalled()
+})
+
+it('accepts native OpenRouter browser login and rejects cross-provider or fabricated manual markers', async () => {
+  const root = home(),
+    fetch = vi.fn(async () => response({ data: [{ id: 'synthetic/model' }] }))
+  const pool = (source: string) =>
+    writeFileSync(
+      join(root, 'auth.json'),
+      JSON.stringify({
+        credential_pool: {
+          openrouter: [{ source, auth_type: 'api_key', access_token: 'synthetic-browser-key' }],
+        },
+      }),
+    )
+  pool('manual:openrouter_pkce')
+  expect((await hermesAccountModels(root, 'openrouter', { fetch })).models.map((m) => m.id)).toEqual([
+    'synthetic/model',
+  ])
+  expect(fetch).toHaveBeenCalledOnce()
+  for (const source of [
+    'manual:device_code',
+    'manual:qwen_cli',
+    'manual:claude_code',
+    'manual:gh_cli',
+    'manual:unknown',
+    'gh_cli',
+    'claude_code',
+  ]) {
+    fetch.mockClear()
+    pool(source)
+    expect((await hermesAccountModels(root, 'openrouter', { fetch })).state).toBe('unknown')
+    expect(fetch).not.toHaveBeenCalled()
+  }
+})
+
+it('allows an exact native singleton seed but never authorizes a second pooled Codex identity with it', async () => {
+  const root = home('openai-codex')
+  const access = `e30.${Buffer.from(JSON.stringify({ exp: Date.now() / 1000 + 3600 })).toString('base64url')}.synthetic`
+  const save = (token: string) =>
+    writeFileSync(
+      join(root, 'auth.json'),
+      JSON.stringify({
+        providers: { 'openai-codex': { auth_mode: 'chatgpt', tokens: { access_token: access } } },
+        credential_pool: {
+          'openai-codex': [{ source: 'device_code', auth_type: 'oauth', access_token: token }],
+        },
+      }),
+    )
+  const fetch = vi.fn(async () =>
+    response({ models: [{ slug: 'synthetic/model', display_name: 'Synthetic', supported_in_api: true }] }),
+  )
+  save(access)
+  await hermesAccountModels(root, 'openai-codex', { fetch })
+  expect(fetch).toHaveBeenCalled()
+  fetch.mockClear()
+  save('synthetic-other-account')
+  expect((await hermesAccountModels(root, 'openai-codex', { fetch })).state).toBe('unknown')
+  expect(fetch).not.toHaveBeenCalled()
+})
+
+it.each(['openrouter', 'openai-codex'])(
+  'respects native dead/exhausted/model cooldown evidence for %s',
+  async (provider) => {
+    const root = home(provider),
+      fetch = vi.fn()
+    const access = `e30.${Buffer.from(JSON.stringify({ exp: Date.now() / 1000 + 3600 })).toString('base64url')}.synthetic`
+    for (const negative of [
+      { last_status: 'dead' },
+      { last_status: 'exhausted', last_error_reset_at: Date.now() / 1000 + 60 },
+      { model_cooldowns: { 'synthetic/model': Date.now() / 1000 + 60 } },
+    ]) {
+      writeFileSync(
+        join(root, 'auth.json'),
+        JSON.stringify({
+          providers: { 'openai-codex': { auth_mode: 'chatgpt', tokens: { access_token: access } } },
+          credential_pool: {
+            [provider]: [
+              {
+                source: provider === 'openrouter' ? 'manual:openrouter_pkce' : 'device_code',
+                auth_type: provider === 'openrouter' ? 'api_key' : 'oauth',
+                access_token: access,
+                ...negative,
+              },
+            ],
+          },
+        }),
+      )
+      expect((await hermesAccountModels(root, provider, { fetch })).state).toBe('unknown')
+      expect(fetch).not.toHaveBeenCalled()
+    }
+  },
+)
+
+it('rejects extra native dotenv/managed layers before any account request', async () => {
+  for (const extra of ['.op.env', '.cliworker-managed']) {
+    const root = home(),
+      fetch = vi.fn()
+    writeFileSync(join(root, '.env'), 'OPENROUTER_API_KEY=synthetic-own')
+    if (extra === '.cliworker-managed') mkdirSync(join(root, extra))
+    else writeFileSync(join(root, extra), 'OPENROUTER_API_KEY=synthetic-other')
+    expect((await hermesAccountModels(root, 'openrouter', { fetch })).state).toBe('unknown')
+    expect(fetch).not.toHaveBeenCalled()
+  }
+})
+
+it.each([
+  "'HERMES_HOME'=/synthetic",
+  "'CODEX_HOME'=/synthetic",
+  'HERMES_HOME=',
+  'HERMES_MANAGED_DIR=',
+  'HOME=',
+  'HERMES_PROFILE=',
+  'OPENROUTER_API_KEY=prefix${HOST_SECRET}',
+])('rejects dotenv parser/source-selector ambiguity: %s', async (assignment) => {
+  const root = home(),
+    fetch = vi.fn()
+  writeFileSync(join(root, '.env'), `OPENROUTER_API_KEY=synthetic-own\n${assignment}\n`)
   expect((await hermesAccountModels(root, 'openrouter', { fetch })).state).toBe('unknown')
   expect(fetch).not.toHaveBeenCalled()
 })

@@ -11,8 +11,8 @@ import { readFirstPartyModelSources } from './first-party-models.ts'
 import { readPiOmpAccountMaterial, safePiOmpAncestors } from './pi-omp-native.ts'
 import { readOpenCodeProfile, OPENCODE_OAUTH_UNSUPPORTED } from './opencode-native.ts'
 import { openCodeAuthDirectory } from './opencode-adapter.ts'
-import { assertHermesOwnAccounts } from './hermes-models.ts'
-import { hermesHomeDirectory } from './hermes-adapter.ts'
+import { effectiveHermesHome } from './hermes-account-context.ts'
+import { assertHermesOwnAccounts, hermesPoolEntryUnavailable } from './hermes-models.ts'
 import { readZCodeBindingMaterial, zcodeAuthDirectory } from './zcode-adapter.ts'
 import { ProcessCleanupUnconfirmedError, type ProcessBackend, type RuntimeConfig } from './process.ts'
 
@@ -433,12 +433,18 @@ async function material(
     }
   }
   if (cli === 'hermes') {
-    const root = hermesHomeDirectory(config.hermesHome)
+    const root = effectiveHermesHome(config)
     const source = await assertHermesOwnAccounts(root, signal)
     const provider = source.config.model?.provider
     const entries: BindingEntry[] = []
     if (provider === 'openai-codex') {
       const state = source.auth.providers?.[provider]
+      if (
+        (source.auth.credential_pool?.[provider] ?? []).some((row: any) =>
+          hermesPoolEntryUnavailable(row, source.config.model?.default),
+        )
+      )
+        throw new CliAccountBindingError(cli)
       const entry =
         state?.auth_mode === 'chatgpt'
           ? credentialEntry(provider, { ...state.tokens, type: 'oauth' })
@@ -449,7 +455,8 @@ async function material(
         if (/^OPENROUTER_API_KEY(?:_\d+)?$/.test(name) && literal(key))
           entries.push(credentialEntry(provider, { type: 'api', key })!)
       for (const row of source.auth.credential_pool?.[provider] ?? []) {
-        if (row.disabled || row.status === 'exhausted') throw new CliAccountBindingError(cli)
+        if (hermesPoolEntryUnavailable(row, source.config.model?.default))
+          throw new CliAccountBindingError(cli)
         const key = row.source?.startsWith('env:')
           ? source.env[row.source.slice(4)]
           : row.runtime_api_key || row.access_token

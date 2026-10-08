@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { hermesAccountIsolationPolicy } from '../src/host/hermes-account-isolation.ts'
 import { hermesSandbox } from '../src/host/hermes-sandbox.ts'
+import { prepareHermesAccountHome } from '../src/host/hermes-account-context.ts'
 import { prepareHermesAccount } from '../src/host/hermes-accounts.ts'
 import { DEFAULT_CONFIG } from '../src/host/process.ts'
 
@@ -33,6 +34,10 @@ function fixture() {
   const foreign = [
     join(userHome, '.codex/auth.json'),
     join(userHome, '.claude/.credentials.json'),
+    join(userHome, '.config/gh/hosts.yml'),
+    join(userHome, '.qwen/oauth_creds.json'),
+    join(root, 'checkout/.env'),
+    join(root, 'checkout/.op.env'),
     join(root, 'configured-codex/auth.json'),
     join(root, 'configured-claude/.credentials.json'),
     join(userHome, 'dotenv-codex/auth.json'),
@@ -55,7 +60,7 @@ function fixture() {
   symlinkSync(outside, foreign[0]!)
   foreign.push(outside)
   // Keep the first configured path in the foreign fixture list selected as well.
-  foreign.splice(2, 1)
+  foreign.splice(6, 1)
   writeFileSync(join(home, 'config.yaml'), 'auth:\n  adopt_external_logins: false\n')
   writeFileSync(join(home, '.env'), 'CODEX_HOME=~/dotenv-codex\nCLAUDE_CONFIG_DIR=~/dotenv-claude\n')
   const own = [join(home, 'auth.json'), join(home, '.anthropic_oauth.json'), join(home, '.env')]
@@ -114,14 +119,22 @@ describe.skipIf(process.platform !== 'darwin')('Hermes foreign-account sandbox (
         "fs.writeFileSync(data.session,'synthetic-session');fs.writeFileSync(data.own[0],'synthetic-refreshed-own');",
       )
       writeFileSync(executable, `#!${process.execPath}\n${script}`, { mode: 0o700 })
+      const accountConfig = { ...DEFAULT_CONFIG, hermesHome: f.home, stateDirectory: f.state }
+      const ownHome = prepareHermesAccountHome(accountConfig)
+      writeFileSync(join(ownHome, '.env'), readFileSync(join(f.home, '.env')))
       const prepared = await prepareHermesAccount(
         action,
         executable,
         f.project,
-        { ...DEFAULT_CONFIG, hermesHome: f.home, stateDirectory: f.state },
+        accountConfig,
         new AbortController().signal,
       )
       try {
+        const own = prepared.env.HERMES_HOME!
+        mkdirSync(join(own, 'sessions'), { recursive: true })
+        for (const name of ['auth.json', '.anthropic_oauth.json', '.env'])
+          writeFileSync(join(own, name), secret)
+        writeFileSync(executable, `#!${process.execPath}\n${script.split(f.home).join(own)}`, { mode: 0o700 })
         const result = JSON.parse(
           execFileSync(prepared.argv[0]!, prepared.argv.slice(1), {
             encoding: 'utf8',
@@ -132,7 +145,8 @@ describe.skipIf(process.platform !== 'darwin')('Hermes foreign-account sandbox (
         expect(result.own).toEqual([true, true, true])
         expect(result.foreign.every((value: unknown) => value === 'EPERM' || value === 'EACCES')).toBe(true)
         expect(['EPERM', 'EACCES']).toContain(result.security)
-        expect(readFileSync(f.own[0]!, 'utf8')).toBe('synthetic-refreshed-own')
+        expect(readFileSync(join(own, 'auth.json'), 'utf8')).toBe('synthetic-refreshed-own')
+        expect(readFileSync(f.own[0]!, 'utf8')).toContain(secret)
         for (const file of f.foreign) expect(readFileSync(file, 'utf8')).toBe(secret)
       } finally {
         await prepared.cleanup()
@@ -143,7 +157,7 @@ describe.skipIf(process.platform !== 'darwin')('Hermes foreign-account sandbox (
   it('fails closed for dynamic paths or an override overlapping own Hermes accounts', () => {
     const f = fixture()
     writeFileSync(join(f.home, '.env'), 'CODEX_HOME=${UNPROVEN_DIRECTORY}\n')
-    expect(() => hermesAccountIsolationPolicy(f.home, f.state)).toThrow('无法安全隔离')
+    expect(() => hermesAccountIsolationPolicy(f.home, f.state)).toThrow('无法安全读取')
     writeFileSync(join(f.home, '.env'), `CODEX_HOME=${f.home}\n`)
     expect(() => hermesAccountIsolationPolicy(f.home, f.state)).toThrow('重叠')
   })

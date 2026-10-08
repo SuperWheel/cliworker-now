@@ -8,6 +8,13 @@ import { accountEmail, localTokenExpired, type AccountIdentity } from './account
 import { confineExtended, privateDirectory } from './extended-adapters.ts'
 import { assertHermesOwnAccounts } from './hermes-models.ts'
 import { hermesHomeDirectory } from './hermes-adapter.ts'
+import {
+  effectiveHermesHome,
+  prepareHermesAccountHome,
+  hermesAccountEnvironment,
+} from './hermes-account-context.ts'
+import { hermesNativeCommand, hermesCommandInstallationHome } from './hermes-installation.ts'
+import { hermesRuntimePolicy } from './hermes-sandbox.ts'
 import { hermesAccountIsolationPolicy } from './hermes-account-isolation.ts'
 import { projectDirectory, type RuntimeConfig } from './process.ts'
 
@@ -140,7 +147,7 @@ export async function readHermesAccount(
   let file: Awaited<ReturnType<typeof open>> | undefined
   const buffer = Buffer.alloc(64 * 1024 + 1)
   try {
-    const home = hermesHomeDirectory(config.hermesHome)
+    const home = effectiveHermesHome(config)
     const info = await lstat(home)
     if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('Unsafe Hermes home')
     try {
@@ -205,7 +212,7 @@ export async function prepareHermesAccount(
   if (action !== 'login' && action !== 'manage') throw new Error('Hermes 账号终端不提供全局退出操作')
   if (!nonempty(executable) || executable.includes('\0')) throw new Error('Invalid Hermes executable')
   projectDirectory(project)
-  const home = hermesHomeDirectory(config.hermesHome)
+  const home = prepareHermesAccountHome(config)
   await assertHermesOwnAccounts(home, signal)
   const userHome = await realpath(homedir())
   if (home === sep || home === userHome || userHome.startsWith(home + sep))
@@ -247,25 +254,24 @@ export async function prepareHermesAccount(
   try {
     signal.throwIfAborted()
     const temporary = privateDirectory(join(state, 'tmp'))
+    const command = await hermesNativeCommand(executable, [action === 'login' ? 'model' : 'auth'], signal)
     const argv = confineExtended(
-      [
-        process.execPath,
-        fileURLToPath(new URL('./private-launch.mjs', import.meta.url)),
-        executable,
-        action === 'login' ? 'model' : 'auth',
-      ],
+      [process.execPath, fileURLToPath(new URL('./private-launch.mjs', import.meta.url)), ...command],
       state,
       state,
       'plan',
       temporary,
       nativeHome,
     )
-    argv[2] += hermesAccountIsolationPolicy(nativeHome, state)
+    argv[2] += hermesRuntimePolicy(
+      hermesCommandInstallationHome(command) ?? hermesHomeDirectory(config.hermesHome),
+    )
+    argv[2] += hermesAccountIsolationPolicy(nativeHome, state, [hermesHomeDirectory(config.hermesHome)])
     return {
       argv,
       cwd: state,
       env: {
-        HERMES_HOME: nativeHome,
+        ...hermesAccountEnvironment(nativeHome),
         TMPDIR: temporary,
         HERMES_SAFE_MODE: '1',
         HERMES_IGNORE_RULES: '1',
@@ -276,8 +282,8 @@ export async function prepareHermesAccount(
       },
       instruction:
         action === 'login'
-          ? '在 Hermes 原生菜单中选择服务商并登录；插件不会代你提交凭据或发送任务。'
-          : '在 Hermes 原生账号菜单中管理凭据；更改与本机 Hermes 共用，终端输入仅由你直接操作。',
+          ? '在 Hermes 原生菜单中选择服务商并登录。'
+          : '在 Hermes 原生账号菜单中管理凭据；更改保存在插件的 Hermes 账号目录，终端输入仅由你直接操作。',
       cleanup,
     }
   } catch (error) {

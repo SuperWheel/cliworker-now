@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, open } from 'node:fs/promises'
+import { chmod, lstat, mkdir, open, realpath } from 'node:fs/promises'
 import { homedir, platform, userInfo } from 'node:os'
 import { constants } from 'node:fs'
 import { createHash, createDecipheriv } from 'node:crypto'
@@ -10,6 +10,7 @@ import type { AccountAction } from '../shared/accounts.ts'
 import { accountEmail, localTokenExpired, type AccountIdentity } from './account-identity.ts'
 import type { ProcessBackend, RuntimeConfig } from './process.ts'
 import { readZCodePersonalIdentity, zcodeAuthDirectory, zcodeEnvironment } from './zcode-adapter.ts'
+import { assertGrokNativeEnvironment, selectGrokOwnAccount } from './grok-models.ts'
 
 export type ZCodeGrokCli = 'zcode' | 'grok'
 export interface ZCodeGrokAccountLaunch {
@@ -177,31 +178,20 @@ export function projectZCodeIdentity(raw: unknown, secret: string): AccountIdent
 
 export function projectGrokIdentity(raw: unknown, now = Date.now()): AccountIdentity {
   if (!record(raw)) throw new Error('Invalid account metadata')
-  const accounts = Object.entries(raw).filter(
-    ([id, value]) => id.startsWith('https://auth.x.ai::') && record(value) && value.auth_mode === 'oidc',
-  )
-  for (const [, value] of accounts) {
-    if (!record(value)) continue
-    const expires = typeof value.expires_at === 'string' ? Date.parse(value.expires_at) : NaN
-    const active = nonempty(value.key) && Number.isFinite(expires) && expires > now
-    if (!active && !nonempty(value.refresh_token)) continue
-    if (
-      nonempty(value.key) &&
-      ((Number.isFinite(expires) && expires <= now) || localTokenExpired(value.key, now))
-    )
-      continue
+  const account = selectGrokOwnAccount(raw, now)
+  if (account && (account.active || account.refresh)) {
     return {
-      state: 'configured',
+      state: 'authenticated',
       authMethod: 'oauth',
       verification: 'local',
-      accountLabel: accountEmail(value.email),
-      summary: active ? '已配置 Grok OAuth' : '已保存 Grok 续期凭据',
+      accountLabel: account.email,
+      summary: '已登录 Grok',
     }
   }
   return {
-    state: accounts.length ? 'unauthenticated' : Object.keys(raw).length ? 'unknown' : 'unconfigured',
+    state: account ? 'unauthenticated' : Object.keys(raw).length ? 'unknown' : 'unconfigured',
     verification: 'local',
-    summary: accounts.length ? '本地登录已过期，请重新登录' : '尚未登录 Grok',
+    summary: account ? '登录已过期，请重新登录' : Object.keys(raw).length ? '登录格式未知' : '尚未登录 Grok',
   }
 }
 
@@ -224,6 +214,17 @@ export async function zcodeGrokAccountStatus(
   let file: Awaited<ReturnType<typeof open>> | undefined
   const buffer = Buffer.alloc(64 * 1024 + 1)
   try {
+    if (cli === 'grok') {
+      assertGrokNativeEnvironment(home)
+      const directory = join(home, '.grok')
+      const info = await lstat(directory)
+      if (
+        !info.isDirectory() ||
+        info.isSymbolicLink() ||
+        (await realpath(directory)) !== join(await realpath(home), '.grok')
+      )
+        throw new Error('Invalid account directory')
+    }
     file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
     const info = await file.stat()
     if (!info.isFile() || info.nlink !== 1 || info.size > 64 * 1024 || !info.size)

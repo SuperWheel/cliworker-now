@@ -253,6 +253,19 @@ describe('ZCode/Grok user-operated account helpers', () => {
     expect(status.state).toBe('unavailable')
     expect(JSON.stringify(status)).not.toContain('SECRET')
   })
+  it('does not show Grok logged in from a linked account directory or ambient auth override', async () => {
+    const f = fixture(),
+      other = fixture()
+    mkdirSync(join(other.home, '.grok'))
+    writeFileSync(join(other.home, '.grok/auth.json'), '{}')
+    symlinkSync(join(other.home, '.grok'), join(f.home, '.grok'))
+    expect((await zcodeGrokAccountStatus('grok', f.config, f.signal, f)).state).toBe('unavailable')
+    rmSync(join(f.home, '.grok'))
+    mkdirSync(join(f.home, '.grok'))
+    writeFileSync(join(f.home, '.grok/auth.json'), '{}')
+    vi.stubEnv('GROK_AUTH_PATH', join(other.home, '.grok/auth.json'))
+    expect((await zcodeGrokAccountStatus('grok', f.config, f.signal, f)).state).toBe('unavailable')
+  })
   it('projects native personal API configuration only when the OAuth account is absent', async () => {
     const f = fixture(),
       native = join(f.home, '.zcode/v2')
@@ -509,18 +522,21 @@ it('decrypts ZCode 0.16.9 records and exposes only the user-info identity', () =
   expect(() => projectZCodeIdentity(raw, 'wrong-key')).toThrow()
   expect(projectZCodeIdentity({ 'oauth:active_provider': 'bigmodel' }, secret).state).toBe('unauthenticated')
 })
-it('keeps Grok local sessions unverified and rejects expired access even with refresh credentials', () => {
+it('recognizes native Grok OIDC login and renewable sessions without claiming remote verification', () => {
   const session = {
     auth_mode: 'oidc',
     key: 'SECRET',
     refresh_token: 'SECRET_REFRESH',
     email: 'fixture@example.invalid',
     expires_at: new Date(Date.now() + 60_000).toISOString(),
+    oidc_issuer: 'https://auth.x.ai',
+    oidc_client_id: 'synthetic-client',
+    user_id: 'synthetic-user',
   }
   const raw = { 'https://auth.x.ai::synthetic-client': session }
   const status = projectGrokIdentity(raw)
   expect(status).toMatchObject({
-    state: 'configured',
+    state: 'authenticated',
     accountLabel: 'fixture@example.invalid',
     verification: 'local',
   })
@@ -529,7 +545,25 @@ it('keeps Grok local sessions unverified and rejects expired access even with re
     projectGrokIdentity({
       'https://auth.x.ai::synthetic-client': { ...session, expires_at: '2020-01-01T00:00:00Z' },
     }).state,
+  ).toBe('authenticated')
+  expect(
+    projectGrokIdentity({
+      'https://auth.x.ai::synthetic-client': {
+        ...session,
+        refresh_token: '',
+        expires_at: '2020-01-01T00:00:00Z',
+      },
+    }).state,
   ).toBe('unauthenticated')
+  expect(
+    projectGrokIdentity({
+      'https://auth.x.ai::synthetic-client': {
+        ...session,
+        key: '',
+        expires_at: undefined,
+      },
+    }).state,
+  ).toBe('unknown')
   expect(projectGrokIdentity({ unrelated: session }).state).toBe('unknown')
   expect(
     projectGrokIdentity({ 'https://auth.x.ai::synthetic-client': { ...session, email: 'Bearer SECRET' } })
@@ -551,5 +585,5 @@ it('does not label refresh-only or expired ZCode OAuth as authenticated', () => 
     projectGrokIdentity({
       'https://auth.x.ai::fixture': { auth_mode: 'oidc', refresh_token: 'SYNTHETIC_REFRESH' },
     }),
-  ).toMatchObject({ state: 'configured' })
+  ).toMatchObject({ state: 'unknown' })
 })

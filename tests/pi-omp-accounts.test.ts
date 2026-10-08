@@ -352,3 +352,37 @@ writeFileSync('observed.json',JSON.stringify({denied,own:process.env.FIXTURE_API
     }
   },
 )
+
+it('OMP login permits its native sibling logs only, without opening the account root or another CLI', async () => {
+  const { root, input } = await fixture('omp')
+  const launch = await preparePiOmpAccountTerminal({ ...input, action: 'login' })
+  const agent = launch.env.PI_CODING_AGENT_DIR!
+  const account = join(agent, '..')
+  const logs = await realpath(join(account, 'logs'))
+  const foreign = join(input.stateDirectory, 'accounts/pi/agent')
+  await mkdir(foreign, { recursive: true })
+  const attempts = [join(account, 'root-write'), join(foreign, 'other-account'), join(root, 'outside')]
+  const script = `import {writeFileSync} from 'node:fs';
+writeFileSync(${JSON.stringify(join(logs, 'omp.synthetic.log'))}, 'synthetic log');
+writeFileSync(${JSON.stringify(join(agent, 'synthetic-auth.json'))}, '{}');
+const denied=${JSON.stringify(attempts)}.map(path=>{try{writeFileSync(path,'forbidden');return false}catch{return true}});
+writeFileSync('observed.json',JSON.stringify({denied}));`
+  try {
+    // The real generated Seatbelt policy and private umask wrapper, simulated CLI payload only.
+    await exec(
+      launch.argv[0]!,
+      [...launch.argv.slice(1, 5), process.execPath, '--input-type=module', '-e', script],
+      { cwd: launch.cwd, env: launch.env, timeout: 5000 },
+    )
+    expect(JSON.parse(await readFile(join(launch.cwd, 'observed.json'), 'utf8'))).toEqual({
+      denied: [true, true, true],
+    })
+    expect(await readFile(join(logs, 'omp.synthetic.log'), 'utf8')).toBe('synthetic log')
+    expect((await stat(logs)).mode & 0o777).toBe(0o700)
+    expect((await stat(join(logs, 'omp.synthetic.log'))).mode & 0o777).toBe(0o600)
+  } finally {
+    await launch.cleanup()
+  }
+  expect(await readFile(join(agent, 'synthetic-auth.json'), 'utf8')).toBe('{}')
+  await expect(stat(launch.cwd)).rejects.toMatchObject({ code: 'ENOENT' })
+})

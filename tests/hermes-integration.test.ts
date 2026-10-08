@@ -3,12 +3,19 @@ import { appendFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { catalogFor, protocolFor } from '../src/host/adapters.ts'
-import { extendedLaunch } from '../src/host/extended-adapters.ts'
+import { prepareHermesAccountHome } from '../src/host/hermes-account-context.ts'
+import { readCliAccountBinding } from '../src/host/cli-account-binding.ts'
+import { readHermesAccount } from '../src/host/hermes-accounts.ts'
+import { extendedCatalog, extendedLaunch } from '../src/host/extended-adapters.ts'
 import { DEFAULT_CONFIG, type ProcessBackend } from '../src/host/process.ts'
 import { attachTelemetry, TelemetryReader } from '../src/host/telemetry.ts'
 import { foldEvents, type WorkerEvent } from '../src/shared/types.ts'
 
-vi.mock('../src/host/hermes-installation.ts', () => ({ verifyHermesExecutable: async () => undefined }))
+vi.mock('../src/host/hermes-installation.ts', () => ({
+  verifyHermesExecutable: async () => undefined,
+  hermesNativeCommand: async (executable: string, args: string[]) => [executable, ...args],
+  hermesCommandInstallationHome: () => undefined,
+}))
 vi.mock('../src/host/hermes-models.ts', async (load) => ({
   ...(await load<typeof import('../src/host/hermes-models.ts')>()),
   hermesAccountModels: vi.fn(async () => ({
@@ -185,5 +192,47 @@ describe('Hermes dispatch and telemetry integration (synthetic fixtures)', () =>
     expect(rows.find((row) => row.text === 'synthetic reply')?.usage?.total).toBe(103)
     expect(rows.find((row) => row.text === 'another run')?.usage).toBeUndefined()
     expect(parser.result?.status).toBe('SUCCESS')
+  })
+})
+
+it('uses the explicit plugin login source for status, catalog, binding and task after global logout', async () => {
+  const globalHome = nativeHome(),
+    stateDirectory = directory(),
+    project = directory()
+  const config = { ...DEFAULT_CONFIG, hermesHome: globalHome, stateDirectory }
+  writeFileSync(join(globalHome, '.env'), 'OPENROUTER_API_KEY=synthetic-old-global\n')
+  const signal = new AbortController().signal,
+    backend = { resolveExecutable: vi.fn(), spawn: vi.fn() } as ProcessBackend
+  const old = await readCliAccountBinding('hermes', backend, config, project, signal)
+  const own = prepareHermesAccountHome(config)
+  writeFileSync(
+    join(own, 'config.yaml'),
+    'auth:\n  adopt_external_logins: false\nmodel:\n  provider: openrouter\n  default: fixture/model\n',
+  )
+  writeFileSync(join(own, '.env'), 'OPENROUTER_API_KEY=synthetic-plugin-own\n')
+  expect((await readHermesAccount(config, signal)).authMethod).toBe('api')
+  expect(await readCliAccountBinding('hermes', backend, config, project, signal)).not.toBe(old)
+  const capture = vi.fn(async (argv: string[], env?: Record<string, string>) => {
+    expect(env?.HERMES_HOME).toBe(own)
+    return JSON.stringify(argv.at(-2) === 'model.default' ? 'fixture/model' : 'openrouter')
+  })
+  await extendedCatalog('hermes', '/synthetic/hermes', capture, stateDirectory, config, signal)
+  expect(capture).toHaveBeenCalledTimes(2)
+  const launch = await extendedLaunch(
+    'hermes',
+    '/synthetic/hermes',
+    project,
+    { cli: 'hermes', model: '["openrouter","fixture/model"]', effort: 'default' },
+    'plan',
+    'synthetic',
+    directory(),
+    config,
+  )
+  expect(launch.env.HERMES_HOME).toBe(own)
+  await launch.cleanup()
+  rmSync(join(own, '.env'))
+  expect((await readHermesAccount(config, signal)).state).toBe('unconfigured')
+  await expect(readCliAccountBinding('hermes', backend, config, project, signal)).rejects.toMatchObject({
+    code: 'CLI_OWN_ACCOUNT_REQUIRED',
   })
 })

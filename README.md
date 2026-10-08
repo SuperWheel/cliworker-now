@@ -98,13 +98,13 @@ CLI Worker Now 是 **DeepSeek Harness 的独立多 CLI 智能体插件**。它�
 | Antigravity | 1.2.16 | 首轮、续聊与停止已有真实验收 |
 | Codex | 0.160.0 | 真实首轮与同会话续聊通过 |
 | Claude Code | 2.1.176 | 真实首轮与续聊通过；测试环境的 `sonnet` 映射到 GLM |
-| Kimi Code | 0.42.0 | 协议回归通过；真实请求被订阅权限 403 阻止 |
+| Kimi Code | 0.42.0 | 原生令牌状态及登录管理入口已修复；此前真实请求被订阅权限 403 阻止，本轮未重新生成 |
 | 官方 MiMo Code | 0.1.15 | 真实首轮与续聊通过 |
 | ZCode | 0.16.9 | 原生登录、headless 与会话协议已接入；详见专项记录 |
-| Grok Build | 1.0.0 | 原生登录及协议接入；公共 ACP 目录不能证明订阅权益，未确认 Worker 权限的模型不供选择 |
-| OMP | 16.4.4 | RPC 接入；智谱 Coding CN GLM-5.3-Flash 已实测 |
+| Grok Build | 1.0.0 | 自身登录、官方 Build 访问许可和模型目录分别核对；目录可读不等于有调用权限，真实生成未验收 |
+| OMP | 16.4.4 | 原生登录菜单及自身日志写权限已修复；RPC 接入，历史智谱 Coding CN GLM-5.3-Flash 已实测 |
 | Pi | 1.0.2 / 1.0.4 | 原生安装身份及 SDK/RPC 按版本核验；1.0.2 的智谱 Coding CN GLM-5.3-Flash 曾实测，1.0.4 本轮仅只读/离线核验 |
-| Hermes Agent | v0.21.5+7527.g4787e4d | 原生账号向导、模型查询和沙箱启动曾验证；查询与启动会检查实际安装入口，真实模型运行与续聊未验收 |
+| Hermes Agent | 当前安装 checkout 6c80c32734 | 独立自身账号目录与现有原生安装贯通，禁网原生登录菜单已验收；真实模型运行与续聊未验收 |
 | OpenCode | 1.18.21 | 原生目录与 JSONL 接入；智谱模型已实测，免费 MiMo 请求曾返回 403 |
 
 MiMo 指 [XiaomiMiMo/MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code)。Hermes Agent 替代的是旧的外部 Harness CLI 入口，**DeepSeek Harness 宿主仍是插件的运行基础**。
@@ -194,7 +194,13 @@ OMP（Oh My Pi）与 Pi Coding Agent 是两个独立 CLI；安装、账号、模
 
 Antigravity 使用自身原生登录和实时 `agy models` 目录，只展示原生返回的模型及强度变体。账号读取先完成，模型查询的等待或失败不会把已登录账号改为未登录。重复的在途账号读取会合并，后续刷新与执行授权仍读取当前账号。
 
-当前账号范围边界：Grok，以及 Claude／Kimi 的未支持 OAuth 模式及 OpenCode OAuth暂显示空列表。Claude 自身设置中的 API Key、Kimi 自身 API 配置、MiMo 原生网页登录写入的自身 API 认证，以及可核对的本地配置，按账号列表筛选；保留网页登录附带的官方服务地址。Codex 支持已核验的官方文件账号路径，keyring 或自定义路由缺少范围证据时不放行。Hermes 需在自身配置关闭 `auth.adopt_external_logins`，账号终端也禁止导入 Codex／Claude 凭据。MiMo 目前只接受可核验的本地配置，文件／环境插值和远程组织配置需先移除。OpenCode 原生 OAuth 写回缺少账号版本保护，暂只开放自身 API 配置。插件不会替用户修改原生账号。
+当前账号范围边界：Claude／Kimi 的未支持 OAuth 模式及 OpenCode OAuth 暂显示空列表。Claude 自身设置中的 API Key、Kimi 自身 API 配置、MiMo 原生网页登录写入的自身 API 认证，以及可核对的本地配置，按账号列表筛选；保留网页登录附带的官方服务地址。Codex 支持已核验的官方文件账号路径，keyring 或自定义路由缺少范围证据时不放行。MiMo 目前只接受可核验的本地配置，文件／环境插值和远程组织配置需先移除。OpenCode 原生 OAuth 写回缺少账号版本保护，暂只开放自身 API 配置。
+
+Kimi 已有有效或可续期的自身原生登录时显示“已登录”，点击“管理登录”打开原生终端；切换账号由用户输入 `/logout` 后再输入 `/login`。账号终端使用独立空目录，不加载用户项目 MCP；原生若显示 Trust 提示，由用户自行确认。只有提供商配置而没有对应令牌时显示未登录，不会自动退出原账号。
+
+Hermes 首次明确打开登录设置后使用插件内独立原生账号目录，自动导入关闭，状态、模型、任务统一绑定该目录；之后退出不会回退到全局旧账号。原全局账号和历史保留，登录菜单禁止借用 Codex、Claude、GitHub CLI、Qwen 的凭据。现有官方安装的已选依赖环境可直接复用，账号操作不触发重新安装。
+
+Grok 先核对自身官方 Build 访问门禁，再读取认证模型目录并匹配原生模型及强度能力；登录成功或目录 HTTP 200 均不能单独证明调用权限。是否有付费订阅也不能代替服务端门禁结果；未知或拒绝时保持空列表和简短原因，不通过生成请求试探。
 
 ```mermaid
 flowchart LR

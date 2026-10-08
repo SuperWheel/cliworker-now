@@ -23,7 +23,11 @@ import {
 import type { EventInput } from '../src/host/protocol.ts'
 import { foldEvents } from '../src/shared/types.ts'
 
-vi.mock('../src/host/hermes-installation.ts', () => ({ verifyHermesExecutable: async () => undefined }))
+vi.mock('../src/host/hermes-installation.ts', () => ({
+  verifyHermesExecutable: async () => undefined,
+  hermesNativeCommand: async (executable: string, args: string[]) => [executable, ...args],
+  hermesCommandInstallationHome: () => undefined,
+}))
 vi.mock('../src/host/hermes-models.ts', async (load) => ({
   ...(await load<typeof import('../src/host/hermes-models.ts')>()),
   hermesAccountModels: vi.fn(async () => ({

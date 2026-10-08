@@ -1,7 +1,7 @@
 import { closeSync, constants, fstatSync, openSync, readFileSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
-import { parseEnv } from 'node:util'
+import { parseHermesOwnEnvironment } from './hermes-env.ts'
 
 const inside = (path: string, root: string) => path === root || path.startsWith(root + sep)
 
@@ -28,7 +28,7 @@ function ownEnvironment(home: string): Record<string, string | undefined> {
     if (!info.isFile() || info.nlink !== 1 || info.size > 1024 * 1024) throw new Error('Unsafe dotenv')
     buffer = readFileSync(fd)
     if (buffer.length > 1024 * 1024) throw new Error('Unsafe dotenv')
-    return parseEnv(buffer.toString('utf8'))
+    return parseHermesOwnEnvironment(buffer.toString('utf8'))
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
     throw new Error('Hermes 账号环境无法安全读取')
@@ -43,7 +43,11 @@ function ownEnvironment(home: string): Record<string, string | undefined> {
  * borrowed file/Keychain reader currently honors that flag; block both underlying
  * sources too, consistently for menus, catalogs and tasks. Own Hermes OAuth is
  * stored in HERMES_HOME JSON files and does not invoke the security command. */
-export function hermesAccountIsolationPolicy(home: string, cwd: string): string {
+export function hermesAccountIsolationPolicy(
+  home: string,
+  cwd: string,
+  previousHomes: string[] = [],
+): string {
   const own = canonical(home)
   const local = ownEnvironment(own)
   const userHomes = new Set([homedir()])
@@ -61,6 +65,8 @@ export function hermesAccountIsolationPolicy(home: string, cwd: string): string 
     for (const [key, defaultName, credential] of [
       ['CODEX_HOME', '.codex', 'auth.json'],
       ['CLAUDE_CONFIG_DIR', '.claude', '.credentials.json'],
+      ['GH_CONFIG_DIR', '.config/gh', 'hosts.yml'],
+      ['QWEN_HOME', '.qwen', 'oauth_creds.json'],
     ] as const) {
       const candidates = [join(userHome, defaultName), process.env[key]?.trim(), local[key]?.trim()]
       for (const candidate of candidates) {
@@ -77,9 +83,21 @@ export function hermesAccountIsolationPolicy(home: string, cwd: string): string 
       }
     }
   }
+  // A plugin login never re-adopts the previous global Hermes account. Keep the
+  // installed code/runtime readable, but deny its native credential stores.
+  for (const previous of new Set([join(homedir(), '.hermes'), ...previousHomes])) {
+    const root = canonical(previous)
+    if (root === own) continue
+    for (const name of ['auth.json', '.env', '.op.env', '.anthropic_oauth.json', 'shared']) {
+      const target = canonical(join(root, name))
+      if (inside(target, own)) throw new Error('Hermes 账号目录重叠')
+      if (name === 'shared') roots.add(target)
+      else files.add(target)
+    }
+  }
   const denied = [
     ...[...roots].map((value) => `(subpath ${JSON.stringify(value)})`),
     ...[...files].map((value) => `(literal ${JSON.stringify(value)})`),
   ]
-  return `\n(deny file-read-data ${denied.join(' ')})\n(deny process-exec (regex #"(^|/)security$"))\n`
+  return `\n(deny file-read-data ${denied.join(' ')})\n(deny file-read-data (regex #"(^|/)([.]op[.]env|[.]env([.][^/]*)?)$"))\n(allow file-read-data (literal ${JSON.stringify(join(own, '.env'))}))\n(deny process-exec (regex #"(^|/)(security|gh|qwen)$"))\n`
 }

@@ -38,6 +38,10 @@ for (const name of ['own-account-lease', 'pi-omp-refresh']) {
   cpSync(`src/host/${name}.mjs`, `lib/types/host/${name}.mjs`)
   if (existsSync(`src/host/${name}.d.mts`)) cpSync(`src/host/${name}.d.mts`, `lib/types/host/${name}.d.mts`)
 }
+// The native Hermes bridge is executed by the verified installed Python, both
+// from the bundle URL and from emitted unbundled adapter modules.
+cpSync('src/host/hermes-native-entry.py', 'lib/hermes-native-entry.py')
+cpSync('src/host/hermes-native-entry.py', 'lib/types/host/hermes-native-entry.py')
 await build({
   entry: { index: 'lib/types/host/index.js' },
   outDir: 'lib',

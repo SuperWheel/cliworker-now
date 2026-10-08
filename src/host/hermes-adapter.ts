@@ -7,7 +7,8 @@ import { EFFORTS, type Effort, type ModelChoice, type TaskMode } from '../shared
 import type { EventInput, ProtocolResult } from './protocol.ts'
 import type { TokenUsage } from '../shared/telemetry.ts'
 import { hermesAccountModels, assertHermesOwnAccounts } from './hermes-models.ts'
-import { verifyHermesExecutable } from './hermes-installation.ts'
+import { hermesAccountEnvironment } from './hermes-account-context.ts'
+import { verifyHermesExecutable, hermesNativeCommand } from './hermes-installation.ts'
 
 export interface HermesInput {
   executable: string
@@ -92,7 +93,7 @@ async function environment(stateDirectory: string, home: string) {
   // SAFE_MODE is the plugin-discovery guard; the CLI --safe-mode switch would ALSO discard
   // user provider config, so it is deliberately not used. Host supplies the OS sandbox.
   return {
-    HERMES_HOME: home,
+    ...hermesAccountEnvironment(home),
     PYTHONDONTWRITEBYTECODE: '1',
     TMPDIR: join(root, 'tmp'),
     HERMES_SAFE_MODE: '1',
@@ -179,7 +180,10 @@ export async function discoverHermes(
   const env = await environment(stateDirectory, home)
   const get = async (key: string): Promise<unknown> => {
     options.signal?.throwIfAborted()
-    const result = await capture([executable, 'config', 'get', key, '--json'], env)
+    const result = await capture(
+      await hermesNativeCommand(executable, ['config', 'get', key, '--json'], options.signal),
+      env,
+    )
     options.signal?.throwIfAborted()
     return JSON.parse(result)
   }
@@ -221,8 +225,7 @@ export async function prepareHermes(
   if (!efforts.includes(input.preference.effort))
     throw new Error('Hermes 未确认支持此思考强度，请刷新模型后重选')
   return {
-    argv: [
-      input.executable,
+    argv: await hermesNativeCommand(input.executable, [
       '--in',
       input.project,
       'chat',
@@ -239,7 +242,7 @@ export async function prepareHermes(
       ...(input.conversationId ? ['--resume', input.conversationId] : []),
       '-q',
       input.prompt,
-    ],
+    ]),
     env: await environment(input.stateDirectory, home),
   }
 }

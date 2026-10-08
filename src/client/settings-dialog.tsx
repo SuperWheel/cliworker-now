@@ -625,8 +625,8 @@ function CliSettings({
             <Glyph name="tool" />
             账号终端
           </>
-        ) : item?.label === '登录设置' ? (
-          '登录设置'
+        ) : item?.label && item.label !== '登录 / 切换账号' ? (
+          item.label
         ) : account?.data?.state === 'authenticated' ? (
           '切换账号'
         ) : (

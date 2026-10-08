@@ -1,7 +1,8 @@
 import { constants } from 'node:fs'
-import { open } from 'node:fs/promises'
+import { lstat, open } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parse } from 'yaml'
+import { parseHermesOwnEnvironment } from './hermes-env.ts'
 import { probeAccountModels, type AccountModelInput, type AccountModelScope } from './account-models.mjs'
 
 const object = (value: unknown): value is Record<string, any> =>
@@ -12,6 +13,19 @@ const literal = (value: unknown): value is string =>
   !/[\x00-\x1f]/.test(value) &&
   !/^(?:op:\/\/|!|\$|<|your[_ -]|placeholder|changeme)/i.test(value.trim())
 const unknown = (): AccountModelScope => ({ state: 'unknown', source: 'unknown', models: [] })
+
+/** Native PooledCredential fields; a successful catalog cannot erase a native
+ * dead account, active exhaustion window or model-specific entitlement bench. */
+export function hermesPoolEntryUnavailable(entry: Record<string, any>, model?: string): boolean {
+  if (entry.disabled === true || entry.status === 'exhausted' || entry.last_status === 'dead') return true
+  if (entry.last_status === 'exhausted') {
+    const until = Number(entry.last_error_reset_at)
+    if (!Number.isFinite(until) || until <= 0 || until > Date.now() / 1000) return true
+  }
+  const cooldowns = object(entry.model_cooldowns) ? entry.model_cooldowns : {}
+  const values = model ? [cooldowns[model]] : Object.values(cooldowns)
+  return values.some((until) => typeof until === 'number' && until > Date.now() / 1000)
+}
 
 /** Private source reads only. Do not execute secret commands, expand arbitrary env,
  * refresh OAuth, print native config, or import Hermes' side-effectful runtime. */
@@ -46,17 +60,7 @@ async function read(path: string, signal?: AbortSignal): Promise<string | undefi
 }
 
 function dotenv(text: string): Record<string, string> {
-  const result: Record<string, string> = {}
-  for (const line of text.split(/\r?\n/)) {
-    const match = /^\s*(?:export\s+)?([A-Z][A-Z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line)
-    if (!match) continue
-    const value = match[2]!
-      .replace(/\s+#.*$/, '')
-      .replace(/^(['"])(.*)\1$/, '$2')
-      .trim()
-    if (value) result[match[1]!] = value
-  }
-  return result
+  return parseHermesOwnEnvironment(text)
 }
 
 /** Internal source material; callers must never publish or log the returned values. */
@@ -68,10 +72,45 @@ export async function readHermesAccountMaterial(home: string, signal?: AbortSign
   return { config, auth, env, sourceIds: [home] }
 }
 
-/** Hermes' native default adopts other CLI logins, including after refresh failure.
- * It has no single-run config override, so only the explicit native opt-out is safe. */
+/** Exact native source/provider pairs from auth_commands and credential_pool.
+ * In particular manual:qwen_cli is still a foreign login, not a Hermes OAuth flow. */
+function ownPoolSource(
+  provider: string,
+  entry: Record<string, any>,
+  material: Awaited<ReturnType<typeof readHermesAccountMaterial>>,
+): boolean {
+  const source = entry.source
+  if ((!source || source === 'manual' || source === 'config') && entry.auth_type === 'api_key') return true
+  if (typeof source !== 'string') return false
+  if (source.startsWith('env:')) return literal(material.env[source.slice(4)])
+  const ownOAuth: Record<string, string[]> = {
+    anthropic: ['manual:hermes_pkce', 'hermes_pkce'],
+    'openai-codex': ['manual:device_code', 'manual:loopback_pkce', 'device_code'],
+    'xai-oauth': ['manual:device_code', 'device_code'],
+    'minimax-oauth': ['manual:minimax_oauth', 'oauth'],
+    nous: ['manual:device_code', 'device_code'],
+  }
+  if (entry.auth_type === 'oauth' && ownOAuth[provider]?.includes(source)) return true
+  return provider === 'openrouter' && entry.auth_type === 'api_key' && source === 'manual:openrouter_pkce'
+}
+
+/** Native own stores only; never accept a broad manual:* prefix. */
 export async function assertHermesOwnAccounts(home: string, signal?: AbortSignal) {
   const material = await readHermesAccountMaterial(home, signal)
+  try {
+    await lstat(join(home, '.cliworker-managed'))
+    throw new Error('Hermes 插件账号不能使用额外的托管配置')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  try {
+    await lstat(join(home, '.op.env'))
+    throw new Error('Hermes 请使用自身 .env，暂不支持外部密码库配置')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  if (Object.values(material.env).some((value) => /^(?:op:\/\/|!|\$\{|__BITWARDEN_MANAGED__)/.test(value)))
+    throw new Error('Hermes 请使用自身 API 配置，暂不支持外部密码库引用')
   if (material.config.auth?.adopt_external_logins !== false)
     throw new Error('请先关闭 Hermes 的 auth.adopt_external_logins')
   if (
@@ -79,20 +118,13 @@ export async function assertHermesOwnAccounts(home: string, signal?: AbortSignal
     material.config.model?.api_mode === 'codex_app_server'
   )
     throw new Error('Hermes 当前使用外部 Codex 登录，请改用自身账号')
-  for (const entries of Object.values(material.auth.credential_pool ?? {})) {
+  // Native dotenv has override=True. Selector assignments would invalidate the
+  // account source selected by the Host, even when no API-key value is inherited.
+  for (const [provider, entries] of Object.entries(material.auth.credential_pool ?? {})) {
     if (!Array.isArray(entries)) throw new Error('Hermes 账号来源无法确认')
     for (const entry of entries) {
       if (!object(entry)) throw new Error('Hermes 账号来源无法确认')
-      if (
-        entry.source &&
-        !['manual', 'config'].includes(entry.source) &&
-        !(
-          typeof entry.source === 'string' &&
-          entry.source.startsWith('env:') &&
-          literal(material.env[entry.source.slice(4)])
-        )
-      )
-        throw new Error('Hermes 含外部账号来源，请使用自身登录')
+      if (!ownPoolSource(provider, entry, material)) throw new Error('Hermes 含外部账号来源，请使用自身登录')
     }
   }
   return material
@@ -128,12 +160,25 @@ export async function hermesAccountModels(
         return unknown()
       if (cfg.base_url && cfg.base_url.replace(/\/+$/, '') !== 'https://chatgpt.com/backend-api')
         return unknown()
-      // Pooled/borrowed identities can be selected by native runtime; don't use a
-      // singleton's permissions to authorize an unknown pool or external account.
-      if (auth.credential_pool?.[provider]?.length) return unknown()
       const state = auth.providers?.[provider],
         tokens = state?.tokens
       if (state?.auth_mode !== 'chatgpt' || !literal(tokens?.access_token)) return unknown()
+      // Native load_pool seeds this exact singleton as device_code. Additional
+      // accounts require their own proven scope, so do not authorize them via it.
+      const pool = auth.credential_pool?.[provider] ?? []
+      if (
+        !Array.isArray(pool) ||
+        pool.some(
+          (entry: any) =>
+            !object(entry) ||
+            entry.source !== 'device_code' ||
+            entry.auth_type !== 'oauth' ||
+            hermesPoolEntryUnavailable(entry, cfg.default) ||
+            entry.access_token !== tokens.access_token ||
+            (entry.base_url && entry.base_url.replace(/\/+$/, '') !== 'https://chatgpt.com/backend-api'),
+        )
+      )
+        return unknown()
       let expiry = typeof tokens.expires_at === 'number' ? tokens.expires_at : Date.parse(tokens.expires_at)
       if (!Number.isFinite(expiry)) {
         // Hermes' native Codex store uses the access JWT exp claim.
@@ -175,8 +220,7 @@ export async function hermesAccountModels(
           if (
             !object(entry) ||
             entry.auth_type !== 'api_key' ||
-            entry.disabled === true ||
-            entry.status === 'exhausted' ||
+            hermesPoolEntryUnavailable(entry, cfg.default) ||
             (entry.base_url && entry.base_url.replace(/\/+$/, '') !== canonical)
           )
             return unknown()
@@ -186,7 +230,7 @@ export async function hermesAccountModels(
             envNames.add(name)
             continue
           }
-          if (entry.source && !['manual', 'config'].includes(entry.source)) return unknown()
+          if (!ownPoolSource(provider, entry, { config, auth, env, sourceIds: [home] })) return unknown()
           const key = entry.runtime_api_key || entry.access_token
           if (!literal(key)) return unknown()
           keys.add(key)
