@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PassThrough, Readable, Writable } from 'node:stream'
-import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -58,6 +58,7 @@ afterEach(async () => {
   await Promise.allSettled(managers.splice(0).map((manager) => manager.close()))
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
   vi.useRealTimers()
+  vi.unstubAllEnvs()
 })
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -71,6 +72,7 @@ function deferred<T>() {
 function fixture(overrides: Partial<RuntimeConfig> = {}) {
   const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'cwn-account-test-')))
   roots.push(cwd)
+  vi.stubEnv('MIMOCODE_HOME', join(cwd, 'mimo'))
   const output = new PassThrough()
   const result = deferred<SubprocessOutcome>()
   const cleanup = deferred<void>()
@@ -169,6 +171,24 @@ function fixture(overrides: Partial<RuntimeConfig> = {}) {
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve))
 
 describe('account status safety (synthetic CLI output)', () => {
+  it('rejects MiMo file interpolation before status or account terminal starts', async () => {
+    const f = fixture()
+    mkdirSync(join(f.cwd, 'mimo/config'), { recursive: true })
+    writeFileSync(
+      join(f.cwd, 'mimo/config/mimocode.json'),
+      JSON.stringify({
+        provider: { openai: { options: { apiKey: '{file:~/.codex/auth.json}' } } },
+      }),
+    )
+    expect(await f.manager.status('mimo', f.cwd, f.signal)).toMatchObject({ state: 'unavailable' })
+    expect(f.backend.spawn).not.toHaveBeenCalled()
+    await expect(f.manager.start('synthetic-parent', 'mimo', 'login', f.cwd, f.signal)).rejects.toThrow(
+      'MiMo 配置含外部引用',
+    )
+    expect(f.backend.spawnTerminal).not.toHaveBeenCalled()
+    expect(f.manager.isBusy('mimo')).toBe(false)
+  })
+
   it('blocks task/account admission when native status cleanup cannot be confirmed', async () => {
     const f = fixture()
     f.status('Logged in using an API key - SYNTHETIC_KEY')

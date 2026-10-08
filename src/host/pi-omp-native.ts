@@ -7,6 +7,15 @@ import { DatabaseSync } from 'node:sqlite'
 import { parse as parseYaml } from 'yaml'
 import type { AccountIdentity } from './account-identity.ts'
 import type { PiOmpCli } from './pi-omp-adapter.ts'
+import { acquireOwnAccountLease, releaseOwnAccountLease, OWN_ACCOUNT_BUSY } from './own-account-lease.mjs'
+import {
+  refreshFingerprint,
+  refreshPrincipal,
+  refreshJson,
+  writeRefreshJson,
+  assertPiOmpRefreshCache,
+  assertPiOmpRefreshSources,
+} from './pi-omp-refresh.mjs'
 
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v)
 const defaultRoot = () => join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'cliworker-now')
@@ -24,6 +33,8 @@ export interface PiOmpNativeOptions {
   signal?: AbortSignal
   /** Deprecated. Worker copies are never authoritative credential sources. */
   preserveCredentials?: boolean
+  /** Internal runtime mode; direct metadata projections never write native accounts. */
+  sharedOAuth?: boolean
 }
 export const piOmpAccountDirectory = (cli: PiOmpCli, root = defaultRoot()) =>
   join(root, 'accounts', cli, 'agent')
@@ -215,7 +226,9 @@ async function source(cli: PiOmpCli, path: string, scratch?: string): Promise<Na
         )
         if (name === 'agent.db' && tables.has('auth_credentials')) {
           result.credentials = db
-            .prepare('SELECT provider,credential_type,data,disabled_cause FROM auth_credentials')
+            .prepare(
+              'SELECT rowid AS native_rowid,provider,credential_type,data,disabled_cause FROM auth_credentials',
+            )
             .all()
           for (const row of result.credentials) {
             const data: unknown = JSON.parse(row.data)
@@ -351,6 +364,114 @@ export async function readPiOmpAccountMaterial(cli: PiOmpCli, options: PiOmpNati
     }
   })
 }
+async function sharedOAuthStore(cli: PiOmpCli, sources: NativeSource[], options: PiOmpNativeOptions) {
+  if (!options.sharedOAuth) return undefined
+  const merged = mergeSources(sources)
+  const owners = new Map<string, NativeSource>()
+  for (const source of sources)
+    for (const provider of cli === 'pi'
+      ? Object.keys(source.auth)
+      : new Set(source.credentials.map((row) => row.provider)))
+      owners.set(provider, source)
+  const credentials =
+    cli === 'pi'
+      ? Object.entries(merged.auth).map(([provider, data]) => ({
+          provider,
+          data,
+          row: undefined as any,
+          cacheRowId: undefined as number | undefined,
+        }))
+      : [...merged.credentialProviders.values()].flat().map((row, index) => ({
+          provider: row.provider,
+          data: { ...JSON.parse(row.data), type: row.credential_type },
+          row,
+          cacheRowId: index + 1,
+        }))
+  const entries: any[] = []
+  const fixed: any[] = []
+  for (const { provider, data, row, cacheRowId } of credentials) {
+    if (data.type !== 'oauth' || row?.disabled_cause) {
+      fixed.push({
+        provider,
+        ...(row ? { cacheRowId } : {}),
+        hash: refreshFingerprint(row ? { ...data, disabled_cause: row.disabled_cause } : data),
+      })
+      continue
+    }
+    const principal = refreshPrincipal(data)
+    if (!principal) throw new Error('无法确认 OAuth 续期账号，请使用该 CLI 自身 API 配置')
+    const owner = owners.get(provider)!
+    const path = join(await realpath(owner.sourceId), cli === 'pi' ? 'auth.json' : 'agent.db')
+    const info = await lstat(path)
+    if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1) throw new Error('Unsafe OAuth source')
+    entries.push({
+      provider,
+      path,
+      hash: refreshFingerprint(data),
+      principal,
+      dev: info.dev,
+      ino: info.ino,
+      ...(row ? { rowId: row.native_rowid, cacheRowId } : {}),
+    })
+  }
+  if (!entries.length) return undefined
+  // One physical store and lease per CLI/source set, independent of worker/project.
+  const parent = join(options.accountRoot ?? defaultRoot(), 'account-runtime', cli, 'oauth')
+  await safePiOmpAncestors(parent)
+  await mkdir(parent, { recursive: true, mode: 0o700 })
+  // Provider order/additions must never create another lock for the same source.
+  const sourceKey = refreshFingerprint({
+    cli,
+    home: await realpath(options.nativeHome ?? homedir()),
+    accountRoot: await realpath(options.accountRoot ?? defaultRoot()),
+  })
+  const root = join(await realpath(parent), sourceKey)
+  await mkdir(root, { recursive: true, mode: 0o700 })
+  const info = await lstat(root)
+  if (!info.isDirectory() || info.isSymbolicLink() || info.mode & 0o077)
+    throw new Error('Unsafe OAuth runtime')
+  const agent = join(root, 'agent')
+  const receipt = {
+    version: 1,
+    cli,
+    revision: refreshFingerprint({
+      entries,
+      auth: merged.auth,
+      credentials: [...merged.credentialProviders.values()],
+      env: merged.env,
+      providers: merged.providers,
+      config: sources.map((source) => source.config),
+    }),
+    entries,
+    fixed,
+  }
+  const nonce = randomUUID()
+  await acquireOwnAccountLease(root, nonce)
+  try {
+    options.signal?.throwIfAborted()
+    await mkdir(agent, { recursive: true, mode: 0o700 })
+    const agentInfo = await lstat(agent)
+    if (!agentInfo.isDirectory() || agentInfo.isSymbolicLink() || agentInfo.mode & 0o077)
+      throw new Error('Unsafe OAuth runtime')
+    let previous
+    try {
+      previous = await refreshJson(join(root, 'receipt.json'))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    if (previous && refreshFingerprint(previous) === refreshFingerprint(receipt)) {
+      await assertPiOmpRefreshSources(root, receipt)
+      await assertPiOmpRefreshCache(root, receipt)
+      return { root, agent, receipt, nonce, reuse: true }
+    }
+    // A failed rebuild must not leave an old valid receipt over partially new data.
+    await rm(join(root, 'receipt.json'), { force: true })
+    return { root, agent, receipt, nonce, reuse: false }
+  } catch (error) {
+    await releaseOwnAccountLease(root, nonce)
+    throw error
+  }
+}
 /** Global native input then plugin account overrides by provider; empty plugin auth never hides global accounts. */
 export async function snapshotPiOmpNative(
   cli: PiOmpCli,
@@ -359,78 +480,150 @@ export async function snapshotPiOmpNative(
 ) {
   try {
     return await withSources(cli, options, async (sources) => {
-      const { auth, providers, kinds, env, credentialProviders, cache, expired } = mergeSources(sources)
-      const files: Record<string, unknown> =
-        cli === 'pi'
-          ? {
-              'auth.json': auth,
-              'models.json': { providers },
-              'settings.json': Object.assign(
-                Object.create(null),
-                ...sources.map((source) => source.config ?? {}),
-              ),
-              'native-env.json': env,
-              'models-store.json': Object.assign(Object.create(null), ...sources.map((s) => s.modelsStore)),
-            }
-          : { 'models.yml': { providers }, 'native-env.json': env }
-      for (const [name, value] of Object.entries(files)) {
-        const temporary = join(destination, `.native-${randomUUID()}.tmp`)
-        await writeFile(temporary, JSON.stringify(value), { flag: 'wx', mode: 0o600 })
-        await rename(temporary, join(destination, name))
-      }
-      if (cli === 'omp') {
-        const nativeAuth = Object.assign({}, ...sources.map((s) => s.config ?? {}))
-        const authConfig = join(destination, 'native-auth.json')
-        const authTemp = `${authConfig}.${randomUUID()}.tmp`
-        await writeFile(authTemp, JSON.stringify(nativeAuth), { flag: 'wx', mode: 0o600 })
-        await rename(authTemp, authConfig)
-        // Fresh DBs hold only native credential/catalog rows. No history, memory,
-        // user settings, jobs, leases or session paths are copied into a worker.
-        for (const [name, schema, rows, insert] of [
-          [
-            'agent.db',
-            'CREATE TABLE auth_credentials (id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT NOT NULL, credential_type TEXT NOT NULL, data TEXT NOT NULL, disabled_cause TEXT, identity_key TEXT, created_at INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL DEFAULT 0)',
-            [...credentialProviders.values()].flat(),
-            'INSERT INTO auth_credentials(provider,credential_type,data,disabled_cause) VALUES(?,?,?,?)',
-          ],
-          [
-            'models.db',
-            "CREATE TABLE model_cache(provider_id TEXT PRIMARY KEY,version INTEGER NOT NULL,updated_at INTEGER NOT NULL,authoritative INTEGER NOT NULL DEFAULT 0,static_fingerprint TEXT NOT NULL DEFAULT '',models TEXT NOT NULL)",
-            [...cache.values()],
-            'INSERT INTO model_cache VALUES(?,?,?,?,?,?)',
-          ],
-        ] as const) {
-          const temporary = join(destination, `.native-${randomUUID()}.db`)
-          await writeFile(temporary, '', { flag: 'wx', mode: 0o600 })
-          const db = new DatabaseSync(temporary)
-          try {
-            db.exec(schema)
-            for (const row of rows)
-              db.prepare(insert).run(
-                ...(name === 'agent.db'
-                  ? [row.provider, row.credential_type, row.data, row.disabled_cause]
-                  : [
-                      row.provider_id,
-                      row.version,
-                      row.updated_at,
-                      row.authoritative,
-                      row.static_fingerprint,
-                      row.models,
-                    ]),
-              )
-          } finally {
-            db.close()
-          }
-          await rename(temporary, join(destination, name))
-          // Old auxiliary files must not apply a previous DB's WAL to the replacement.
-          await Promise.all(
-            ['-wal', '-shm'].map((suffix) => rm(join(destination, name + suffix), { force: true })),
-          )
+      let unsupportedOAuth = false
+      if (options.sharedOAuth) {
+        // Resolve the native override first. An unsupported current OAuth account
+        // must still shadow lower-priority credentials for the same provider.
+        const authOwners = new Map<string, NativeSource>()
+        const credentialOwners = new Map<string, NativeSource>()
+        for (const source of sources) {
+          for (const provider of Object.keys(source.auth)) authOwners.set(provider, source)
+          for (const row of source.credentials) credentialOwners.set(row.provider, source)
         }
+        sources = sources.map((source) => ({
+          ...source,
+          auth: Object.fromEntries(
+            Object.entries(source.auth).filter(([provider, value]) => {
+              if (authOwners.get(provider) !== source) return false
+              const allowed = value.type !== 'oauth' || !!refreshPrincipal(value)
+              if (!allowed) unsupportedOAuth = true
+              return allowed
+            }),
+          ),
+          credentials: source.credentials.filter((row) => {
+            if (credentialOwners.get(row.provider) !== source) return false
+            const allowed =
+              row.credential_type !== 'oauth' ||
+              !!row.disabled_cause ||
+              !!refreshPrincipal({ ...JSON.parse(row.data), type: 'oauth' })
+            if (!allowed) unsupportedOAuth = true
+            return allowed
+          }),
+        }))
       }
-      return { configured: kinds.size > 0, expired, providers: Object.keys(providers), env }
+      const { auth, providers, kinds, env, credentialProviders, cache, expired } = mergeSources(sources)
+      if (unsupportedOAuth && !kinds.size)
+        throw new Error('无法确认 OAuth 续期账号，请使用该 CLI 自身 API 配置')
+      const shared = await sharedOAuthStore(cli, sources, options)
+      const target = shared?.agent ?? destination
+      try {
+        if (shared?.reuse)
+          return {
+            configured: kinds.size > 0,
+            expired,
+            providers: Object.keys(providers),
+            env,
+            directory: target,
+            leaseDirectory: shared.root,
+            receipt: shared.receipt,
+          }
+        const files: Record<string, unknown> =
+          cli === 'pi'
+            ? {
+                'auth.json': auth,
+                'models.json': { providers },
+                'settings.json': Object.assign(
+                  Object.create(null),
+                  ...sources.map((source) => source.config ?? {}),
+                ),
+                'native-env.json': env,
+                'models-store.json': Object.assign(Object.create(null), ...sources.map((s) => s.modelsStore)),
+              }
+            : { 'models.yml': { providers }, 'native-env.json': env }
+        for (const [name, value] of Object.entries(files)) {
+          options.signal?.throwIfAborted()
+          const temporary = join(target, `.native-${randomUUID()}.tmp`)
+          await writeFile(temporary, JSON.stringify(value), { flag: 'wx', mode: 0o600 })
+          await rename(temporary, join(target, name))
+        }
+        if (cli === 'omp') {
+          const nativeAuth = Object.assign({}, ...sources.map((s) => s.config ?? {}))
+          const authConfig = join(target, 'native-auth.json')
+          const authTemp = `${authConfig}.${randomUUID()}.tmp`
+          await writeFile(authTemp, JSON.stringify(nativeAuth), { flag: 'wx', mode: 0o600 })
+          await rename(authTemp, authConfig)
+          // Fresh DBs hold only native credential/catalog rows. No history, memory,
+          // user settings, jobs, leases or session paths are copied into a worker.
+          for (const [name, schema, rows, insert] of [
+            [
+              'agent.db',
+              'CREATE TABLE auth_credentials (id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT NOT NULL, credential_type TEXT NOT NULL, data TEXT NOT NULL, disabled_cause TEXT, identity_key TEXT, created_at INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL DEFAULT 0)',
+              [...credentialProviders.values()].flat(),
+              'INSERT INTO auth_credentials(provider,credential_type,data,disabled_cause) VALUES(?,?,?,?)',
+            ],
+            [
+              'models.db',
+              "CREATE TABLE model_cache(provider_id TEXT PRIMARY KEY,version INTEGER NOT NULL,updated_at INTEGER NOT NULL,authoritative INTEGER NOT NULL DEFAULT 0,static_fingerprint TEXT NOT NULL DEFAULT '',models TEXT NOT NULL)",
+              [...cache.values()],
+              'INSERT INTO model_cache VALUES(?,?,?,?,?,?)',
+            ],
+          ] as const) {
+            const temporary = join(target, `.native-${randomUUID()}.db`)
+            await writeFile(temporary, '', { flag: 'wx', mode: 0o600 })
+            const db = new DatabaseSync(temporary)
+            try {
+              db.exec(schema)
+              for (const row of rows)
+                db.prepare(insert).run(
+                  ...(name === 'agent.db'
+                    ? [row.provider, row.credential_type, row.data, row.disabled_cause]
+                    : [
+                        row.provider_id,
+                        row.version,
+                        row.updated_at,
+                        row.authoritative,
+                        row.static_fingerprint,
+                        row.models,
+                      ]),
+                )
+            } finally {
+              db.close()
+            }
+            await rename(temporary, join(target, name))
+            // Old auxiliary files must not apply a previous DB's WAL to the replacement.
+            await Promise.all(
+              ['-wal', '-shm'].map((suffix) => rm(join(target, name + suffix), { force: true })),
+            )
+          }
+        }
+        if (shared) {
+          options.signal?.throwIfAborted()
+          await assertPiOmpRefreshSources(shared.root, shared.receipt)
+          await writeRefreshJson(join(shared.root, 'receipt.json'), shared.receipt)
+        }
+        return {
+          configured: kinds.size > 0,
+          expired,
+          providers: Object.keys(providers),
+          env,
+          directory: target,
+          ...(shared ? { leaseDirectory: shared.root, receipt: shared.receipt } : {}),
+        }
+      } finally {
+        if (shared) await releaseOwnAccountLease(shared.root, shared.nonce)
+      }
     })
-  } catch {
+  } catch (error) {
+    options.signal?.throwIfAborted()
+    if (
+      error instanceof Error &&
+      [
+        OWN_ACCOUNT_BUSY,
+        '无法确认 OAuth 续期账号，请使用该 CLI 自身 API 配置',
+        '账号配置已变化，请重新刷新模型',
+      ].includes(error.message)
+    )
+      throw error
     throw new Error('无法安全读取 Pi/OMP 原生账号或模型配置，请在账号终端检查')
   }
 }

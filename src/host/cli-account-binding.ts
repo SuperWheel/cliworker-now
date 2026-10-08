@@ -8,7 +8,7 @@ import { captureCatalogMetadata, resolveCliExecutable } from './adapters.ts'
 import { readCodexAccount } from './codex-account.ts'
 import { readFirstPartyModelSources } from './first-party-models.ts'
 import { readPiOmpAccountMaterial, safePiOmpAncestors } from './pi-omp-native.ts'
-import { readOpenCodeProfile } from './opencode-native.ts'
+import { readOpenCodeProfile, OPENCODE_OAUTH_UNSUPPORTED } from './opencode-native.ts'
 import { openCodeAuthDirectory } from './opencode-adapter.ts'
 import { assertHermesOwnAccounts } from './hermes-models.ts'
 import { hermesHomeDirectory } from './hermes-adapter.ts'
@@ -35,8 +35,8 @@ function sort(v: unknown): unknown {
 /** Safe public error; neither secrets nor native paths are interpolated. */
 export class CliAccountBindingError extends Error {
   readonly code = 'CLI_OWN_ACCOUNT_REQUIRED'
-  constructor(cli: CliId) {
-    super(`${CLI_LABELS[cli]} 无法确认当前自身账号，请检查该 CLI 的登录或 API 配置`)
+  constructor(cli: CliId, reason?: string) {
+    super(reason ?? `${CLI_LABELS[cli]} 无法确认当前自身账号，请检查该 CLI 的登录或 API 配置`)
     this.name = 'CliAccountBindingError'
   }
 }
@@ -355,7 +355,6 @@ async function material(
         : auth
       const entry = credentialEntry(provider, resolved)
       if (entry) entries.push(entry)
-      else if (auth.type === 'oauth') throw new CliAccountBindingError(cli)
     }
     for (const row of source.credentials) {
       if (row.disabled_cause) continue
@@ -368,7 +367,6 @@ async function material(
           : {}),
       })
       if (entry) entries.push(entry)
-      else if (row.credential_type === 'oauth') throw new CliAccountBindingError(cli)
     }
     for (const [provider, cfg] of Object.entries(source.models.providers ?? {}) as [string, any][]) {
       const key = ownKey(cfg.apiKey, source.env)
@@ -383,16 +381,21 @@ async function material(
   if (cli === 'opencode') {
     const profile = await readOpenCodeProfile(openCodeAuthDirectory(config.stateDirectory), { signal })
     const entries: BindingEntry[] = []
+    let hasOAuth = false
     for (const [provider, credential] of Object.entries(profile.auth)) {
       if (profile.disabled.includes(provider) || (profile.enabled && !profile.enabled.includes(provider)))
         continue
+      if (credential.type === 'oauth') {
+        hasOAuth = true
+        continue
+      }
       const entry = credentialEntry(provider, credential, {
         baseURL: profile.providers[provider]?.options?.baseURL,
         npm: profile.providers[provider]?.npm,
       })
       if (entry) entries.push(entry)
-      else if (credential.type === 'oauth') throw new CliAccountBindingError(cli)
     }
+    if (!entries.length && hasOAuth) throw new CliAccountBindingError(cli, OPENCODE_OAUTH_UNSUPPORTED)
     return { sourceIds: profile.sourceIds, entries }
   }
   if (cli === 'zcode') {

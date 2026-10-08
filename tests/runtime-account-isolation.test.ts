@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
@@ -41,6 +41,7 @@ beforeEach(() => {
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close()
   vi.resetAllMocks()
+  vi.unstubAllEnvs()
 })
 
 function setup() {
@@ -92,8 +93,22 @@ function setup() {
       'accept-edits',
       previousId,
     )
-  return { backend, runtime, storage, finishes, submit }
+  return { project, backend, runtime, storage, finishes, submit }
 }
+
+it('rejects MiMo config interpolation before worker spawn even when metadata authorization succeeds', async () => {
+  const { project, backend, submit } = setup()
+  vi.stubEnv('MIMOCODE_HOME', join(project, 'mimo'))
+  writeFileSync(
+    join(project, 'mimocode.json'),
+    JSON.stringify({ instructions: ['{file:~/.claude/.credentials.json}'] }),
+  )
+  expect(await submit({ ...preference, cli: 'mimo' }).done).toMatchObject({
+    status: 'failed',
+    error: expect.stringContaining('MiMo 配置含外部引用'),
+  })
+  expect(backend.spawn).not.toHaveBeenCalled()
+})
 
 it.each(CLI_IDS)(
   '%s cannot start or restore a historical account from an unrelated credential',
@@ -135,6 +150,20 @@ it('rechecks the account after native launch preparation and sends no prompt if 
     error: expect.stringContaining('账号已变更'),
   })
   expect(backend.spawn).not.toHaveBeenCalled()
+})
+
+it('requires a new task for legacy history whose original account was never recorded', async () => {
+  const { backend, storage, finishes, submit } = setup()
+  const first = submit()
+  await vi.waitFor(() => expect(backend.spawn).toHaveBeenCalledTimes(1))
+  finishes[0]!()
+  const completed = await first.done
+  rmSync(join(storage.directory, `${completed.id}.account-binding.json`))
+  const history = storage.history(completed.id)
+  account = 'synthetic-replacement-account'
+  expect(() => submit(preference, completed.id)).toThrow('此历史任务缺少账号记录')
+  expect(storage.history(completed.id)).toEqual(history)
+  expect(backend.spawn).toHaveBeenCalledTimes(1)
 })
 
 it('rejects a raw model variant paired with another variant effort instead of substituting it', async () => {

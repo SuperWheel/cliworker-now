@@ -91,6 +91,83 @@ afterEach(async () => {
 })
 
 describe('metadata preparation cleanup admission, isolated synthetic fixtures', () => {
+  it('cancellation during Host account activation waits for activation and releases without spawning', async () => {
+    const { runtime, backend, submit } = setup()
+    const activated = deferred<void>()
+    const activate = vi.fn(() => activated.promise)
+    const release = vi.fn()
+    launch.mockResolvedValue({ ...safeLaunch(release), activate })
+    const first = submit()
+    await vi.waitFor(() => expect(activate).toHaveBeenCalledTimes(1))
+    const stopped = runtime.stop('synthetic-parent', first.worker.id)
+    expect(release).not.toHaveBeenCalled()
+    expect(backend.spawn).not.toHaveBeenCalled()
+    activated.resolve()
+    expect((await stopped).status).toBe('interrupted')
+    expect(release).toHaveBeenCalledTimes(1)
+    expect(backend.spawn).not.toHaveBeenCalled()
+  })
+
+  it('an account activation conflict releases preparation without spawning the task', async () => {
+    const { backend, submit } = setup()
+    const release = vi.fn()
+    launch.mockResolvedValue({
+      ...safeLaunch(release),
+      activate: vi.fn(async () => {
+        throw new Error('账号正被使用，请稍后刷新')
+      }),
+    })
+    expect(await submit().done).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('账号正被使用'),
+    })
+    expect(release).toHaveBeenCalledTimes(1)
+    expect(backend.spawn).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])(
+    'awaits asynchronous account cleanup before settling or dequeuing (stop=%s)',
+    async (stop) => {
+      const { runtime, backend, submit } = setup()
+      const cleanup = deferred<void>()
+      const release = vi.fn(() => cleanup.promise)
+      launch.mockResolvedValueOnce(safeLaunch(release)).mockResolvedValue(safeLaunch())
+      const first = submit()
+      const queued = submit('Synthetic queued account cleanup')
+      let settled = false
+      void first.done.then(() => {
+        settled = true
+      })
+      await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(1))
+      const stopped = stop ? runtime.stop('synthetic-parent', first.worker.id) : undefined
+      expect(settled).toBe(false)
+      expect(queued.worker.status).toBe('queued')
+      expect(backend.spawn).toHaveBeenCalledTimes(1)
+      cleanup.resolve()
+      expect((await first.done).status).toBe(stop ? 'interrupted' : 'completed')
+      if (stopped) await stopped
+      expect((await queued.done).status).toBe('completed')
+      expect(backend.spawn).toHaveBeenCalledTimes(2)
+    },
+  )
+
+  it('does not release account state when the native process range has not exited', async () => {
+    const { backend, submit } = setup()
+    const release = vi.fn()
+    launch.mockResolvedValue(safeLaunch(release))
+    const original = backend.spawn
+    backend.spawn = vi.fn((spec) => {
+      const child = original(spec)
+      vi.mocked(child.waitForExit).mockResolvedValue(false)
+      return child
+    })
+    expect(await submit().done).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('无法确认'),
+    })
+    expect(release).not.toHaveBeenCalled()
+  })
+
   it.each([false, true])(
     'reports failed and blocks queued work and account mutation after unconfirmed preparation cleanup (stop=%s)',
     async (stopWhilePreparing) => {

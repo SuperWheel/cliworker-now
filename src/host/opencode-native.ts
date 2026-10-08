@@ -9,6 +9,7 @@ import type { AccountIdentity } from './account-identity.ts'
 const object = (value: unknown): value is Record<string, any> =>
   !!value && typeof value === 'object' && !Array.isArray(value)
 const text = (value: unknown): value is string => typeof value === 'string' && !!value.trim()
+export const OPENCODE_OAUTH_UNSUPPORTED = 'OpenCode OAuth 暂无法安全续期，请使用该 CLI 自身 API 配置'
 export interface OpenCodeNativeOptions {
   nativeHome?: string
   modelsPath?: string
@@ -79,6 +80,7 @@ function jsonc(raw: string): unknown {
   }
   return JSON.parse(result)
 }
+export { jsonc as parseNativeJsonc }
 interface ReferenceScope {
   roots: string[]
   env: Record<string, string>
@@ -242,6 +244,13 @@ export const activeOpenCodeCredential = (value: unknown): value is Record<string
       text(value.access) &&
       typeof value.expires === 'number' &&
       value.expires > Date.now() + 30000)
+/** A native account terminal may load remote well-known config before provider filters. */
+export async function assertOpenCodeManagedAuth(authDirectory: string, signal?: AbortSignal): Promise<void> {
+  await safePiOmpAncestors(join(authDirectory, 'opencode'))
+  const auth = (await readDocument(join(authDirectory, 'opencode/auth.json'), true, { signal })) ?? {}
+  if (Object.values(auth).some((entry) => !object(entry) || !['api', 'oauth'].includes(entry.type)))
+    throw new Error('OpenCode 原生账号包含不支持的远程认证配置')
+}
 /** The same native+plugin sources supply metadata queries and worker execution. */
 export async function readOpenCodeProfile(
   authDirectory: string,
@@ -325,8 +334,13 @@ export async function snapshotOpenCodeAuth(
   providers: string[],
   signal?: AbortSignal,
 ): Promise<string> {
+  // Native Auth.set has no cross-process CAS. Copying OAuth loses rotated tokens;
+  // writing directly can resurrect a concurrent logout. Neither mode is safe.
+  if (providers.some((id) => auth[id]?.type === 'oauth')) throw new Error(OPENCODE_OAUTH_UNSUPPORTED)
   const chosen = Object.fromEntries(
-    providers.filter((id) => activeOpenCodeCredential(auth[id])).map((id) => [id, auth[id]]),
+    providers
+      .filter((id) => auth[id]?.type === 'api' && activeOpenCodeCredential(auth[id]))
+      .map((id) => [id, auth[id]]),
   )
   const digest = createHash('sha256').update(JSON.stringify(chosen)).digest('hex')
   const root = join(authDirectory, 'cliworker-snapshots', 'own-v2-' + digest)
@@ -337,6 +351,7 @@ export async function snapshotOpenCodeAuth(
     join(root, 'opencode'),
   ]) {
     signal?.throwIfAborted()
+    await safePiOmpAncestors(path)
     await mkdir(path, { recursive: true, mode: 0o700 })
     const info = await lstat(path)
     if (!info.isDirectory() || info.isSymbolicLink() || info.mode & 0o077)

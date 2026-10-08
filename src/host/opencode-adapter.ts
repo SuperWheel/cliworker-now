@@ -11,6 +11,7 @@ import {
   readOpenCodeProfile,
   snapshotOpenCodeAuth,
   type OpenCodeNativeOptions,
+  OPENCODE_OAUTH_UNSUPPORTED,
 } from './opencode-native.ts'
 import { probeAccountModels, type AccountModelScope } from './account-models.mjs'
 
@@ -28,6 +29,7 @@ export interface OpenCodeInput {
   managedCredentials?: boolean
   nativeHome?: string
   modelsPath?: string
+  signal?: AbortSignal
 }
 type Capture = (argv: string[], env?: Record<string, string>) => Promise<string>
 const object = (value: unknown): value is Record<string, any> =>
@@ -138,9 +140,10 @@ export async function prepareOpenCode(
   const selectedProvider = preference.model.slice(0, preference.model.indexOf('/'))
   const source = input.authDirectory ?? openCodeAuthDirectory()
   const profile = await readOpenCodeProfile(source, input)
+  if (profile.auth[selectedProvider]?.type === 'oauth') throw new Error(OPENCODE_OAUTH_UNSUPPORTED)
   if (!activeOpenCodeCredential(profile.auth[selectedProvider]))
     throw new Error('OpenCode 所选提供商没有有效账号配置，请先登录')
-  const snapshot = await snapshotOpenCodeAuth(source, profile.auth, [selectedProvider])
+  const snapshot = await snapshotOpenCodeAuth(source, profile.auth, [selectedProvider], input.signal)
   const env = await openCodeEnvironment(
     stateDirectory,
     {
@@ -294,12 +297,17 @@ export async function discoverOpenCode(
   const profile = await readOpenCodeProfile(source, options)
   const providers = Object.keys(profile.auth).filter(
     (id) =>
+      profile.auth[id]?.type === 'api' &&
       activeOpenCodeCredential(profile.auth[id]) &&
       !profile.disabled.includes(id) &&
       (!profile.enabled || profile.enabled.includes(id)) &&
       !(id === 'opencode' && profile.auth[id].key === 'public'),
   )
-  if (!providers.length) return []
+  if (!providers.length) {
+    if (Object.values(profile.auth).some((auth) => auth?.type === 'oauth'))
+      throw new Error(OPENCODE_OAUTH_UNSUPPORTED)
+    return []
+  }
   const snapshot = await snapshotOpenCodeAuth(source, profile.auth, providers, options.signal)
   const nativeProviderConfig = Object.fromEntries(
     providers.filter((id) => profile.providers[id]).map((id) => [id, profile.providers[id]]),

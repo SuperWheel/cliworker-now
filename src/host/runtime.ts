@@ -34,7 +34,7 @@ import { attachTelemetry, TelemetryReader } from './telemetry.ts'
 import { WorkerStorage } from './storage.ts'
 import { authorizeSelection, ACCOUNT_CHANGED } from './authorized-catalog.ts'
 import { readCliAccountBinding } from './cli-account-binding.ts'
-import { firstPartyEnvironment } from './first-party-models.ts'
+import { assertFirstPartyConfiguration, firstPartyEnvironment } from './first-party-models.ts'
 
 interface Task {
   worker: Worker
@@ -252,6 +252,8 @@ export class WorkerRuntime {
       throw new Error('This CLI conversation already has a running or queued turn')
     if (previous && !previous.conversationId)
       throw new Error('No CLI conversation_id was received; start a new worker')
+    if (previous && !this.storage.accountBinding(previous.id))
+      throw new Error('此历史任务缺少账号记录，请新建任务')
     if (previous && previous.project !== canonical)
       throw new Error('Cannot resume a worker in another workspace')
     if (cliOf(effective) === 'kimi' && (previous?.mode ?? mode) === 'plan')
@@ -428,7 +430,7 @@ export class WorkerRuntime {
       worker.preference.model,
     )
     let failure: unknown
-    let release: (() => void) | undefined
+    let release: (() => void | Promise<void>) | undefined
     let quiescent = false
     try {
       const admitted = await task.admission
@@ -454,6 +456,7 @@ export class WorkerRuntime {
         controller.signal,
       )
       controller.signal.throwIfAborted()
+      await assertFirstPartyConfiguration(cliOf(worker.preference), worker.project, controller.signal)
       worker.status = 'running'
       this.storage.save(worker)
       this.changed()
@@ -496,6 +499,8 @@ export class WorkerRuntime {
         ))
       )
         throw new Error(ACCOUNT_CHANGED)
+      controller.signal.throwIfAborted()
+      if ('activate' in launch && typeof launch.activate === 'function') await launch.activate()
       controller.signal.throwIfAborted()
       this.storage.bindAccount(worker.id, binding)
       handle = await spawnManagedAgent(this.backend, {
@@ -553,7 +558,7 @@ export class WorkerRuntime {
       }
     }
     try {
-      if ((!handle || quiescent) && !this.blocked) release?.()
+      if ((!handle || quiescent) && !this.blocked) await release?.()
     } catch (error) {
       failure ??= error
     }

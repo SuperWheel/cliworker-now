@@ -8,7 +8,11 @@ import type { RuntimeConfig } from './process.ts'
 import { openCodeAuthDirectory, openCodeEnvironment } from './opencode-adapter.ts'
 import { confineExtended, privateDirectory } from './extended-adapters.ts'
 import { inspectPiOmpNativeAccount } from './pi-omp-native.ts'
-import { inspectOpenCodeProfile, type OpenCodeNativeOptions } from './opencode-native.ts'
+import {
+  assertOpenCodeManagedAuth,
+  inspectOpenCodeProfile,
+  type OpenCodeNativeOptions,
+} from './opencode-native.ts'
 
 export async function readPiOmpAccount(
   cli: 'pi' | 'omp',
@@ -79,6 +83,7 @@ export async function prepareOpenCodeAccount(
   }
   try {
     signal.throwIfAborted()
+    await assertOpenCodeManagedAuth(data, signal)
     const env = await openCodeEnvironment(
       state,
       {

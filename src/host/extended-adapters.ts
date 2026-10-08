@@ -19,7 +19,12 @@ import { homedir } from 'node:os'
 import type { CliId, Preference, TaskMode, ModelChoice } from '../shared/types.ts'
 import type { RuntimeConfig } from './process.ts'
 import { prepareZCode, discoverZCode, zcodeAuthDirectory } from './zcode-adapter.ts'
-import { preparePiOmp, discoverPiOmp, type PiOmpMetadataCapture } from './pi-omp-adapter.ts'
+import {
+  preparePiOmp,
+  discoverPiOmp,
+  type PiOmpMetadataPhase,
+  type PiOmpMetadataCapture,
+} from './pi-omp-adapter.ts'
 import { prepareOpenCode, discoverOpenCode, openCodeAuthDirectory } from './opencode-adapter.ts'
 import { prepareHermes, discoverHermes, hermesHomeDirectory } from './hermes-adapter.ts'
 import { hermesSandbox } from './hermes-sandbox.ts'
@@ -106,15 +111,20 @@ export function confineExtended(
   temporary?: string,
   authDirectory?: string,
   isolateDotenv = false,
+  leaseDirectory?: string,
 ): string[] {
   if (process.platform !== 'darwin') throw new Error('这些新增 CLI 当前仅验收 macOS 沙箱；本平台暂不能运行')
   const roots = [
     realpathSync(state),
     ...(authDirectory ? [realpathSync(authDirectory)] : []),
+    ...(leaseDirectory && isolateDotenv ? [realpathSync(join(leaseDirectory, 'agent'))] : []),
     ...(temporary ? [realpathSync(temporary)] : []),
     ...(mode === 'accept-edits' ? [realpathSync(project)] : []),
   ]
-  const policy = `(version 1)\n(allow default)\n(deny file-write*)\n(allow file-write* ${roots.map((r) => `(subpath ${JSON.stringify(r)})`).join(' ')} (literal "/dev/null") (literal "/dev/tty"))\n${isolateDotenv ? PI_OMP_ENVIRONMENT_POLICY : ''}`
+  const leasePolicy = leaseDirectory
+    ? `(deny file-write* (subpath ${JSON.stringify(realpathSync(leaseDirectory))}))\n${isolateDotenv ? `(allow file-write* (subpath ${JSON.stringify(realpathSync(join(leaseDirectory, 'agent')))}))\n` : ''}`
+    : ''
+  const policy = `(version 1)\n(allow default)\n(deny file-write*)\n(allow file-write* ${roots.map((r) => `(subpath ${JSON.stringify(r)})`).join(' ')} (literal "/dev/null") (literal "/dev/tty"))\n${leasePolicy}${isolateDotenv ? PI_OMP_ENVIRONMENT_POLICY : ''}`
   return ['/usr/bin/sandbox-exec', '-p', policy, ...argv]
 }
 export async function extendedLaunch(
@@ -133,11 +143,19 @@ export async function extendedLaunch(
   const input = { executable, project, preference, mode, prompt, conversationId, stateDirectory: state }
   const metadata: PiOmpMetadataCapture | undefined =
     metadataCapture &&
-    (async (argv, env, phase) => {
-      const confined = confineExtended(privateArgv(argv), state, state, 'plan')
-      if (cli === 'pi' || cli === 'omp') confined[2] += PI_OMP_ENVIRONMENT_POLICY
+    (async (argv, env, phase, scope) => {
+      const confined = confineExtended(
+        privateArgv(argv),
+        state,
+        state,
+        'plan',
+        undefined,
+        undefined,
+        cli === 'pi' || cli === 'omp',
+        scope?.leaseDirectory,
+      )
       if (phase === 'native-candidates') confined[2] += '\n(deny network*)\n'
-      return metadataCapture(confined, { ...env, ELECTRON_RUN_AS_NODE: '1' }, phase)
+      return metadataCapture(confined, { ...env, ELECTRON_RUN_AS_NODE: '1' }, phase, scope)
     })
   const launch =
     cli === 'zcode'
@@ -194,10 +212,15 @@ export async function extendedLaunch(
               temporary,
               cli === 'opencode' ? openCodeAuthDirectory(config.stateDirectory) : undefined,
               cli === 'pi' || cli === 'omp',
+              'leaseDirectory' in launch && typeof launch.leaseDirectory === 'string'
+                ? launch.leaseDirectory
+                : undefined,
             ),
       env,
-      cleanup: () => {
+      ...('activate' in launch && launch.activate ? { activate: launch.activate } : {}),
+      cleanup: async () => {
         try {
+          if ('cleanup' in launch && launch.cleanup) await launch.cleanup()
           sealPrivateTree(state)
         } finally {
           if (temporary) rmSync(temporary, { recursive: true, force: true })
@@ -205,6 +228,7 @@ export async function extendedLaunch(
       },
     }
   } catch (error) {
+    if ('cleanup' in launch && launch.cleanup) await launch.cleanup()
     if (temporary) rmSync(temporary, { recursive: true, force: true })
     throw error
   }
@@ -220,7 +244,15 @@ export async function extendedCatalog(
   signal?.throwIfAborted()
   const catalogRoot = privateDirectory(join(stateDirectory, 'catalog', cli))
   const state = privateDirectory(mkdtempSync(join(catalogRoot, 'query-')))
-  const run: PiOmpMetadataCapture = async (argv, env, phase) => {
+  type Scope = { leaseDirectory?: string }
+  const run = async (
+    argv: string[],
+    env?: Record<string, string>,
+    phaseOrScope?: PiOmpMetadataPhase | Scope,
+    scope?: Scope,
+  ) => {
+    const phase = typeof phaseOrScope === 'string' ? phaseOrScope : undefined
+    const sandboxScope = typeof phaseOrScope === 'object' ? phaseOrScope : scope
     const temporary = cli === 'zcode' ? mkdtempSync('/private/tmp/cwn-') : undefined
     if (temporary) chmodSync(temporary, 0o700)
     try {
@@ -235,6 +267,7 @@ export async function extendedCatalog(
               temporary,
               cli === 'opencode' ? openCodeAuthDirectory(config.stateDirectory ?? stateDirectory) : undefined,
               cli === 'pi' || cli === 'omp',
+              sandboxScope?.leaseDirectory,
             )
       // Exactly one outer sandbox owns each phase. Only the SDK/native directory
       // phase is offline; the account phase performs bounded metadata GETs.

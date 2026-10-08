@@ -1,5 +1,9 @@
 import { isExtendedCli } from './extended-adapters.ts'
-import { firstPartyEnvironment } from './first-party-models.ts'
+import {
+  assertFirstPartyConfiguration,
+  firstPartyEnvironment,
+  MimoConfigurationError,
+} from './first-party-models.ts'
 import type { SubprocessTerminalHandle } from '@deepseek-ai/dsh-subprocess'
 import { randomUUID } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
@@ -242,6 +246,7 @@ export class AccountManager {
       const executable = await resolveCliExecutable(cli, this.backend, this.config, control)
       installed = true
       control.throwIfAborted()
+      await assertFirstPartyConfiguration(cli, cwd, control)
       if (cli === 'hermes') await verifyHermesExecutable(executable, control)
       if (isExtendedCli(cli)) {
         const identity = await abortable(
@@ -343,6 +348,8 @@ export class AccountManager {
       }
       if (signal.aborted || this.controller.signal.aborted) throw new Error('账号状态查询已取消')
       const code = (error as NodeJS.ErrnoException)?.code
+      if (error instanceof MimoConfigurationError)
+        return { cli, installed, state: 'unavailable', summary: error.message, actions: [] }
       if (error instanceof HermesExecutableError)
         return { cli, installed, state: 'unavailable', summary: error.message, actions: [] }
       if (code === 'CLI_IDENTITY_MISMATCH')
@@ -439,6 +446,7 @@ export class AccountManager {
     let instruction = instructionFor(cli, action)
     try {
       const executable = await resolveCliExecutable(cli, this.backend, this.config, startup)
+      await assertFirstPartyConfiguration(cli, cwd, startup)
       if (cli === 'hermes') await verifyHermesExecutable(executable, startup)
       startup.throwIfAborted()
       let launch: { argv: string[]; cwd: string; env?: Record<string, string> } = {
@@ -576,6 +584,7 @@ export class AccountManager {
       if (timeout.signal.aborted) throw new Error('账号终端启动超时，正在回收启动过程；请稍后重试')
       if (error instanceof ZCodeAccountCapabilityError) throw error
       if (error instanceof HermesExecutableError) throw error
+      if (error instanceof MimoConfigurationError) throw error
       if ((error as NodeJS.ErrnoException)?.code === 'CLI_IDENTITY_MISMATCH')
         throw new Error(`${cli === 'omp' ? 'OMP' : 'Pi'} 执行入口身份不匹配，请检查该 CLI 的安装和路径`)
       throw new Error(

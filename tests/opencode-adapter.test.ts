@@ -241,12 +241,12 @@ describe('OpenCode native adapter (explicitly synthetic fixtures)', () => {
         openai: { type: 'oauth', access: 'SYNTHETIC-EXPIRED', refresh: 'SYNTHETIC-REFRESH', expires: 1 },
       }),
     )
-    expect(
-      await discoverOpenCode('/bin/opencode', capture, root, account.authDirectory, false, {
+    await expect(
+      discoverOpenCode('/bin/opencode', capture, root, account.authDirectory, false, {
         nativeHome: account.nativeHome,
         probeOptions: { fetch: metadata404 },
       }),
-    ).toEqual([])
+    ).rejects.toThrow('OAuth 暂无法安全续期')
     expect(capture).not.toHaveBeenCalled()
   })
   it('intersects API account metadata with native routes, prices proven free first and ignores SDK default zero', async () => {
@@ -341,7 +341,7 @@ describe('OpenCode native adapter (explicitly synthetic fixtures)', () => {
     expect(models.map((model) => model.id)).toEqual(['fixture/one'])
     expect(paths.sort()).toEqual(['https://one.example.test/v1/models', 'https://two.example.test/v1/models'])
   })
-  it('uses current OAuth account scope and quota rather than native static provider filters', async () => {
+  it('refuses OAuth discovery because native refresh has no cross-process CAS', async () => {
     const root = directory(),
       account = native(root, {})
     writeFileSync(
@@ -350,48 +350,22 @@ describe('OpenCode native adapter (explicitly synthetic fixtures)', () => {
         openai: {
           type: 'oauth',
           access: 'SYNTHETIC-OAUTH',
+          refresh: 'SYNTHETIC-REFRESH',
           expires: Date.now() + 120000,
           accountId: 'synthetic-account',
         },
       }),
     )
-    const capture = async () =>
-      dump(
-        ['gpt-5.4', 'gpt-5.5-pro', 'gpt-5.4-mini'].map((id) =>
-          row(id, 'openai', { api: { id, url: 'https://api.openai.com/v1', npm: '@ai-sdk/openai' } }),
-        ),
-      )
-    const fetcher = async (url: any) =>
-      new Response(
-        JSON.stringify(
-          String(url).includes('/wham/usage')
-            ? { plan_type: 'plus', rate_limit: { allowed: true, limit_reached: false } }
-            : {
-                models: [
-                  { slug: 'gpt-5.4', supported_in_api: true },
-                  { slug: 'gpt-5.4-mini', supported_in_api: false },
-                ],
-              },
-        ),
-      )
-    expect(
-      (
-        await discoverOpenCode('/bin/opencode', capture, root, account.authDirectory, false, {
-          nativeHome: account.nativeHome,
-          probeOptions: { fetch: fetcher },
-        })
-      ).map(({ id, cost }) => ({ id, cost })),
-    ).toEqual([{ id: 'openai/gpt-5.4', cost: 'paid' }])
-    expect(
-      await discoverOpenCode('/bin/opencode', capture, root, account.authDirectory, false, {
+    const capture = vi.fn(),
+      fetch = vi.fn()
+    await expect(
+      discoverOpenCode('/bin/opencode', capture, root, account.authDirectory, false, {
         nativeHome: account.nativeHome,
-        probeOptions: {
-          fetch: async () => {
-            throw new Error('unavailable')
-          },
-        },
+        probeOptions: { fetch },
       }),
-    ).toEqual([])
+    ).rejects.toThrow('OAuth 暂无法安全续期')
+    expect(capture).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
   })
   it('ignores legacy managed CN credentials and requires an own account', async () => {
     const root = directory(),

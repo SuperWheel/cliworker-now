@@ -4,6 +4,14 @@ import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import { EFFORTS, type ModelChoice } from '../shared/types.ts'
 import { probeAccountModels, type AccountModelInput } from './account-models.mjs'
+import { parseNativeJsonc } from './opencode-native.ts'
+import {
+  assertMimoConfiguration,
+  mimoConfigurationFiles,
+  mimoConfigurationPaths,
+  MimoConfigurationError,
+} from './mimo-configuration.ts'
+export { MimoConfigurationError } from './mimo-configuration.ts'
 
 type Capture = (argv: string[], env?: Record<string, string>) => Promise<string>
 const record = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -45,7 +53,8 @@ export async function readFirstPartyJson(path: string): Promise<Record<string, a
     if (offset !== stat.size || after.size !== stat.size || after.mtimeMs !== stat.mtimeMs)
       throw new Error('账号配置读取期间发生变化')
     try {
-      const value: unknown = JSON.parse(bytes.subarray(0, stat.size).toString('utf8'))
+      const raw = bytes.subarray(0, stat.size).toString('utf8')
+      const value: unknown = path.endsWith('.jsonc') ? parseNativeJsonc(raw) : JSON.parse(raw)
       return record(value) ? value : {}
     } finally {
       bytes.fill(0)
@@ -68,7 +77,24 @@ export function firstPartyEnvironment(cli: string): Record<string, string> {
     MIMOCODE_PURE: '1',
     MIMOCODE_DISABLE_MODELS_FETCH: '1',
     MIMOCODE_AUTH_CONTENT: '',
+    MIMOCODE_CONFIG: '',
+    MIMOCODE_CONFIG_CONTENT: '',
+    MIMOCODE_CONFIG_DEFAULTS: '',
+    MIMOCODE_CONFIG_DIR: '',
+    MIMOCODE_TEST_MANAGED_CONFIG_DIR: '',
+    MIMOCODE_DB: '',
+    MIMOCODE_DISABLE_CLAUDE_CODE_MCP: '1',
+    MIMOCODE_DISABLE_CLAUDE_CODE_COMMANDS: '1',
   }
+}
+
+export async function assertFirstPartyConfiguration(
+  cli: string,
+  project: string,
+  signal: AbortSignal,
+): Promise<void> {
+  signal.throwIfAborted()
+  if (cli === 'mimo') await assertMimoConfiguration(project, signal)
 }
 
 export function parseKimiModelSources(raw: unknown, sourceId: string): FirstPartyModelSource[] {
@@ -222,7 +248,7 @@ export async function readFirstPartyModelSources(
   capture: Capture,
   signal: AbortSignal,
 ): Promise<FirstPartyModelSource[]> {
-  signal.throwIfAborted()
+  await assertFirstPartyConfiguration(cli, project, signal)
   if (cli === 'kimi') {
     if (
       ['KIMI_CODE_BASE_URL', 'KIMI_CODE_OAUTH_HOST', 'KIMI_OAUTH_HOST', 'KIMI_CODE_CUSTOM_HEADERS'].some(
@@ -243,24 +269,17 @@ export async function readFirstPartyModelSources(
     signal.throwIfAborted()
     const data = paths.match(/^data\s+(.+)$/m)?.[1]?.trim()
     if (!data || !isAbsolute(data) || dirname(data) === data) return []
+    const expected = mimoConfigurationPaths()
+    if (data !== expected.data || paths.match(/^config\s+(.+)$/m)?.[1]?.trim() !== expected.config)
+      throw new MimoConfigurationError('MiMo 配置来源无法确认，请检查配置')
     const authPath = join(data, 'auth.json'),
       auth = await readFirstPartyJson(authPath)
     signal.throwIfAborted()
+    await assertFirstPartyConfiguration(cli, project, signal)
     const config = parseMetadata(await capture([executable, 'debug', 'config'], env))
     signal.throwIfAborted()
-    const configRoot = paths.match(/^config\s+(.+)$/m)?.[1]?.trim()
-    const candidates = new Set<string>()
-    if (configRoot && isAbsolute(configRoot))
-      for (const name of ['config.json', 'mimocode.json']) candidates.add(join(configRoot, name))
-    for (let directory = project; isAbsolute(directory); ) {
-      candidates.add(join(directory, 'mimocode.json'))
-      candidates.add(join(directory, '.mimocode/mimocode.json'))
-      const parent = dirname(directory)
-      if (parent === directory) break
-      directory = parent
-    }
     const inline: Record<string, { key: string; sourceId: string }> = {}
-    for (const path of candidates) {
+    for (const path of await mimoConfigurationFiles(project)) {
       const raw = await readFirstPartyJson(path)
       signal.throwIfAborted()
       if (!record(raw.provider)) continue
@@ -275,6 +294,7 @@ export async function readFirstPartyModelSources(
       !Object.keys(inline).length
     )
       return []
+    await assertFirstPartyConfiguration(cli, project, signal)
     const native = parseMimoModelRecords(await capture([executable, 'models', '--verbose'], env))
     signal.throwIfAborted()
     return mimoModelSources(native, config, auth, authPath, inline)

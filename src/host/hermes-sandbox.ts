@@ -2,6 +2,7 @@ import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { TaskMode } from '../shared/types.ts'
 import { validateHermesHomeDirectory } from './hermes-adapter.ts'
+import { hermesAccountIsolationPolicy } from './hermes-account-isolation.ts'
 
 const inside = (path: string, root: string) => path === root || path.startsWith(root + sep)
 const overlaps = (left: string, right: string) => inside(left, right) || inside(right, left)
@@ -119,5 +120,10 @@ export function hermesSandbox(
   const subpath = (path: string) => `(subpath ${JSON.stringify(path)})`
   const writable = [privateRoot, ...directories, ...(mode === 'accept-edits' ? [workspace] : [])]
   const policy = `(version 1)\n(allow default)\n(deny file-write*)\n(allow file-write* ${writable.map(subpath).join(' ')} ${[...files, '/dev/null', '/dev/tty'].map(literal).join(' ')})\n`
-  return ['/usr/bin/sandbox-exec', '-p', policy, ...argv]
+  return [
+    '/usr/bin/sandbox-exec',
+    '-p',
+    policy + hermesAccountIsolationPolicy(nativeHome, workspace),
+    ...argv,
+  ]
 }

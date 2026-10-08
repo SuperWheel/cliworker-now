@@ -132,7 +132,7 @@ it.skipIf(process.platform !== 'darwin')(
       expect(privateAuth['synthetic-provider']?.key === 'SYNTHETIC_PLUGIN_ACCOUNT').toBe(true)
       expect(readFileSync(auth, 'utf8') === original).toBe(true)
       expect(request.accountRoot).toBe(join(home, 'cliworker-now'))
-      launch.cleanup()
+      await launch.cleanup()
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -369,7 +369,7 @@ describe('extended worker boundaries (simulated protocol)', () => {
         writeFileSync(outside, 'external')
         chmodSync(outside, 0o644)
         linkSync(outside, join(state, 'hard-link'))
-        expect(() => launch.cleanup()).toThrow('hard-linked')
+        await expect(launch.cleanup()).rejects.toThrow('hard-linked')
         expect(existsSync(temporary!)).toBe(false)
         expect(statSync(outside).mode & 0o7777).toBe(0o644)
       } finally {

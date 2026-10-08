@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   discoverFirstPartySources,
+  assertFirstPartyConfiguration,
   firstPartyEnvironment,
   mimoModelSources,
   parseKimiModelSources,
@@ -133,6 +135,8 @@ describe('first-party model scopes', () => {
     await mkdir(join(root, 'data'))
     await mkdir(join(root, 'config'))
     await mkdir(join(root, 'project'))
+    vi.stubEnv('MIMOCODE_HOME', root)
+    vi.stubEnv('HOME', root)
     await writeFile(join(root, 'data/auth.json'), JSON.stringify({ own: { type: 'api', key: 'own-key' } }))
     const capture = vi.fn(async (argv: string[]) =>
       argv.includes('paths')
@@ -189,6 +193,232 @@ describe('first-party model scopes', () => {
     await expect(
       discoverFirstPartySources(parseKimiModelSources(kimi(), '/synthetic'), controller.signal, { fetch }),
     ).rejects.toThrow()
+  })
+})
+
+async function mimoFixture() {
+  const root = await mkdtemp(join(tmpdir(), 'cwn-mimo-preflight-'))
+  roots.push(root)
+  const project = join(root, 'project', 'child')
+  for (const path of ['config', 'data', 'project/child', '.mimocode', 'project/.mimocode'])
+    await mkdir(join(root, path), { recursive: true })
+  vi.stubEnv('MIMOCODE_HOME', root)
+  vi.stubEnv('HOME', root)
+  const capture = vi.fn(async (argv: string[]) =>
+    argv.includes('paths')
+      ? `data ${root}/data\nconfig ${root}/config\n`
+      : argv.includes('config')
+        ? '{}'
+        : `own/native-model\n${JSON.stringify(mimo())}\n`,
+  )
+  return {
+    root,
+    project,
+    capture,
+    check: (abort = signal()) => assertFirstPartyConfiguration('mimo', project, abort),
+    read: () => readFirstPartyModelSources('mimo', '/synthetic/mimo', project, capture, signal()),
+  }
+}
+
+describe('MiMo configuration is checked before any native process can expand references', () => {
+  it.each([
+    'config/config.json',
+    'config/mimocode.json',
+    'config/mimocode.jsonc',
+    '.mimocode/mimocode.json',
+    '.mimocode/mimocode.jsonc',
+    'project/mimocode.json',
+    'project/mimocode.jsonc',
+    'project/.mimocode/mimocode.json',
+    'project/.mimocode/mimocode.jsonc',
+    'project/child/mimocode.json',
+  ])('rejects file interpolation in native source %s without starting metadata', async (source) => {
+    const f = await mimoFixture()
+    const marker = join(f.root, 'synthetic-foreign-secret')
+    await writeFile(marker, 'foreign-placeholder-never-read-by-native')
+    await writeFile(
+      join(f.root, source),
+      JSON.stringify({ provider: { own: { options: { apiKey: `{file:${marker}}` } } } }),
+    )
+    await expect(f.read()).rejects.toThrow('配置含外部引用')
+    expect(f.capture).not.toHaveBeenCalled()
+    expect(await readFile(marker, 'utf8')).toBe('foreign-placeholder-never-read-by-native')
+  })
+  it('rejects env interpolation before native can substitute inherited credentials', async () => {
+    const f = await mimoFixture()
+    vi.stubEnv('OPENAI_API_KEY', 'synthetic-foreign')
+    await writeFile(join(f.root, 'config/mimocode.json'), '{"model":"{env:OPENAI_API_KEY}"}')
+    await expect(f.read()).rejects.toThrow('配置含外部引用')
+    expect(f.capture).not.toHaveBeenCalled()
+  })
+  it('ignores inherited config and database selectors in every native command', async () => {
+    const f = await mimoFixture()
+    for (const key of [
+      'MIMOCODE_CONFIG',
+      'MIMOCODE_CONFIG_CONTENT',
+      'MIMOCODE_CONFIG_DEFAULTS',
+      'MIMOCODE_CONFIG_DIR',
+      'MIMOCODE_TEST_MANAGED_CONFIG_DIR',
+      'MIMOCODE_DB',
+    ])
+      vi.stubEnv(key, '{file:/synthetic/foreign-credential}')
+    await writeFile(join(f.root, 'data/auth.json'), '{"own":{"type":"api","key":"own-key"}}')
+    expect(await f.read()).toHaveLength(1)
+    for (const call of f.capture.mock.calls) {
+      const env = (call as unknown[])[1] as Record<string, string>
+      expect(env).toEqual(firstPartyEnvironment('mimo'))
+      for (const key of [
+        'MIMOCODE_CONFIG',
+        'MIMOCODE_CONFIG_CONTENT',
+        'MIMOCODE_CONFIG_DEFAULTS',
+        'MIMOCODE_CONFIG_DIR',
+        'MIMOCODE_TEST_MANAGED_CONFIG_DIR',
+        'MIMOCODE_DB',
+      ])
+        expect(env[key]).toBe('')
+    }
+  })
+  it('keeps literal own settings and local account history usable without writes', async () => {
+    const f = await mimoFixture()
+    await writeFile(
+      join(f.root, 'config/mimocode.json'),
+      '{"provider":{"own":{"options":{"apiKey":"own-literal"}}}}',
+    )
+    const path = join(f.root, 'data/mimocode.db'),
+      db = new DatabaseSync(path)
+    db.exec('CREATE TABLE account_state (active_org_id TEXT); INSERT INTO account_state VALUES (NULL)')
+    db.close()
+    const before = await readFile(path),
+      files = await readdir(join(f.root, 'data'))
+    await expect(f.check()).resolves.toBeUndefined()
+    expect(await readFile(path)).toEqual(before)
+    expect(await readdir(join(f.root, 'data'))).toEqual(files)
+  })
+  it('supports own JSONC literal API keys with comments and trailing commas', async () => {
+    const f = await mimoFixture()
+    const ownKey = 'synthetic//literal-key'
+    const path = join(f.root, 'config/mimocode.jsonc')
+    await writeFile(
+      path,
+      `{
+      // Native default settings use JSONC.
+      "provider": { "own": { "options": { "apiKey": "${ownKey}", }, }, },
+    }`,
+    )
+    f.capture.mockImplementation(async (argv) =>
+      argv.includes('paths')
+        ? `data ${f.root}/data\nconfig ${f.root}/config\n`
+        : argv.includes('config')
+          ? JSON.stringify({ provider: { own: { options: { apiKey: ownKey } } } })
+          : `own/native-model\n${JSON.stringify(mimo())}\n`,
+    )
+    const sources = await f.read()
+    expect(sources[0]?.credential).toEqual({ type: 'api', key: ownKey })
+    expect(sources[0]?.sourceIds).toContain(path)
+    expect(
+      await discoverFirstPartySources(sources, signal(), { fetch: fetchModels(['upstream-model']) }),
+    ).toEqual([
+      { id: 'own/native-model', label: 'Synthetic MiMo', efforts: ['default', 'high'], cost: 'unknown' },
+    ])
+  })
+  it('accepts verified XDG roots when MIMOCODE_HOME is unset', async () => {
+    const f = await mimoFixture()
+    vi.stubEnv('MIMOCODE_HOME', '')
+    vi.stubEnv('XDG_CONFIG_HOME', join(f.root, 'xdg-config'))
+    vi.stubEnv('XDG_DATA_HOME', join(f.root, 'xdg-data'))
+    await mkdir(join(f.root, 'xdg-config/mimocode'), { recursive: true })
+    await writeFile(join(f.root, 'xdg-config/mimocode/mimocode.jsonc'), '// own literal config\n{}')
+    await expect(f.check()).resolves.toBeUndefined()
+    await writeFile(join(f.root, 'xdg-config/mimocode/mimocode.jsonc'), '{"model":"{env:FOREIGN_KEY}"}')
+    await expect(f.check()).rejects.toThrow('配置含外部引用')
+  })
+  it.each(['wellknown', 'organization'])(
+    'rejects uninspectable remote %s config before metadata',
+    async (mode) => {
+      const f = await mimoFixture()
+      if (mode === 'wellknown')
+        await writeFile(
+          join(f.root, 'data/auth.json'),
+          '{"https://synthetic.test":{"type":"wellknown","key":"SYNTHETIC","token":"synthetic"}}',
+        )
+      else {
+        const db = new DatabaseSync(join(f.root, 'data/mimocode.db'))
+        db.exec(
+          "CREATE TABLE account_state (active_org_id TEXT); INSERT INTO account_state VALUES ('synthetic-org')",
+        )
+        db.close()
+      }
+      await expect(f.read()).rejects.toThrow('远程配置无法核验')
+      expect(f.capture).not.toHaveBeenCalled()
+    },
+  )
+  it('sees an active organization committed in the live WAL without changing history', async () => {
+    const f = await mimoFixture(),
+      path = join(f.root, 'data/mimocode.db')
+    const db = new DatabaseSync(path)
+    try {
+      db.exec(
+        "PRAGMA journal_mode = WAL; CREATE TABLE account_state (active_org_id TEXT); INSERT INTO account_state VALUES ('synthetic-wal-org')",
+      )
+      const before = await readFile(path),
+        wal = await readFile(`${path}-wal`)
+      await expect(f.read()).rejects.toThrow('远程配置无法核验')
+      expect(f.capture).not.toHaveBeenCalled()
+      expect(await readFile(path)).toEqual(before)
+      expect(await readFile(`${path}-wal`)).toEqual(wal)
+    } finally {
+      db.close()
+    }
+  })
+  it('rechecks configuration before the next native metadata query', async () => {
+    const f = await mimoFixture()
+    f.capture.mockImplementationOnce(async () => {
+      await writeFile(join(f.root, 'config/mimocode.json'), '{"model":"{file:/synthetic/foreign}"}')
+      return `data ${f.root}/data\nconfig ${f.root}/config\n`
+    })
+    await expect(f.read()).rejects.toThrow('配置含外部引用')
+    expect(f.capture).toHaveBeenCalledOnce()
+  })
+  it('rejects native legacy imports and linked configuration files', async () => {
+    const f = await mimoFixture()
+    await writeFile(join(f.root, 'config/config'), 'provider = "synthetic"')
+    await expect(f.read()).rejects.toThrow('配置来源无法确认')
+    await rm(join(f.root, 'config/config'))
+    await writeFile(join(f.root, 'other-config'), '{}')
+    await symlink(join(f.root, 'other-config'), join(f.root, 'config/mimocode.json'))
+    await expect(f.read()).rejects.toThrow('配置来源无法确认')
+    expect(f.capture).not.toHaveBeenCalled()
+  })
+  it('checks the physical project ancestors when the selected project is a symlink', async () => {
+    const f = await mimoFixture()
+    const physical = join(f.root, 'physical')
+    await mkdir(join(physical, 'child'), { recursive: true })
+    await writeFile(join(physical, 'mimocode.json'), '{"model":"{env:SYNTHETIC_FOREIGN}"}')
+    await symlink(join(physical, 'child'), join(f.root, 'selected-project'))
+    await expect(
+      readFirstPartyModelSources(
+        'mimo',
+        '/synthetic/mimo',
+        join(f.root, 'selected-project'),
+        f.capture,
+        signal(),
+      ),
+    ).rejects.toThrow('配置含外部引用')
+    expect(f.capture).not.toHaveBeenCalled()
+  })
+  it('rejects a native root mismatch before querying resolved configuration', async () => {
+    const f = await mimoFixture()
+    f.capture.mockResolvedValue('data /synthetic/foreign\nconfig /synthetic/foreign\n')
+    await expect(f.read()).rejects.toThrow('配置来源无法确认')
+    expect(f.capture).toHaveBeenCalledOnce()
+  })
+  it('honors cancellation before reading configuration or starting native metadata', async () => {
+    const f = await mimoFixture(),
+      control = new AbortController()
+    control.abort()
+    await expect(f.check(control.signal)).rejects.toThrow()
+    expect(f.capture).not.toHaveBeenCalled()
+    await expect(assertFirstPartyConfiguration('claude', '/synthetic', signal())).resolves.toBeUndefined()
   })
 })
 

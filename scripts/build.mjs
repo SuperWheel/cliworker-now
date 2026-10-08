@@ -21,6 +21,8 @@ for (const name of [
   'zcode-resume',
   'pi-login',
   'grok-catalog',
+  'own-account-lease',
+  'pi-omp-refresh',
 ]) {
   const source = `src/host/${name}.mjs`
   if (existsSync(source)) cpSync(source, `lib/${name}.mjs`)
@@ -32,6 +34,10 @@ if (existsSync('src/host/account-models.mjs')) {
 }
 cpSync('src/host/pi-installation.mjs', 'lib/types/host/pi-installation.mjs')
 cpSync('src/host/pi-installation.d.mts', 'lib/types/host/pi-installation.d.mts')
+for (const name of ['own-account-lease', 'pi-omp-refresh']) {
+  cpSync(`src/host/${name}.mjs`, `lib/types/host/${name}.mjs`)
+  if (existsSync(`src/host/${name}.d.mts`)) cpSync(`src/host/${name}.d.mts`, `lib/types/host/${name}.d.mts`)
+}
 await build({
   entry: { index: 'lib/types/host/index.js' },
   outDir: 'lib',

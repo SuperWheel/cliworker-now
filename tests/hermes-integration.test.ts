@@ -133,7 +133,7 @@ describe('Hermes dispatch and telemetry integration (synthetic fixtures)', () =>
       expect(launch.env.HERMES_HOME).toBe(realpathSync(hermesHome))
       expect(resolveCredential).not.toHaveBeenCalled()
     } finally {
-      launch.cleanup()
+      await launch.cleanup()
     }
   })
 

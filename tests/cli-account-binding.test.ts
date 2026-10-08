@@ -42,6 +42,38 @@ const jwt = (sub: string, extra: Record<string, unknown> = {}) =>
   `eyJhbGciOiJub25lIn0.${Buffer.from(JSON.stringify({ sub, iss: 'https://synthetic.example', exp: 4e9, ...extra })).toString('base64url')}.synthetic`
 const run = (cli: CliId, signal = new AbortController().signal) =>
   readCliAccountBinding(cli, backend, config, project, signal)
+
+it('binds supported OpenCode API accounts even alongside an unsupported opaque OAuth account', async () => {
+  const path = join(fixture.home, '.local/share/opencode/auth.json')
+  const api = { type: 'api', key: 'synthetic-own-api-key' }
+  write(path, {
+    own: api,
+    oauth: { type: 'oauth', access: 'synthetic-opaque', refresh: 'synthetic-refresh', expires: 4e12 },
+  })
+  const binding = await run('opencode')
+  write(path, {
+    own: api,
+    oauth: { type: 'oauth', access: 'synthetic-renewed', refresh: 'synthetic-new-refresh', expires: 4e12 },
+  })
+  expect(await run('opencode')).toBe(binding)
+  write(path, {
+    oauth: { type: 'oauth', access: 'synthetic-opaque', refresh: 'synthetic-refresh', expires: 4e12 },
+  })
+  await expect(run('opencode')).rejects.toThrow('OpenCode OAuth 暂无法安全续期')
+})
+
+it('an unsupported Pi OAuth provider does not hide another provider with its own API account', async () => {
+  const path = join(fixture.home, '.pi/agent/auth.json')
+  write(path, {
+    own: { type: 'api_key', key: 'synthetic-own-api-key' },
+    oauth: { type: 'oauth', access: 'synthetic-opaque', refresh: 'synthetic-refresh', expires: 4e12 },
+  })
+  await expect(run('pi')).resolves.toMatch(/^cli-account-v1:/)
+  write(path, {
+    oauth: { type: 'oauth', access: 'synthetic-opaque', refresh: 'synthetic-refresh', expires: 4e12 },
+  })
+  await expect(run('pi')).rejects.toThrow('无法确认当前自身账号')
+})
 beforeEach(() => {
   vi.clearAllMocks()
   fixture.home = mkdtempSync(join(tmpdir(), 'cwn-binding-synthetic-'))

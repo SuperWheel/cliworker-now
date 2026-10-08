@@ -372,6 +372,7 @@ export class CliWorkerService extends TypertRemoteService {
     const expected = workerId
       ? this.runtime.storage.accountBinding(workerId)
       : this.selectionBindings?.get(preference)
+    if (workerId && !expected) throw new Error('此历史任务缺少账号记录，请新建任务')
     const { binding, preference: authorizedPreference } = await this.querySelection(
       preference,
       this.ctx.subprocess,

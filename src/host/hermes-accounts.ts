@@ -8,6 +8,7 @@ import { accountEmail, localTokenExpired, type AccountIdentity } from './account
 import { confineExtended, privateDirectory } from './extended-adapters.ts'
 import { assertHermesOwnAccounts } from './hermes-models.ts'
 import { hermesHomeDirectory } from './hermes-adapter.ts'
+import { hermesAccountIsolationPolicy } from './hermes-account-isolation.ts'
 import { projectDirectory, type RuntimeConfig } from './process.ts'
 
 const record = (value: unknown): value is Record<string, unknown> =>
@@ -246,20 +247,22 @@ export async function prepareHermesAccount(
   try {
     signal.throwIfAborted()
     const temporary = privateDirectory(join(state, 'tmp'))
+    const argv = confineExtended(
+      [
+        process.execPath,
+        fileURLToPath(new URL('./private-launch.mjs', import.meta.url)),
+        executable,
+        action === 'login' ? 'model' : 'auth',
+      ],
+      state,
+      state,
+      'plan',
+      temporary,
+      nativeHome,
+    )
+    argv[2] += hermesAccountIsolationPolicy(nativeHome, state)
     return {
-      argv: confineExtended(
-        [
-          process.execPath,
-          fileURLToPath(new URL('./private-launch.mjs', import.meta.url)),
-          executable,
-          action === 'login' ? 'model' : 'auth',
-        ],
-        state,
-        state,
-        'plan',
-        temporary,
-        nativeHome,
-      ),
+      argv,
       cwd: state,
       env: {
         HERMES_HOME: nativeHome,

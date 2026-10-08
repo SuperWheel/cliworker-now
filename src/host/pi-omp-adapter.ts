@@ -7,6 +7,9 @@ import { EFFORTS, type ModelChoice, type TaskMode } from '../shared/types.ts'
 import { ProcessCleanupUnconfirmedError } from './process.ts'
 
 import { snapshotPiOmpNative, safePiOmpAncestors, type PiOmpNativeOptions } from './pi-omp-native.ts'
+import { finishPiOmpRefresh } from './pi-omp-refresh.mjs'
+import { acquireOwnAccountLease } from './own-account-lease.mjs'
+import { assertPiOmpRefreshSources, assertPiOmpRefreshCache } from './pi-omp-refresh.mjs'
 
 export type PiOmpCli = 'pi' | 'omp'
 export type PiOmpMetadataPhase = 'native-candidates' | 'account-scope'
@@ -14,6 +17,7 @@ export type PiOmpMetadataCapture = (
   argv: string[],
   env?: Record<string, string>,
   phase?: PiOmpMetadataPhase,
+  scope?: { leaseDirectory?: string },
 ) => Promise<string>
 export interface PiOmpInput extends PiOmpNativeOptions {
   managedCredentials?: boolean
@@ -69,8 +73,10 @@ async function contextFor(
     accountRoot: input.accountRoot ?? stateDirectory,
     nativeHome: input.nativeHome,
     signal: input.signal,
+    sharedOAuth: true,
   })
   const request = async (extra: Record<string, unknown> = {}) => {
+    const leaseNonce = randomUUID()
     const requestDirectory = await mkdtemp(join(isolated, 'request-'))
     const requestPath = join(requestDirectory, 'request.json')
     const temporary = join(requestDirectory, `.request-${randomUUID()}.tmp`)
@@ -81,6 +87,10 @@ async function contextFor(
           ...input,
           ...extra,
           stateDirectory: isolated,
+          nativeRoot: native.directory,
+          ...(native.leaseDirectory
+            ? { leaseDirectory: native.leaseDirectory, leaseNonce, refreshReceipt: native.receipt }
+            : {}),
           ...('project' in input ? { project: await realpath(input.project) } : {}),
         }),
         { flag: 'wx', mode: 0o600 },
@@ -89,7 +99,22 @@ async function contextFor(
     } finally {
       await rm(temporary, { force: true })
     }
-    return { argv: [process.execPath, bridgePath(), requestPath], env: native.env }
+    return {
+      argv: [process.execPath, bridgePath(), requestPath],
+      env: native.env,
+      leaseDirectory: native.leaseDirectory,
+      activate: async () => {
+        if (native.leaseDirectory) {
+          await acquireOwnAccountLease(native.leaseDirectory, leaseNonce)
+          await assertPiOmpRefreshSources(native.leaseDirectory, native.receipt)
+          await assertPiOmpRefreshCache(native.leaseDirectory, native.receipt)
+        }
+      },
+      cleanup: async () => {
+        if (native.leaseDirectory)
+          await finishPiOmpRefresh(native.leaseDirectory, leaseNonce, input.executable, native.receipt)
+      },
+    }
   }
   return { request }
 }
@@ -101,11 +126,20 @@ async function confirmedCatalog(
   for (const phase of ['native-candidates', 'account-scope'] as const) {
     const launch = await context.request({ metadataPhase: phase })
     let raw: unknown
+    let cleanupUnconfirmed = false
     try {
-      raw = JSON.parse(await capture(launch.argv, launch.env, phase))
+      await launch.activate()
+      raw = JSON.parse(
+        await capture(launch.argv, launch.env, phase, { leaseDirectory: launch.leaseDirectory }),
+      )
     } catch (error) {
-      if (error instanceof ProcessCleanupUnconfirmedError) throw error
+      if (error instanceof ProcessCleanupUnconfirmedError) {
+        cleanupUnconfirmed = true
+        throw error
+      }
       throw new Error('无法读取 Pi/OMP 原生模型目录，请检查本机配置')
+    } finally {
+      if (!cleanupUnconfirmed) await launch.cleanup()
     }
     if (phase === 'account-scope') return parseCatalog(raw)
     if (
@@ -124,7 +158,13 @@ async function confirmedCatalog(
 export async function preparePiOmp(
   input: PiOmpInput,
   capture?: PiOmpMetadataCapture,
-): Promise<{ argv: string[]; env?: Record<string, string> }> {
+): Promise<{
+  argv: string[]
+  env?: Record<string, string>
+  leaseDirectory?: string
+  activate: () => Promise<void>
+  cleanup: () => Promise<void>
+}> {
   if (input.cli !== 'pi' && input.cli !== 'omp') throw new Error('Unsupported Pi/OMP CLI')
   if (!/^[A-Za-z0-9_.:-]+\/[^\s\x00-\x1f]+$/.test(input.preference.model))
     throw new Error('Pi/OMP 需要原生 provider/model 选型')

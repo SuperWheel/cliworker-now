@@ -144,7 +144,7 @@ export async function catalogFor(
       notice: '当前账号可用模型',
     }
   }
-  if (cli === 'antigravity') throw new Error('Antigravity 尚未提供可确认的账号模型范围')
+  if (cli === 'antigravity') throw new Error('暂无法确认 Antigravity 的账号模型范围')
   if (cli === 'codex') {
     const models = await discoverCodexModels(backend, config, executable, cwd, signal)
     if (!models.length) throw new Error('Codex 当前账号暂无可确认模型，请刷新')

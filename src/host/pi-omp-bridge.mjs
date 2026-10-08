@@ -7,6 +7,8 @@ import { constants } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
 import { readFile } from 'node:fs/promises'
+import { ownsOwnAccountLease, OWN_ACCOUNT_BUSY } from './own-account-lease.mjs'
+import { assertPiOmpRefreshSources, assertPiOmpRefreshCache } from './pi-omp-refresh.mjs'
 import {
   queryNativeCandidates,
   snapshotNativeCandidates,
@@ -20,6 +22,8 @@ const safeErrors = new Set([
   '任务已停止',
   '所选模型或强度不在原生可用目录中',
   '无法读取 Pi/OMP 原生模型目录，请检查本机配置',
+  OWN_ACCOUNT_BUSY,
+  '账号配置已变化，请重新刷新模型',
 ])
 const errorMessage = (error) =>
   error instanceof Error && safeErrors.has(error.message)
@@ -99,7 +103,7 @@ process.on('SIGINT', () => {
 const persist = async () => {
   if (!session || config.discover) return
   const path = await realpath(session.path)
-  const nativeRoot = await privateDirectory(join(config.stateDirectory, 'agent'))
+  const nativeRoot = await privateDirectory(config.nativeRoot ?? join(config.stateDirectory, 'agent'))
   if (!inside(nativeRoot, path) || path !== resolve(session.path))
     throw new Error('CLI session path escaped its private directory or used a symlink')
   await privateFile(path)
@@ -129,7 +133,15 @@ try {
   )
     throw new Error('Invalid bridge request')
   config.stateDirectory = await privateDirectory(config.stateDirectory)
-  const nativeRoot = await privateDirectory(join(config.stateDirectory, 'agent'))
+  if (config.leaseDirectory) {
+    if (typeof config.nativeRoot !== 'string' || dirname(config.nativeRoot) !== config.leaseDirectory)
+      throw new Error('Invalid shared account directory')
+    if (!(await ownsOwnAccountLease(config.leaseDirectory, config.leaseNonce)))
+      throw new Error(OWN_ACCOUNT_BUSY)
+    await assertPiOmpRefreshSources(config.leaseDirectory, config.refreshReceipt)
+    await assertPiOmpRefreshCache(config.leaseDirectory, config.refreshReceipt)
+  }
+  const nativeRoot = await privateDirectory(config.nativeRoot ?? join(config.stateDirectory, 'agent'))
   const temporaryDirectory = await privateDirectory(join(config.stateDirectory, 't'))
   await privateDirectory(join(nativeRoot, 'sessions'))
   if (!config.discover) await privateDirectory(join(config.stateDirectory, 'sessions'))
@@ -201,7 +213,7 @@ try {
           join(nativeRoot, 'config.yml'),
         ]
   if (config.cli === 'omp') {
-    env.PI_CONFIG_DIR = relative(homedir(), config.stateDirectory)
+    env.PI_CONFIG_DIR = relative(homedir(), dirname(nativeRoot))
     const nativeAuth = JSON.parse(await readFile(join(nativeRoot, 'native-auth.json'), 'utf8'))
     await writePrivateFile(
       join(nativeRoot, 'config.yml'),

@@ -109,6 +109,7 @@ function fixture() {
     updatedAt: new Date().toISOString(),
   }
   storage.save(worker)
+  storage.bindAccount(worker.id, 'synthetic-settings-account')
   storage.append(worker, { kind: 'user', text: 'Synthetic question' })
   storage.append(worker, { kind: 'assistant', text: 'Synthetic answer' })
   const signal = new AbortController().signal
@@ -287,6 +288,19 @@ describe('profile-wide CLI enablement', () => {
 
 // Explicit synthetic account-supported catalog. No credential or model request.
 describe('account-supported model selection', () => {
+  it('rejects unbound legacy followup before querying models or creating a background job', async () => {
+    const { service, storage, worker, signal, jobs, backend } = fixture()
+    rmSync(join(storage.directory, `${worker.id}.account-binding.json`))
+    const history = storage.history(worker.id)
+    await expect(
+      service.followup('parent', worker.id, 'Synthetic legacy continuation', signal),
+    ).rejects.toThrow('此历史任务缺少账号记录')
+    expect(catalogFor).not.toHaveBeenCalled()
+    expect(jobs.start).not.toHaveBeenCalled()
+    expect(backend.spawn).not.toHaveBeenCalled()
+    expect(storage.history(worker.id)).toEqual(history)
+  })
+
   const supported: Catalog = {
     cli: 'antigravity',
     models: [

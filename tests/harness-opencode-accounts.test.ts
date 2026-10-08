@@ -82,6 +82,33 @@ const catalog =
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })))
 
 describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
+  it('keeps account management in its own plugin store without copying a global native OAuth login', async () => {
+    const config = fixture(),
+      data = openCodeAuthDirectory(config.stateDirectory)
+    const native = join(data, 'test-native/.local/share/opencode')
+    mkdirSync(native, { recursive: true })
+    const path = join(native, 'auth.json')
+    const raw = JSON.stringify({
+      openai: {
+        type: 'oauth',
+        access: 'SYNTHETIC-ACCESS',
+        refresh: 'SYNTHETIC-REFRESH',
+        expires: Date.now() + 3600000,
+        accountId: 'synthetic-account',
+      },
+    })
+    writeFileSync(path, raw, { mode: 0o600 })
+    expect(await readOpenCodeAccount(config, signal())).toMatchObject({
+      state: 'configured',
+      authMethod: 'oauth',
+    })
+    const terminal = await prepareOpenCodeAccount('/bin/opencode', 'login', config, signal())
+    expect(terminal.env.XDG_DATA_HOME).toBe(data)
+    expect(existsSync(join(data, 'opencode/auth.json'))).toBe(false)
+    expect(readFileSync(path, 'utf8')).toBe(raw)
+    terminal.cleanup()
+  })
+
   it('keeps independent native account status when a shared Host API reference exists', async () => {
     const config = {
       ...fixture(),
