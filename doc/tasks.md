@@ -648,3 +648,14 @@
 - 包：`artifacts/dsh-cliworker-now-0.6.13.tgz`，257 文件、100 源文件与最终 preview 对应，Host 相同、Client 可执行内容相同，包内逐文件匹配，pnpm 只移除 packageManager 元数据；无账号、测试或私有日志入包。SHA-256 `7eb2b43abd94cdf6f063c428e7fce7780ac7155a816fc06c935a6f09882e1939`。验收摘要 `artifacts/dsh-cliworker-now-0.6.13-verification.json`，私有证据 `.test-data/provider-login-0613/` 不提交 Git。
 - 边界：未执行真实模型生成或续聊，元数据成功不写作推理成功；既有 OMP 原生菜单关闭后偶发状态失败、本轮范围外订阅/权限限制不宣称已根治。保留用户既有图标及文档改动，只提交本次范围，不推送。
 - 规格交付：三个能力域新增 3 条要求并修改 1 条既有状态要求，原 Purpose 与既有场景保留；同步前后严格校验共 6 项通过。6/6 任务均有上述证据，归档于 `openspec/changes/archive/2026-10-08-fix-provider-login-status-and-hermes-catalog/`；使用 `--skip-specs` 避免重复同步，归档后 5 个主规格通过、活动变更为 0。
+
+## 2026-10-09：v0.6.14 账号摘要与退出入口交付
+
+- OpenSpec：`unify-account-actions-and-summary`，规划提交 `9f3d782`，实现提交 `41edf53`。OMP/Pi/Hermes 原先缺少 logout 动作，导致共享按钮变为禁用浅色；现接原生退出入口。OAuth 账号行只保留订阅服务商，完整安全方式放在悬浮详情；Kimi 从当前原生令牌的 `kimi-auth` 稳定主体投影简短账号 ID，本机未保存邮箱或昵称，不远程查询或刷新令牌。
+- 退出实现：原生/插件多个自身来源先选择，Host 重读当前来源；Pi 直接使用所选 auth 文件，OMP 仅链接所选真实认证 DB、SQLite sidecars，配置/缓存/会话私有。Hermes 当前 home 不迁移，原生 auth Remove 只允许认证/环境文件的精确写路径，退出进程禁网；`suppressed_sources` 同时约束状态、模型及绑定，避免保留配置值恢复已退出账号。环境/模型配置 API 不在 Pi/OMP 原生删除范围，需原配置管理；未声称一键清除全部来源。
+- 自动验证：Host 专项 5 文件 116 项，Hermes 状态/模型/绑定等 5 组 137 项；最终根目录与隔离 preview 的 `pnpm typecheck`、`pnpm test`、`pnpm build:preview`、正式 `pnpm build`、`git diff --check` 通过。全量 60 文件 1078 项。首轮仅 Hermes 特殊字符路径临时写权限失败，修正 SBPL regex escaping 后保留原测试重跑全部通过；没有放宽整个目录写权限。
+- 原生临时验收：已安装 Pi 1.0.4、OMP 16.4.4 在假账号目录出现 Select provider to logout 和模拟 Anthropic 凭据，禁网、拒读真实账号、未选择凭据；退出码 143、进程组已退出，临时目录清理完成。真实 Seatbelt 测试另证 Pi auth 写入/锁和 OMP 链接数据库的 WAL 删除落在所选来源，其他来源/配置不可写，Hermes 原子临时文件可写但配置/历史/兄弟目录/网络不可用。Hermes 原生菜单能力经安装源码核对，本次未在真实账号内打开或移除凭据。
+- 隔离 UI：Tabbit 模拟 profile 检查 OMP/Pi/Hermes/OpenCode/Kimi 五行，账号文字均 22px 单行；五个退出按钮 class、65×36px 尺寸及可用状态一致。OMP 可见“OpenAI账号登录”，不拼接 API 或邮箱；安全详情保留；Kimi 模拟 ID 可见。未选/取消来源零启动，选择 plugin 才发送 `accountStartForSource`；假 Host 拒绝操作后显示简短通用错误并可关闭。浏览器资源与最终 preview 可执行文本相同，最后 Host 修复后 Client SHA-256 未变。自建网页关闭、任务释放、服务器停止，0 真实账号操作/偏好写入/生成。
+- Desktop：更新前 10 个历史 Worker、0 活动、0 账号/任务桥进程，备份旧 lib；正式构建后原生退出并重启。实看 OMP“OpenAI账号登录”、Pi“zai.cn API 登录”、Hermes“Nous账号登录”、Kimi“已登录 + 当前脱敏 Kimi ID”，退出按钮可用且一致。仅查看，不点击真实退出、保存或提交登录；页面正常模型加载随切换/关闭取消，不将此写作模型调用验收。回到原会话后 59 份账号/配置/Worker/偏好基线哈希全不变，无账号/任务进程残留。
+- 包：`artifacts/dsh-cliworker-now-0.6.14.tgz`，263 文件、102 源文件与最终 preview 对应；Host 字节相同，Client 仅构建路径区域注释不同，可执行内容相同，包内逐文件匹配且无账号/测试/私有日志。SHA-256 `5a0dc4d2e8cedbd694f456e04da4f15a36e6cf14e642dad9173a77ffd821104b`；验收摘要 `artifacts/dsh-cliworker-now-0.6.14-verification.json`，详细证据 `.test-data/account-actions-0614/` 不入 Git。用户原有图标及文档整理保留，真实模型生成和真实账号退出均为 0，不推送。
+- 规格交付：1 条既有摘要需求更新、2 条新需求同步主规格，原 Purpose 和既有场景保留；4/4 任务有对应证据。同步前后各 6 项严格校验通过，归档于 `openspec/changes/archive/2026-10-09-unify-account-actions-and-summary/`，归档后 5 个主规格通过，活动变更为 0。
