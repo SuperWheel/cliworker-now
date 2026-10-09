@@ -67,7 +67,7 @@ try {
     try {
       await Promise.all([collect(handle.stdout, true), collect(handle.stderr, false)])
       const result = await handle.done
-      if (result.exitCode !== 0) throw new Error(`Native fixture failed: ${diagnostic.slice(0, 1000)}`)
+      if (result.exitCode !== 0) throw new Error(`Native fixture failed: ${diagnostic.slice(0, 4000)}`)
       return output.trim()
     } finally {
       handle.terminate()
@@ -82,6 +82,7 @@ try {
     const output = await run([shim, '--version'])
     if (!output.includes(version)) throw new Error(`${cli} installed version differs`)
     observed.push({ cli, version, actualRuntime: /bun(?:\.exe)?$/i.test(argv[0]!) ? 'Bun' : 'Node/native' })
+    console.log(JSON.stringify({ verifiedOfficialEntry: observed.at(-1) }))
     if (cli === 'omp') {
       const help = await run([shim, '--help'])
       for (const capability of ['rpc', '--config', '--session-dir'])

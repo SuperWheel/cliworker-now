@@ -51,7 +51,7 @@ jobs:
           npm install --prefix "$nativeRoot" --no-audit --no-fund @openai/codex@0.160.0 @earendil-works/pi-coding-agent@1.0.4
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $ompRoot = Join-Path $env:RUNNER_TEMP 'cliworker official OMP fixture'
-          npm install --prefix "$ompRoot" --no-audit --no-fund --omit=optional @oh-my-pi/pi-coding-agent@16.4.4
+          npm install --prefix "$ompRoot" --no-audit --no-fund @oh-my-pi/pi-coding-agent@16.4.4
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "CLIWORKER_VENDOR_ROOT=$nativeRoot" >> $env:GITHUB_ENV
           "CLIWORKER_OMP_VENDOR_ROOT=$ompRoot" >> $env:GITHUB_ENV
