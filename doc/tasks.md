@@ -785,3 +785,8 @@
 - 隔离UI及正式Desktop交付按本次实际结果继续记录；不发起真实CLI、凭据查询或模型生成。
 
 - 隔离原生UI实际核对13组筛选/搜索状态：三类正向、空结果及清空恢复；全部搜索正向/空结果与恢复，匹配数量/空结果说明/清除筛选均不存在，首卡与控件位置正常。最终Client hash与served一致，截图empty-filter.png已查看。独立HOME/DSH_HOME，临时Host/wrapper及自建页面已清理，真实CLI/生成/远端请求0；首次访问缺少临时token返回401，使用本服务临时URL后解决，不是账号阻塞。
+
+- 正式交付：更新前22 Worker/活动0/账号或任务桥0，Desktop原生退出并确认主进程退出后正式build、pack及包核查通过。v0.7.6包共285文件，111源码与preview相同，Client执行内容一致；SHA-256 35a3f9c395d9aa3afae2ccbcf1dd0b763f7ee69ba2859a74a8288c1c14ffea4f，artifacts/dsh-cliworker-now-0.7.6-verification.json保存核查。
+- Desktop原生插件页确认v0.7.6、启用及1组件运行；原会话三状态都没有匹配说明/清除文字，最终恢复原“进行中”视图，截图核对空白正确。原4210文件核对4208完全一致，仅重启host.lock及一份宿主session_projcache投影缓存检查点变化；已查rc.2原生SessionProjectionCache在会话释放时重写检查点的源码，原始日志/账号/历史/偏好文件保持，交付后活动0。未发送、新建、删除或改名任何真实任务，凭据查询和模型生成0。实现提交5d5b38c，本地不推送。
+
+- OpenSpec 3/3任务均实际完成；主worker-management完整更新固定筛选需求1块，保留Purpose、其余10块及旧场景。同步严格10/10，归档到openspec/changes/archive/2026-10-09-simplify-worker-filter-view/后严格9/9、活动change0；交付与归档阶段提交，不推送。
