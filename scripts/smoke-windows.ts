@@ -22,7 +22,7 @@ try {
   for (const name of ['home', 'agent', 'work', 'tmp', 'appdata', 'localappdata'])
     await mkdir(join(root, name))
   await writeFile(join(root, 'agent', 'auth.json'), '{}', { mode: 0o600 })
-  await writeFile(join(root, 'agent', 'models.json'), '{}', { mode: 0o600 })
+  await writeFile(join(root, 'agent', 'models.json'), '{"providers":{}}', { mode: 0o600 })
   // These variables belong only to this isolated CI process, not the user's Host.
   process.env.HOME = join(root, 'home')
   process.env.USERPROFILE = join(root, 'home')
