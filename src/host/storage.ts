@@ -30,6 +30,7 @@ import {
   type CliId,
   type Preference,
   type RolePreset,
+  type RoleSnapshot,
   type Worker,
   type WorkerEvent,
 } from '../shared/types.ts'
@@ -38,6 +39,29 @@ const preferenceSchema = z.object({
   cli: z.enum(CLI_IDS).optional(),
   model: z.string().min(1),
   effort: z.enum(EFFORTS),
+})
+/** Complete dispatch choices stay Host-private; public preferences omit role and binding. */
+export interface DispatchSetup {
+  preference: Preference
+  role: RoleSnapshot | null
+  binding: string
+}
+const dispatchBindingSchema = z.string().min(1).max(256)
+const projectPreferenceSchema = preferenceSchema.extend({
+  dispatchRole: roleSnapshotSchema.nullable().optional(),
+  dispatchBinding: dispatchBindingSchema.optional(),
+})
+const dispatchSetupSchema = z.object({
+  preference: preferenceSchema,
+  role: roleSnapshotSchema.nullable(),
+  binding: dispatchBindingSchema,
+})
+const conversationSetupSchema = z.object({
+  policy: z.literal(1),
+  parent: z.string().min(1),
+  project: z.string().min(1),
+  cli: z.enum(CLI_IDS),
+  setup: dispatchSetupSchema,
 })
 // Read old Harness settings without exposing that retired entry as an active CLI.
 const storedCliSchema = z.enum([...CLI_IDS, 'harness'])
@@ -210,21 +234,89 @@ export class WorkerStorage {
     return this.cliSettings()
   }
   private projectKey(project: string, cli: CliId = 'antigravity'): string {
+    z.string().min(1).parse(project)
+    z.enum(CLI_IDS).parse(cli)
     return createHash('sha256')
       .update(cli === 'antigravity' ? project : JSON.stringify([project, cli]))
       .digest('hex')
   }
+  private readProjectPreference(project: string, cli: CliId) {
+    const path = join(this.directory, `${this.projectKey(project, cli)}.preference.json`)
+    if (!existsSync(path)) return undefined
+    const value = projectPreferenceSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
+    if ((value.cli ?? 'antigravity') !== cli) throw new Error('项目偏好的 CLI 标识不匹配')
+    return value
+  }
   preference(project: string, cli: CliId = 'antigravity'): Preference | undefined {
     if (isRetiredCli(cli)) return undefined
-    const path = join(this.directory, `${this.projectKey(project, cli)}.preference.json`)
-    return existsSync(path) ? preferenceSchema.parse(JSON.parse(readFileSync(path, 'utf8'))) : undefined
+    const value = this.readProjectPreference(project, cli)
+    return value ? preferenceSchema.parse(value) : undefined
   }
   setPreference(project: string, preference: Preference): void {
     if (preference.cli && isRetiredCli(preference.cli)) throw new Error(RETIRED_HARNESS_NOTICE)
-    atomicJSON(
-      join(this.directory, `${this.projectKey(project, preference.cli ?? 'antigravity')}.preference.json`),
-      preferenceSchema.parse(preference),
+    const value = preferenceSchema.parse(preference)
+    const cli = value.cli ?? 'antigravity'
+    const previous = this.readProjectPreference(project, cli)
+    atomicJSON(join(this.directory, `${this.projectKey(project, cli)}.preference.json`), {
+      ...previous,
+      ...value,
+    })
+  }
+  dispatchSetup(project: string, cli: CliId): DispatchSetup | undefined {
+    if (isRetiredCli(cli)) return undefined
+    const value = this.readProjectPreference(project, cli)
+    // Missing fields are legacy/incomplete selections, never an implicit no-role choice.
+    if (value?.dispatchRole === undefined || value.dispatchBinding === undefined) return undefined
+    return {
+      preference: preferenceSchema.parse(value),
+      role: value.dispatchRole,
+      binding: value.dispatchBinding,
+    }
+  }
+  setDispatchSetup(project: string, setup: DispatchSetup): void {
+    if (setup.preference.cli && isRetiredCli(setup.preference.cli)) throw new Error(RETIRED_HARNESS_NOTICE)
+    const value = dispatchSetupSchema.parse(setup)
+    const cli = value.preference.cli ?? 'antigravity'
+    atomicJSON(join(this.directory, `${this.projectKey(project, cli)}.preference.json`), {
+      ...value.preference,
+      dispatchRole: value.role,
+      dispatchBinding: value.binding,
+    })
+  }
+  private conversationKey(parent: string, project: string, cli: CliId): string {
+    z.string().min(1).parse(parent)
+    z.string().min(1).parse(project)
+    z.enum(CLI_IDS).parse(cli)
+    return createHash('sha256')
+      .update(JSON.stringify([parent, project, cli]))
+      .digest('hex')
+  }
+  conversationSetup(parent: string, project: string, cli: CliId): DispatchSetup | undefined {
+    if (isRetiredCli(cli)) return undefined
+    const path = join(this.directory, `${this.conversationKey(parent, project, cli)}.conversation-setup.json`)
+    if (!existsSync(path)) return undefined
+    const value = conversationSetupSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
+    if (
+      value.parent !== parent ||
+      value.project !== project ||
+      value.cli !== cli ||
+      (value.setup.preference.cli ?? 'antigravity') !== cli
     )
+      throw new Error('对话派遣设定的身份不匹配')
+    return value.setup
+  }
+  setConversationSetup(parent: string, project: string, setup: DispatchSetup): void {
+    if (setup.preference.cli && isRetiredCli(setup.preference.cli)) throw new Error(RETIRED_HARNESS_NOTICE)
+    const value = dispatchSetupSchema.parse(setup)
+    const cli = value.preference.cli ?? 'antigravity'
+    const key = this.conversationKey(parent, project, cli)
+    atomicJSON(join(this.directory, `${key}.conversation-setup.json`), {
+      policy: 1,
+      parent,
+      project,
+      cli,
+      setup: value,
+    })
   }
   save(worker: Worker): void {
     atomicJSON(join(this.directory, `${worker.id}.worker.json`), worker)

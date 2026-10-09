@@ -90,7 +90,7 @@ function fixture() {
     options: { value: DEFAULT_CONFIG },
     disposed: { value: new AbortController() },
     pending: { value: new Map() },
-    preferenceWaits: { value: new Map() },
+    dispatchWaits: { value: new Map() },
     accountParents: { value: new Map() },
   })
   ;(service as any).registerTools()
@@ -316,17 +316,17 @@ describe('account-supported model selection', () => {
     notice: '【模拟】仅已确认账号支持的模型',
   }
 
-  it('asks once using deduplicated names and saves the exact free route only after selection', async () => {
+  it('asks complete setup using deduplicated names and saves the exact free route only after selection', async () => {
     const { service, ask, storage, project, signal, backend } = fixture()
     vi.mocked(catalogFor).mockResolvedValue(supported)
-    ask.mockResolvedValue({ answers: [{ id: 'cliworker_model', selected: ['GLM-5.3-Flash'] }] })
+    ask
+      .mockResolvedValueOnce({ answers: [{ id: 'cliworker_model', selected: ['GLM-5.3-Flash'] }] })
+      .mockResolvedValueOnce({ answers: [{ id: 'cliworker_role', selected: ['不使用角色预设'] }] })
     const agent = await (service as any).parent('parent')
-    const chosen = await (service as any).choose(agent, signal, 'antigravity')
+    const setup = await (service as any).chooseDispatch(agent, signal, 'antigravity')
+    const chosen = setup.preference
     const options = ask.mock.calls[0]![0].questions[0].options
-    expect(options).toEqual([
-      { label: 'GLM-5.3-Flash', description: '免费额度优先' },
-      { label: 'GLM-5.3', description: '' },
-    ])
+    expect(options).toEqual([{ label: 'GLM-5.3-Flash' }, { label: 'GLM-5.3' }])
     expect(chosen).toEqual({ cli: 'antigravity', model: 'native-free/glm-5.3-flash', effort: 'default' })
     expect(storage.preference(project, 'antigravity')).toEqual(chosen)
     expect(backend.spawn).not.toHaveBeenCalled()
@@ -336,11 +336,17 @@ describe('account-supported model selection', () => {
     const { service, ask, storage, project, signal, backend } = fixture()
     vi.mocked(catalogFor).mockResolvedValue(supported)
     const saved = { cli: 'antigravity' as const, model: 'paid/GLM-5.3-Flash', effort: 'default' as const }
-    storage.setPreference(project, saved)
+    storage.setDispatchSetup(project, {
+      preference: saved,
+      role: null,
+      binding: 'synthetic-settings-account',
+    })
+    ask.mockResolvedValue({ answers: [{ id: 'cliworker_reuse', selected: ['沿用'] }] })
     const agent = await (service as any).parent('parent')
-    expect(await (service as any).choose(agent, signal, 'antigravity')).toEqual(saved)
+    expect((await (service as any).chooseDispatch(agent, signal, 'antigravity')).preference).toEqual(saved)
     expect(storage.preference(project, 'antigravity')).toEqual(saved)
-    expect(ask).not.toHaveBeenCalled()
+    expect(ask).toHaveBeenCalledTimes(1)
+    expect(ask.mock.calls[0]![0].questions[0].id).toBe('cliworker_reuse')
     expect(backend.spawn).not.toHaveBeenCalled()
   })
 

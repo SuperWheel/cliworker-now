@@ -671,3 +671,14 @@
 - 包：`artifacts/dsh-cliworker-now-0.6.15.tgz`，267文件、105源码文件对应最终preview；Host相同，Client仅构建位置区域注释不同，包内逐字匹配，无账号/缓存/测试/运行日志。SHA256 `53940b097ee37c930c35dacf0b0eef1aa522d6c5b287845df0f6860a4b50334d`；包含README.en和全部动态helpers。公开Release为 [v0.6.15](https://github.com/SuperWheel/cliworker-now/releases/tag/v0.6.15)，最新稳定版，目标提交b18dcb2530843899647921c5ecc067c95925b60c，附tgz、SHA256SUMS.txt、verification.json。首次短target SHA被API拒绝，改完整SHA；16MB上传HTTP/2停滞，保留草稿后用仍保持TLS校验的HTTP/1重试。三项远端资产回下载逐字节匹配且服务端digest一致，未替换任何旧Release。
 - URL安装：独立DSH_HOME、自建release-install-check profile执行公开Release URL；pnpm第一次下载重试后正常完成，包0.6.15、profile.bundles注册和6个关键文件与正式包一致。用户Desktop原链接/原profile未被验证安装覆盖。详细证据 `.test-data/windows-release-0615/` 私有不入Git；本轮只推送明确授权的代码/双语首页与验证记录，保留86项用户原有素材/文档整理。
 - 规格归档：cli-account-isolation更新1条自身账号需求，新增platform-runtime的3条和package-distribution的2条；既有Purpose/场景保留。8/8任务真实完成，归档前严格校验6项、归档后7个主规格通过，活动变更0，归档路径 `openspec/changes/archive/2026-10-09-native-cli-protection-and-windows-release/`。
+
+
+## 2026-10-09：v0.6.16 派遣询问流程简化
+
+- [x] 项目与 CLI 保存模型、实际支持的思考强度、角色及账号绑定；主对话另存已确认快照。首次完整选型，新主对话询问沿用或重新选择，同对话后续派遣不重复提问；旧版仅含模型/强度的偏好需补做一次完整选型。
+- [x] 删除问题卡的灰色选项描述、项目路径与说明段落，统一为选型和沿用两类询问；更新工具指引、Client 等待文案、中英文 README 和角色文档。设置页默认模型说明改为“新对话沿用的默认模型”。
+- [x] 回归覆盖所有 CLI 的设定隔离、账号/模型/强度失效、Host 重启、无角色、预设快照、跨对话默认更新、查询取消、并发等待者取消、发起者取消、关闭清理及写入失败。全量测试 **62 文件通过、1 文件跳过；1164 项通过、7 项 Windows 专项在 macOS 跳过**；最终一行 Client 文案调整后另跑 3 文件 49 项通过。根目录和 preview 类型检查通过，严格规格校验 8/8 通过。
+- [x] 最终隔离构建与当前 105 个源码文件逐字一致。在真实 Harness 原生问题卡中使用明确标注的模拟账号/模型/角色，完成首次选型、同对话免询问、新对话沿用、新对话重选四条路径；事件记录分别验证问题顺序及无 detail/description，四次 launch 均被夹具截断，**本轮模型生成 0 次**。四张界面截图已检查，浏览器实际加载的插件模块与 preview 可执行内容哈希一致。模拟页面、服务器和子进程已清理，activeRuns=0。
+- [x] 更新前核查 12 条 Worker 记录，无 running/queued/stopping 或账号/任务桥接进程，Desktop 两个后台任务均已结束。退出后正式构建并打包，重启后插件页实际显示 **v0.6.16、运行中**，原来的 Hermes/Pi 子任务和主对话可见。
+- [x] 原账号、配置与 Worker/偏好基线 64 文件中 63 文件逐字不变；另一个 Codex 全局配置差异在更新前已存在，本轮未修改或恢复。8 个额外主会话历史文件中 7 个逐字不变；当前会话原始 87592 字节完整保留，宿主重开时仅追加 81 字节的 session/end-seed 记录。未退出账号、未替换历史数据。
+- [x] 本地包 `artifacts/dsh-cliworker-now-0.6.16.tgz` 共 267 文件，逐项匹配正式构建；Host 与 preview 完全一致，Client 仅构建位置的 node_modules 区域注释不同、可执行内容一致。SHA-256：`fe266c100c186b2508dfa54213c516e3b3ef66cbea8554211313981078e78805`。私有日志、界面证据和校验记录位于 `.test-data/dispatch-flow-0616/`，不纳入 Git。仅提交本轮源码、测试、规格和文档追加，不包含既有素材归档及历史文档整理，不推送。

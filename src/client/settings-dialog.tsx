@@ -813,7 +813,7 @@ function CliSettings({
           <label className="cwn-setting-row">
             <span className="cwn-setting-row-text">
               <span>模型</span>
-              <span className="cwn-setting-description">此项目新任务使用的默认模型</span>
+              <span className="cwn-setting-description">新对话沿用的默认模型</span>
             </span>
             <NativeChoice
               label="默认模型"

@@ -239,6 +239,21 @@ async function setup(openFirst = true, openNativeSettings?: () => void, snapshot
     goBack,
   }
 }
+it.each([false, true])(
+  'shows one neutral settings prompt while configuring (selected=%s)',
+  async (selected) => {
+    const t = await setup(selected)
+    await act(async () => {
+      t.streams.at(-1)!.push({ ...t.snapshot(selected ? 'a' : undefined), configuring: true })
+    })
+    expect(t.text()).toContain('等待确认设定。请在主对话的问题卡片中选择。')
+    expect(t.text()).not.toContain('等待选择模型、思考强度与智能体预设')
+    expect(t.followup).not.toHaveBeenCalled()
+    await t.push(selected ? 'a' : undefined, 2)
+    expect(t.text()).not.toContain('等待确认设定')
+  },
+)
+
 it('preserves each worker draft and hides old content while switching', async () => {
   const t = await setup()
   await t.edit('draft A')

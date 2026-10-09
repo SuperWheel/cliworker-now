@@ -119,7 +119,7 @@ describe('editable role library', () => {
   })
 })
 
-describe('per-worker role question', () => {
+describe('role selection in complete dispatch setup', () => {
   it('requires an explicit role/no-role response and treats native Other as a temporary snapshot', async () => {
     const ask = vi.fn(async () => ({ answers: [{ id: 'cliworker_role', selected: [fixtureRole.name] }] }))
     const role = await askRolePreset([fixtureRole], ask, signal())

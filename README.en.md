@@ -64,7 +64,7 @@ Select a task card in the right sidebar to enter that agent's conversation. The 
 
 ### 3.2 Role presets and custom instructions
 
-The settings dialog manages role cards by name and summary. Seven writing roles are included, and you can add roles for development, research or other work. Each agent retains the role snapshot used at creation; editing a preset does not change existing conversations.
+The settings dialog manages role cards by name and summary. Seven writing roles are included, and you can add roles for development, research or other work. Each agent retains the role snapshot used at creation. Preset edits apply when selecting again and do not change confirmed settings or existing conversations.
 
 ![Agent role presets in a native Harness settings dialog](doc/assets/readme/role-presets.jpg)
 
@@ -168,7 +168,7 @@ Short aliases are also supported:
 >
 > Use glm CLI to check this code.
 
-`agy` maps to **Antigravity**, `glm / zhipu / 智谱` to **ZCode**, and `harmes` to **Hermes Agent**. Explicit requests receive a routing hint, and dispatch tools resolve these aliases consistently. A small spelling error in a longer name is accepted only with one unambiguous match. Unknown names or multiple targets require clarification. Ordinary model discussion, negated requests and quoted examples do not trigger a routing hint. Harness's main model still decides whether to invoke the tool; if needed, explicitly ask it to “use the CLI Worker plugin to call agy CLI”.
+`agy` maps to **Antigravity**, `glm / zhipu / 智谱` to **ZCode**, and `harmes` to **Hermes Agent**. Explicit requests receive a routing hint, and dispatch tools resolve these aliases consistently. A small spelling error in a longer name is accepted only with one unambiguous match. Unknown names or multiple targets return a short error with candidates and do not start a task. Ordinary model discussion, negated requests and quoted examples do not trigger a routing hint. Harness's main model still decides whether to invoke the tool; if needed, explicitly ask it to “use the CLI Worker plugin to call agy CLI”.
 
 The first use of a project and CLI opens a native Harness question card for:
 
@@ -176,7 +176,12 @@ The first use of a project and CLI opens a native Harness question card for:
 2. **Reasoning effort:** only options supported by the selected model.
 3. **Agent role:** an existing preset, no preset, or temporary instructions entered under “Other”.
 
-Cancelling or leaving the questions unanswered does not start a task. Valid project model and effort preferences can be reused; each new agent still asks for a role.
+The complete model, effort and role choice is saved before the task starts. There are only two kinds of dispatch questions:
+
+- **Select model, reasoning effort and role:** on the first use of that CLI in a project, or after choosing to change settings. Choose a model first, then its supported effort and a role.
+- **Reuse previous settings:** on the first invocation in a new main conversation for the same project and CLI. Reuse applies the complete setup; choosing to change it returns to selection.
+
+Later invocations in the same main conversation use its confirmed setup, including after a restart. Cancelling or leaving the selection incomplete does not save partial settings or start a task. Legacy model-and-effort defaults require one complete selection after upgrading.
 
 All 11 CLIs use only their own native login or an API key configured in that CLI's own settings or private `.env`. Selectable models and reasoning efforts are the intersection of CLI capabilities and the current account's available scope. A public catalog, old cache, fixed alias or anonymous free model alone does not establish availability. If access cannot be confirmed, the list stays empty with a short reason. Permission discovery uses read-only metadata, rather than generation requests.
 
@@ -202,8 +207,11 @@ Some account modes have additional boundaries:
 
 ```mermaid
 flowchart LR
-    A[Name a CLI in the main conversation] --> B[Model · Effort · Role]
-    B --> C[A named independent agent]
+    A[First use of this CLI in a project] --> B[Model · Effort · Role]
+    N[New main conversation in the same project] --> Q{Reuse previous settings?}
+    Q -->|No| B
+    Q -->|Yes| C[A named independent agent]
+    B --> C
     C --> D[Inspect work and results in the sidebar]
     D --> E[Results return to the main conversation]
     D --> F[Continue by name after the turn]
@@ -224,7 +232,7 @@ flowchart LR
 | --- | --- | --- |
 | Agent settings | Add, edit or remove name / summary / instruction presets | Shared in the current Harness profile; existing agents keep their original role snapshot |
 | CLI connections | Enable a CLI, refresh status, manage or switch accounts, open the native account terminal | That CLI; finish its tasks and account terminals before disabling it |
-| Project defaults | Save the default model and reasoning effort | Future new tasks in the current project and CLI |
+| Project defaults | Save the default model and reasoning effort | New main conversations in the current project and CLI; confirmed conversations keep their setup |
 | Child-conversation model menu | Change an agent's model or effort after a turn | Next continuation, retaining the same native session |
 
 Included roles: **commercial reviewer, logic reviewer, style reviewer, prose reviser, plot-beat designer, story-structure planner and lead novelist**. See [default role presets](doc/role-presets.md) for their instructions.

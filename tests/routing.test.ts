@@ -53,7 +53,7 @@ describe('one CLI name registry', () => {
       expect(resolveCliName(name!)).toMatchObject({ status: 'resolved', cli, match: 'fuzzy' })
     for (const name of ['p', 'om', 'gl', 'glm5.3flash', 'random-cli', '', 'zocde']) {
       expect(resolveCliName(name)).toMatchObject({ status: 'unknown' })
-      expect(() => requireCliName(name)).toThrow('尚未启动')
+      expect(() => requireCliName(name)).toThrow('无法确定 CLI，可用名称：')
     }
     expect(resolveCliName('agy/codex')).toEqual({ status: 'ambiguous', candidates: ['antigravity', 'codex'] })
     expect(resolveCliName('code')).toEqual({ status: 'ambiguous', candidates: ['codex', 'zcode'] })
@@ -106,7 +106,7 @@ describe('explicit requests from this human step', () => {
     expect(invocationResolution([user(text)])).toBeUndefined()
   })
 
-  it('returns clarification for multiple/unknown targets and ignores injected content', () => {
+  it('returns unresolved multiple/unknown targets and ignores injected content', () => {
     expect(invocationResolution([user('调用 agy 和 codex cli 帮我检查代码')])).toMatchObject({
       status: 'ambiguous',
       candidates: ['antigravity', 'codex'],
@@ -145,19 +145,17 @@ async function fixture() {
         name === 'sandboxPolicy' ? { resolve: () => ({ mode: 'workspace-write' }) } : undefined,
     },
   } as unknown as Agent
-  const choose = vi.fn(async (_agent, _signal, cli) => ({
-    cli,
-    model: 'synthetic-selected',
-    effort: 'default',
+  const chooseDispatch = vi.fn(async (_agent, _signal, cli) => ({
+    preference: { cli, model: 'synthetic-selected', effort: 'default' },
+    role: null,
+    binding: 'synthetic-binding',
   }))
-  const chooseRole = vi.fn(async () => undefined)
   const launch = vi.fn(() => 'synthetic-background-receipt')
   const followup = vi.fn(async () => 'synthetic-followup-receipt')
   const resolveWorker = vi.fn(() => ({ id: 'synthetic-worker' }))
   const service = Object.assign(Object.create(CliWorkerService.prototype), {
     ctx,
-    choose,
-    chooseRole,
+    chooseDispatch,
     launch,
     followup,
     runtime: { resolveWorker },
@@ -188,8 +186,7 @@ async function fixture() {
     ctx,
     agent,
     service,
-    choose,
-    chooseRole,
+    chooseDispatch,
     launch,
     followup,
     resolveWorker,
@@ -215,13 +212,37 @@ describe('native prompt/tool integration', () => {
     expect(start.description).toContain('agy')
     expect(start.description).toContain('智谱')
     expect(result.tools.some((tool) => tool.name === 'cliworker_resolve')).toBe(true)
-    expect(f.choose).not.toHaveBeenCalled()
-    expect(f.chooseRole).not.toHaveBeenCalled()
+    expect(f.chooseDispatch).not.toHaveBeenCalled()
     expect(f.launch).not.toHaveBeenCalled()
     const other = { ...f.agent, id: 'synthetic-other-parent' } as Agent
     expect(renderPrompt(await f.assembly(other))).not.toContain('本步用户提出')
     await f.preStep([user('介绍 GLM 模型有哪些')])
     expect(renderPrompt(await f.assembly())).not.toContain('本步用户提出')
+  })
+
+  it('delegates only complete selection or reuse questions to the plugin without preliminary questions', async () => {
+    const f = await fixture()
+    await f.preStep([user('调用 agy cli 帮我检查代码')])
+    const resolved = renderPrompt(await f.assembly())
+    expect(resolved).toContain('直接调用 cliworker_start')
+    expect(resolved).toContain('完整选型')
+    expect(resolved).toContain('是否沿用')
+    for (const obsolete of [
+      '每个新 Worker 都须',
+      '任务缺失先询问',
+      '先澄清具体 CLI',
+      '任务内容缺失时先确认任务',
+    ])
+      expect(resolved).not.toContain(obsolete)
+    for (const input of ['调用 frog cli 帮我检查代码', '调用 agy 和 codex cli 帮我检查代码']) {
+      await f.preStep([user(input)])
+      const unknown = renderPrompt(await f.assembly())
+      expect(unknown).toContain('返回简短候选错误')
+      expect(unknown).toContain('不增加询问')
+      expect(unknown).not.toContain('先澄清具体 CLI')
+    }
+    expect(() => requireCliName('agy/codex')).toThrow('无法确定 CLI，可用名称：Antigravity、Codex')
+    expect(f.launch).not.toHaveBeenCalled()
   })
 
   it('uses only admitted human messages and clears rejected/cancelled/disposed steps', async () => {
@@ -289,7 +310,7 @@ describe('native prompt/tool integration', () => {
       .get('cliworker_resolve')!
       .execute({ name: 'glm' }, { signal: f.signal } as any)
     expect(JSON.parse(resolved as string)).toMatchObject({ status: 'resolved', cli: 'zcode', match: 'alias' })
-    expect(f.choose).not.toHaveBeenCalled()
+    expect(f.chooseDispatch).not.toHaveBeenCalled()
     expect(f.launch).not.toHaveBeenCalled()
     for (const [alias, cli] of [
       ['agy', 'antigravity'],
@@ -301,25 +322,22 @@ describe('native prompt/tool integration', () => {
       ['Pi Coding Agent', 'pi'],
     ]) {
       expect(await f.start(alias)).toBe('synthetic-background-receipt')
-      expect(f.choose).toHaveBeenLastCalledWith(f.agent, expect.any(AbortSignal), cli)
-      expect(f.chooseRole).toHaveBeenCalled()
+      expect(f.chooseDispatch).toHaveBeenLastCalledWith(f.agent, expect.any(AbortSignal), cli)
       expect(f.launch.mock.calls.at(-1)![3]).toMatchObject({ cli })
     }
     await f.start()
-    expect(f.choose).toHaveBeenLastCalledWith(f.agent, expect.any(AbortSignal), 'antigravity')
+    expect(f.chooseDispatch).toHaveBeenLastCalledWith(f.agent, expect.any(AbortSignal), 'antigravity')
   })
 
   it('refuses unknown/ambiguous and preserves cancellation, role and permission gates before publication', async () => {
     const f = await fixture()
     for (const name of ['unknown-cli', 'agy/codex', 'harness']) await expect(f.start(name)).rejects.toThrow()
-    expect(f.choose).not.toHaveBeenCalled()
-    expect(f.chooseRole).not.toHaveBeenCalled()
+    expect(f.chooseDispatch).not.toHaveBeenCalled()
     expect(f.launch).not.toHaveBeenCalled()
-    f.choose.mockRejectedValueOnce(new Error('synthetic selection cancelled'))
+    f.chooseDispatch.mockRejectedValueOnce(new Error('synthetic selection cancelled'))
     await expect(f.start('glm')).rejects.toThrow('selection cancelled')
-    expect(f.chooseRole).not.toHaveBeenCalled()
     expect(f.launch).not.toHaveBeenCalled()
-    f.chooseRole.mockRejectedValueOnce(new Error('synthetic role cancelled'))
+    f.chooseDispatch.mockRejectedValueOnce(new Error('synthetic role cancelled'))
     await expect(f.start('agy')).rejects.toThrow('role cancelled')
     expect(f.launch).not.toHaveBeenCalled()
     for (const target of [

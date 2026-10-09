@@ -451,7 +451,7 @@ function SessionPanel({
             })}
           </nav>
           {snapshot.configuring && (
-            <div className="cwn-notice">等待选择模型、思考强度与智能体预设。请在主对话的问题卡片中确认。</div>
+            <div className="cwn-notice">等待确认设定。请在主对话的问题卡片中选择。</div>
           )}
           {!connecting && !streamError && !snapshot.workers.length && !snapshot.configuring && (
             <div className="cwn-empty">
@@ -536,7 +536,7 @@ function SessionPanel({
           aria-busy={running || false}
         >
           {snapshot.configuring && (
-            <div className="cwn-notice">等待选择模型、思考强度与智能体预设。请在主对话的问题卡片中确认。</div>
+            <div className="cwn-notice">等待确认设定。请在主对话的问题卡片中选择。</div>
           )}
           {!history && snapshot.truncated && (
             <div className="cwn-history-start">
