@@ -733,9 +733,6 @@ function SessionPanel({
           }}
         >
           {retired && <p className="cwn-resume-hint">{RETIRED_HARNESS_NOTICE}</p>}
-          {!retired && !running && !worker.conversationId && !resumeBlocked && (
-            <p className="cwn-resume-hint">本次运行未建立 CLI 会话，无法续聊。请在主对话重新派遣任务。</p>
-          )}
           <div className="cwn-compose-box">
             <textarea
               ref={composerInput}

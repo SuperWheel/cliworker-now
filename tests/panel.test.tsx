@@ -375,12 +375,30 @@ it('keeps reading position during updates and offers jump to latest', async () =
   expect(t.feed.scrollTop).toBe(2000)
   expect(t.r.root.findAllByProps({ 'aria-label': '回到最新消息' })).toHaveLength(0)
 })
-it('explains missing CLI session and displays durable interrupted errors', async () => {
+it('keeps a missing CLI session unable to send while removing its input notice and retaining errors, history and draft', async () => {
   const t = await setup()
+  await t.edit('unsent draft before the session became unavailable')
   await t.push('a', 2, { status: 'interrupted', conversationId: undefined, error: '上次 Harness 运行中断' })
-  expect(t.text()).toContain('无法续聊')
+  expect(t.text()).not.toContain('本次运行未建立 CLI 会话')
+  expect(t.text()).not.toContain('无法续聊')
   expect(t.text()).toContain('上次 Harness 运行中断')
+  expect(t.text()).toContain('answer-a')
   expect(t.input().props.disabled).toBe(true)
+  expect(
+    t.r.root.findAllByType('button').find((button) => button.props['aria-label'] === '继续对话')!.props.disabled,
+  ).toBe(true)
+  await act(async () =>
+    t.input().props.onKeyDown({
+      key: 'Enter',
+      preventDefault() {},
+      getModifierState: () => false,
+      nativeEvent: {},
+    }),
+  )
+  await t.submit()
+  expect(t.followup).not.toHaveBeenCalled()
+  expect(t.api.cliworker.restartWorker).not.toHaveBeenCalled()
+  expect(t.input().props.value).toBe('unsent draft before the session became unavailable')
 })
 it('changing parent session hides prior worker and ignores old stream updates', async () => {
   const t = await setup(),

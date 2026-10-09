@@ -117,9 +117,7 @@ export function WorkerCard({
             </button>
             <div className="cwn-worker-meta">
               <NameCopy name={workerName(worker)} disabled={collapsed} />
-              <span className="cwn-meta-divider" aria-hidden="true">
-                ｜
-              </span>
+              <span className="cwn-meta-divider cwn-name-divider" aria-hidden="true" />
               <span className="cwn-worker-model" title={displayModelName(worker.preference)}>
                 {displayModelName(worker.preference)}
               </span>

@@ -765,3 +765,11 @@
 - 原账号/配置/偏好/历史4189文件中4188逐字不变，仅重启的host.lock允许改变，缺失0、意外变化0；更新后21个Worker、活动0、账号/任务桥0。真实模型生成0、远端凭据查询0。证据 `.test-data/card-regressions-074/{desktop-verification,state-preservation}.json`与 `artifacts/dsh-cliworker-now-0.7.4-verification.json`。
 
 - OpenSpec最后交付任务已核对完成（5/5）；主worker-management规格完整替换4块、增加1块，Purpose和其余5块及全部旧场景保持。同步后严格10/10，归档到 `openspec/changes/archive/2026-10-09-fix-worker-overview-regressions/` 后严格9/9、活动change0。本次交付和归档另作阶段提交，不推送。
+
+## v0.7.5：状态条与名称字距（2026-10-09）
+
+- 已核查原生rc.2展开新会话按钮38px；Client状态条由32px调整为38px。无会话输入区说明从JSX移除，原草稿、历史、错误以及输入/按键/表单阻塞保持。
+- 名称按钮扩大但文字起点保持，首个全角分隔符改细线；名称与模型到线的距离按文字边缘等距，左右留白及长名省略保留。名称复制16项与Panel56项定向回归通过。
+- 后续集成、隔离渲染与Desktop交付结果将按实际执行追加；默认不发起真实CLI/模型请求。
+
+- 集成检查实际通过：pnpm typecheck、pnpm test（68文件/1304通过、7跳过）、pnpm spec:check（10/10）、pnpm build:preview。隔离真实原生UI21项通过，banner与原生按钮均38px；v074→v075名称字起点不变，按钮增加8px，两侧字距11px、button到线3px；短/长名及实际543.5px窄pane均完整。无会话提示节点0且输入/发送禁用；新建取消保留草稿，复制离开1037ms恢复，原生右键及回收返回通过。所有消息/账号/目录为模拟，真实CLI/模型/远端请求0，临时Host/Tabbit页面已清理。证据：.test-data/card-polish-075/ui/ui-verification.json及4张截图。
