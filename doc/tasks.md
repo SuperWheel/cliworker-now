@@ -736,3 +736,13 @@
 - 最终真实 preview Host/Client + 原生 Harness 界面的隔离模拟验收30项通过。两输入/保存右缘误差0px，标题Modal164px、名称196px；滚动前后搜索/filter坐标相同，列表滚动起于filters下；trash淡红alpha.09、四筛选保留、恢复同ID；名称SVG0、到分隔符7px；hover1300ms保持已复制、leave1018ms恢复，pointer焦点不阻碍。1000/760px窗口无横向溢出，宿主实际右栏仍约543.5px，未冒称验过320px。历史横条位于标题下、不在输入区，显式新建/取消草稿及原事件不变；空页无图标，只有约定两行。最早弹窗截图处于原生进场动画，已在opacity1后重拍，不改core。证据 `ui/ui-verification.json` 和五张最终截图。
 - 模拟账号、目录和followup/restart接收方阻断真实生成/CLI/外网请求；存储管理RPC使用实际插件。18774服务wrapper/Host均退出，自建Tabbit页/任务清理完成，残留页0。实际模型生成、远端账号查询及真实CLI均为0。
 - Desktop更新前只读核对21个Worker、活动任务0、账号/任务桥进程0；原生界面工具随后报告Mac锁定，已请求用户手动解锁。当前仅preview验收完成，正式build/pack与Desktop更新及更新后数据核对仍待解锁；不将该交付任务标为完成、不归档隐藏此缺口。
+
+### v0.7.3 Desktop 交付补验（2026-10-09）
+
+- 用户解锁后再次核对21个Worker、活动任务0、账号/任务桥进程0；通过原生菜单正常退出Desktop，并确认主进程已结束，再运行正式 `pnpm build` 和 `pnpm pack --pack-destination artifacts`，均通过。
+- 包 `artifacts/dsh-cliworker-now-0.7.3.tgz` 含285个文件，SHA-256 `7a0a357cadec7421c90322446dece474034372c3cce7d1b5da939c792fae9f56`。包逐文件匹配正式构建，111个源码文件与preview一致；Host逐字相同，Client仅构建目录产生的node_modules区域注释路径不同，所有可执行内容匹配此前30项原生UI验收。记录 `artifacts/dsh-cliworker-now-0.7.3-verification.json`。
+- 原生Desktop插件详情显示v0.7.3、启用、1组件运行中；安装后核对两种编辑弹窗的全宽及紧凑布局（仅打开与取消）、异常右侧淡红垃圾桶、名称到分隔符间距及无图标、固定搜索筛选和下方独立滚动、标题下历史圆角提示条与新建入口、输入区无重复提示、两行无图标启动页。保留旧任务禁用发送行为，未实际新建或发送，最后回到原“你好问候开场”会话。
+- 更新前后4189个原账号、配置、偏好和历史文件哈希核对：4188个完全相同，仅允许重启生成的 `host.lock` 改变；缺失0、意外变化0。更新后21个Worker、活动0、账号/任务桥进程0；本轮真实模型生成0、远端凭据查询0。记录 `.test-data/layout-polish-073/{desktop-verification,state-preservation}.json`。
+- 先前Mac锁定的交付缺口已补齐；实现已按阶段提交为 `b4db1a2`，保留原有未提交改动；本轮不推送。现可完成OpenSpec最后交付任务，随后同步和归档本change。
+
+- OpenSpec最后交付任务已核对完成（5/5）；主worker-management规格完整替换2块、增加3块，Purpose和其余4块及全部旧场景保持。同步后严格10/10，归档到 `openspec/changes/archive/2026-10-09-refine-panel-layout/` 后严格9/9、活动change0。本次交付补验和归档另作阶段提交，不推送。
