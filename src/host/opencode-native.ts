@@ -356,13 +356,13 @@ export async function snapshotOpenCodeAuth(
     await safePiOmpAncestors(path)
     await mkdir(path, { recursive: true, mode: 0o700 })
     const info = await lstat(path)
-    if (!info.isDirectory() || info.isSymbolicLink() || info.mode & 0o077)
+    if (!info.isDirectory() || info.isSymbolicLink() || (process.platform !== 'win32' && (info.mode & 0o077)))
       throw new Error('OpenCode 私有账号快照目录不安全')
   }
   const path = join(root, 'opencode/auth.json')
   try {
     const info = await lstat(path)
-    if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.mode & 0o077)
+    if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || (process.platform !== 'win32' && (info.mode & 0o077)))
       throw new Error('OpenCode 私有账号快照文件不安全')
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error

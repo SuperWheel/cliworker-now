@@ -10,17 +10,14 @@ import { authenticatedAccountLogins, providerLogin, usableNativeApiKey } from '.
 import { hermesSourceSuppressed, projectHermesUnsuppressedAuth } from './hermes-suppression.ts'
 import { projectHermesNousSource } from './hermes-nous.ts'
 import { parseHermesOwnEnvironment } from './hermes-env.ts'
-import { confineExtended, privateDirectory } from './extended-adapters.ts'
+import { privateDirectory } from './extended-adapters.ts'
 import { assertHermesOwnAccounts } from './hermes-models.ts'
-import { hermesHomeDirectory } from './hermes-adapter.ts'
 import {
   effectiveHermesHome,
   prepareHermesAccountHome,
   hermesAccountEnvironment,
 } from './hermes-account-context.ts'
-import { hermesNativeCommand, hermesCommandInstallationHome } from './hermes-installation.ts'
-import { hermesRuntimePolicy } from './hermes-sandbox.ts'
-import { hermesAccountIsolationPolicy } from './hermes-account-isolation.ts'
+import { hermesNativeCommand } from './hermes-installation.ts'
 import { projectDirectory, type RuntimeConfig } from './process.ts'
 
 const record = (value: unknown): value is Record<string, unknown> =>
@@ -272,19 +269,6 @@ export async function listHermesAccountSources(config: RuntimeConfig, signal: Ab
   return [{ id, label: id === 'plugin' ? '插件账号' : 'CLI 全局账号' }]
 }
 
-/** Native auth remove writes only these account files, not installation or history. */
-export function hermesLogoutPolicy(home: string): string {
-  const literal = (name: string) => `(literal ${JSON.stringify(join(home, name))})`
-  if (/[\x00-\x1f\x7f]/.test(home)) throw new Error('Unsafe Hermes home')
-  const regex = (pattern: string) => '#"' + pattern.replace(/"/g, '\\"') + '"'
-  const escaped = home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return (
-    `\n(deny network*)\n(allow file-write-mode (literal ${JSON.stringify(home)}))\n` +
-    `(allow file-write* ${['auth.json', 'auth.lock', '.env', '.env.lock', '.anthropic_oauth.json'].map(literal).join(' ')} ` +
-    `(regex ${regex(`^${escaped}/[.]auth_[^/]+[.]tmp$`)}) (regex ${regex(`^${escaped}/[.]env_[^/]+[.]tmp$`)}))\n`
-  )
-}
-
 export async function prepareHermesAccount(
   action: AccountAction,
   executable: string,
@@ -353,25 +337,15 @@ export async function prepareHermesAccount(
     signal.throwIfAborted()
     const temporary = privateDirectory(join(state, 'tmp'))
     const command = await hermesNativeCommand(executable, [action === 'login' ? 'model' : 'auth'], signal)
-    const argv = confineExtended(
-      [process.execPath, fileURLToPath(new URL('./private-launch.mjs', import.meta.url)), ...command],
-      state,
-      state,
-      'plan',
-      temporary,
-      action === 'logout' ? undefined : nativeHome,
-    )
-    argv[2] += hermesRuntimePolicy(
-      hermesCommandInstallationHome(command) ?? hermesHomeDirectory(config.hermesHome),
-    )
-    argv[2] += hermesAccountIsolationPolicy(nativeHome, state, [hermesHomeDirectory(config.hermesHome)])
-    if (action === 'logout') argv[2] += hermesLogoutPolicy(nativeHome)
+    const argv = [process.execPath, fileURLToPath(new URL('./private-launch.mjs', import.meta.url)), ...command]
     return {
       argv,
       cwd: state,
       env: {
         ...hermesAccountEnvironment(nativeHome),
         TMPDIR: temporary,
+        TMP: temporary,
+        TEMP: temporary,
         HERMES_SAFE_MODE: '1',
         HERMES_IGNORE_RULES: '1',
         HERMES_YOLO_MODE: '0',

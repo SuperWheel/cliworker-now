@@ -6,7 +6,7 @@ import type { AccountAction } from '../shared/accounts.ts'
 import type { AccountIdentity } from './account-identity.ts'
 import type { RuntimeConfig } from './process.ts'
 import { openCodeAuthDirectory, openCodeEnvironment } from './opencode-adapter.ts'
-import { confineExtended, privateDirectory } from './extended-adapters.ts'
+import { privateDirectory } from './extended-adapters.ts'
 import { inspectPiOmpNativeAccount } from './pi-omp-native.ts'
 import {
   assertOpenCodeManagedAuth,
@@ -95,14 +95,7 @@ export async function prepareOpenCodeAccount(
     signal.throwIfAborted()
     const argv = [executable, ...(action === 'manage' ? [] : ['auth', action])]
     return {
-      argv: confineExtended(
-        [process.execPath, fileURLToPath(new URL('./private-launch.mjs', import.meta.url)), ...argv],
-        state,
-        state,
-        'plan',
-        undefined,
-        data,
-      ),
+      argv: [process.execPath, fileURLToPath(new URL('./private-launch.mjs', import.meta.url)), ...argv],
       env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
       cwd: state,
       cleanup,

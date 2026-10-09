@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdtemp, mkdir, writeFile, readFile, readlink, rm, symlink } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, readlink, readdir, rename, rm, symlink } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { readMimoAccount } from '../src/host/mimo-configuration.ts'
+import { dirname, join, win32 } from 'node:path'
+import { mimoConfigurationPaths, readMimoAccount } from '../src/host/mimo-configuration.ts'
 import { prepareMimoAccountTerminal } from '../src/host/first-party-account-context.ts'
 const roots: string[] = []
 afterEach(async () => {
@@ -54,6 +54,7 @@ describe('MiMo own native account context (synthetic files only)', () => {
       'login',
       join(f.root, 'state'),
       signal(),
+      { platform: 'darwin' },
     )
     const path = join(prepared.env.MIMOCODE_HOME, 'data/auth.json')
     expect(await readlink(path)).toBe(join(f.data, 'auth.json'))
@@ -71,6 +72,76 @@ describe('MiMo own native account context (synthetic files only)', () => {
     await prepared.cleanup()
     expect(existsSync(prepared.cwd)).toBe(false)
     expect(await readFile(join(f.data, 'auth.json'), 'utf8')).toBe('{}')
+  })
+  it.each(['home', 'xdg'] as const)(
+    'Windows %s login uses the current native auth path directly without credential copies or links (synthetic files)',
+    async (mode) => {
+      const f = await fixture({ xiaomi: { type: 'api', key: 'synthetic-old' } })
+      vi.stubEnv('HOME', f.root)
+      vi.stubEnv('USERPROFILE', f.root)
+      let data = f.data
+      if (mode === 'xdg') {
+        vi.stubEnv('MIMOCODE_HOME', '')
+        vi.stubEnv('XDG_DATA_HOME', join(f.root, 'xdg-data'))
+        vi.stubEnv('XDG_CONFIG_HOME', join(f.root, 'xdg-config'))
+        data = join(f.root, 'xdg-data/mimocode')
+        await mkdir(data, { recursive: true })
+        await writeFile(
+          join(data, 'auth.json'),
+          JSON.stringify({ xiaomi: { type: 'api', key: 'synthetic-old' } }),
+        )
+      }
+      const prepared = await prepareMimoAccountTerminal(
+        '/synthetic/mimo.exe',
+        'login',
+        join(f.root, 'state'),
+        signal(),
+        { platform: 'win32' },
+      )
+      const native = mimoConfigurationPaths({ env: prepared.env, osHome: f.root })
+      expect(native.data).toBe(data)
+      expect(prepared.env).toMatchObject({
+        MIMOCODE_AUTH_CONTENT: '',
+        MIMOCODE_DISABLE_PROVIDER_ENV: '1',
+        MIMOCODE_PURE: '1',
+        MIMOCODE_DISABLE_PROJECT_CONFIG: '1',
+        MIMOCODE_MIMO_ONLY: '1',
+      })
+      const runtime = dirname(prepared.cwd)
+      expect(await readdir(join(runtime, 'data'))).toEqual([])
+      expect(prepared.env.MIMOCODE_DB).toBe(join(runtime, 'data/mimocode.db'))
+      // Simulate the native login, logout, and an external account switch while the menu is open.
+      const auth = join(native.data, 'auth.json')
+      await writeFile(auth, JSON.stringify({ xiaomi: { type: 'api', key: 'synthetic-new' } }))
+      expect(await readMimoAccount(signal())).toMatchObject({ state: 'authenticated' })
+      await writeFile(auth, '{}')
+      expect(await readMimoAccount(signal())).toMatchObject({ state: 'unconfigured' })
+      await rename(auth, join(data, 'retired-auth.json'))
+      await writeFile(auth, JSON.stringify({ xiaomi: { type: 'api', key: 'synthetic-switched' } }))
+      await prepared.cleanup()
+      expect(existsSync(runtime)).toBe(false)
+      expect(JSON.parse(await readFile(auth, 'utf8')).xiaomi.key).toBe('synthetic-switched')
+    },
+  )
+  it('resolves native Windows XDG defaults from the OS home rather than an unrelated HOME (synthetic paths)', () => {
+    expect(
+      mimoConfigurationPaths({
+        env: { HOME: 'D:\\OtherHome', USERPROFILE: 'C:\\Users\\名字' },
+        osHome: 'C:\\Users\\名字',
+        paths: win32,
+      }),
+    ).toEqual({
+      home: 'D:\\OtherHome',
+      config: 'C:\\Users\\名字\\.config\\mimocode',
+      data: 'C:\\Users\\名字\\.local\\share\\mimocode',
+    })
+    expect(
+      mimoConfigurationPaths({
+        env: { MIMOCODE_HOME: '\\\\server\\share\\MiMo', USERPROFILE: 'C:\\Users\\名字' },
+        osHome: 'C:\\Users\\名字',
+        paths: win32,
+      }).data,
+    ).toBe('\\\\server\\share\\MiMo\\data')
   })
   it('does not start remote wellknown configuration or prepare a cancelled login', async () => {
     const f = await fixture({

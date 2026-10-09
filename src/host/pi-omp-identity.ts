@@ -1,9 +1,11 @@
-import { mkdtemp, rm, open, realpath } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, open, realpath } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { inspectPiInstallation } from './pi-installation.mjs'
 import { ProcessCleanupUnconfirmedError } from './process.ts'
+import { ompConfigurationEnvironment } from './pi-omp-environment.mjs'
+import { nativeLaunchArgv } from './native-launch.mjs'
 
 const mismatch = (message: string) => Object.assign(new Error(message), { code: 'CLI_IDENTITY_MISMATCH' })
 
@@ -20,7 +22,21 @@ async function binaryRevision(executable: string) {
     if (!info.isFile()) return undefined
     const magic = Buffer.alloc(4)
     if ((await handle.read(magic, 0, 4, 0)).bytesRead !== 4) return undefined
+    let portableExecutable = false
+    if (magic.subarray(0, 2).toString('ascii') === 'MZ' && info.size >= 64n) {
+      const offset = Buffer.alloc(4),
+        signature = Buffer.alloc(4)
+      if ((await handle.read(offset, 0, 4, 0x3c)).bytesRead === 4) {
+        const pe = offset.readUInt32LE()
+        portableExecutable =
+          pe >= 64 &&
+          BigInt(pe + 4) <= info.size &&
+          (await handle.read(signature, 0, 4, pe)).bytesRead === 4 &&
+          signature.toString('hex') === '50450000'
+      }
+    }
     if (
+      !portableExecutable &&
       ![
         '7f454c46',
         'cffaedfe',
@@ -65,8 +81,10 @@ export async function verifyPiOmpExecutable(
   const root = await mkdtemp(join(tmpdir(), 'cliworker-omp-identity-'))
   let cleanupConfirmed = true
   try {
-    const argv = /\.[cm]?js$/.test(executable)
-      ? [process.execPath, executable, '--help']
+    const windowsAgent = join(root, 'config', 'agent')
+    if (process.platform === 'win32') await mkdir(windowsAgent, { recursive: true, mode: 0o700 })
+    const argv = /\.(?:[cm]?js|cmd|bat)$/i.test(executable)
+      ? nativeLaunchArgv([executable, '--help'])
       : [executable, '--help']
     const help = await capture(argv, root, {
       PI_CODING_AGENT_DIR: root,
@@ -75,6 +93,14 @@ export async function verifyPiOmpExecutable(
       PI_PROFILE: '',
       TMPDIR: root,
       ELECTRON_RUN_AS_NODE: '1',
+      ...(process.platform === 'win32'
+        ? {
+            ...ompConfigurationEnvironment(join(root, 'config')),
+            PI_CODING_AGENT_DIR: windowsAgent,
+            TMP: root,
+            TEMP: root,
+          }
+        : {}),
     })
     if (
       !/^omp v\d+\.\d+\.\d+\b/m.test(help) ||

@@ -31,8 +31,10 @@ import {
   DEFAULT_CONFIG,
   projectDirectory,
   ProcessCleanupUnconfirmedError,
+  type ProcessBackend,
   type RuntimeConfig,
 } from './process.ts'
+import { nativeProcessBackend } from './native-process.ts'
 import { validatePreference } from './adapters.ts'
 import { authorizedCatalog, authorizeSelection } from './authorized-catalog.ts'
 import { WorkerStorage } from './storage.ts'
@@ -162,6 +164,7 @@ export class CliWorkerService extends TypertRemoteService {
   private accounts: AccountManager
   private accountParents = new Map<string, () => Promise<void>>()
   private options: RuntimeConfig
+  private backend: ProcessBackend
   private pending = new Map<string, number>()
   private preferenceWaits = new Map<string, Promise<Preference>>()
   private selectionBindings = new WeakMap<Preference, string>()
@@ -175,12 +178,13 @@ export class CliWorkerService extends TypertRemoteService {
       ...DEFAULT_CONFIG,
       ...config,
     }
-    this.accounts = new AccountManager(ctx.subprocess, this.options)
+    this.backend = nativeProcessBackend(ctx.subprocess)
+    this.accounts = new AccountManager(this.backend, this.options)
     this.runtime = new WorkerRuntime(
       new WorkerStorage(
         config.stateDirectory ?? join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'cliworker-now'),
       ),
-      ctx.subprocess,
+      this.backend,
       this.options,
     )
     ctx.effect(
@@ -248,7 +252,7 @@ export class CliWorkerService extends TypertRemoteService {
     const saved = this.runtime.storage.preference(project, cli)
     const { catalog, binding } = await this.queryCatalog(
       cli,
-      this.ctx.subprocess,
+      this.backend,
       this.options,
       project,
       signal,
@@ -273,7 +277,7 @@ export class CliWorkerService extends TypertRemoteService {
       const result = await waiting
       signal.throwIfAborted()
       this.runtime.assertCliEnabled(cli)
-      await this.querySelection(result, this.ctx.subprocess, this.options, project, signal, binding)
+      await this.querySelection(result, this.backend, this.options, project, signal, binding)
       ;(this.selectionBindings ??= new WeakMap()).set(result, binding)
       return result
     }
@@ -321,7 +325,7 @@ export class CliWorkerService extends TypertRemoteService {
         effort = selection.answers.find((a) => a.id === 'cliworker_effort')?.selected[0] as typeof effort
       }
       const preference = resolveModel(preferenceSchema.parse({ cli, model, effort }), models)
-      await this.querySelection(preference, this.ctx.subprocess, this.options, project, signal, binding)
+      await this.querySelection(preference, this.backend, this.options, project, signal, binding)
       this.runtime.assertCliEnabled(cli)
       ;(this.selectionBindings ??= new WeakMap()).set(preference, binding)
       this.runtime.storage.setPreference(project, preference)
@@ -375,7 +379,7 @@ export class CliWorkerService extends TypertRemoteService {
     if (workerId && !expected) throw new Error('此历史任务缺少账号记录，请新建任务')
     const { binding, preference: authorizedPreference } = await this.querySelection(
       preference,
-      this.ctx.subprocess,
+      this.backend,
       this.options,
       project,
       signal,
@@ -867,7 +871,7 @@ export class CliWorkerService extends TypertRemoteService {
       this.runtime.assertCliEnabled(id)
       const { catalog, binding } = await this.queryCatalog(
         id,
-        this.ctx.subprocess,
+        this.backend,
         this.options,
         project,
         signal,
@@ -892,7 +896,7 @@ export class CliWorkerService extends TypertRemoteService {
       this.runtime.assertCliEnabled(cliOf(preference))
       const { catalog } = await this.querySelection(
         preference,
-        this.ctx.subprocess,
+        this.backend,
         this.options,
         project,
         signal,
@@ -925,7 +929,7 @@ export class CliWorkerService extends TypertRemoteService {
       this.runtime.assertCliEnabled(cliOf(preference))
       const { catalog } = await this.querySelection(
         preference,
-        this.ctx.subprocess,
+        this.backend,
         this.options,
         worker.project,
         signal,

@@ -1,5 +1,5 @@
 import { constants } from 'node:fs'
-import { open } from 'node:fs/promises'
+import { lstat, open } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
@@ -116,9 +116,18 @@ async function read(path: string, signal: AbortSignal): Promise<string | undefin
   let bytes: Buffer | undefined
   try {
     await safePiOmpAncestors(dirname(path))
+    const entry = await lstat(path)
+    if (entry.isSymbolicLink() || !entry.isFile() || entry.nlink !== 1)
+      throw new Error('Unsafe account metadata')
     handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
     const before = await handle.stat()
-    if (!before.isFile() || before.nlink !== 1 || before.size > 1024 * 1024)
+    if (
+      !before.isFile() ||
+      before.nlink !== 1 ||
+      before.dev !== entry.dev ||
+      before.ino !== entry.ino ||
+      before.size > 1024 * 1024
+    )
       throw new Error('Unsafe account metadata')
     bytes = Buffer.alloc(before.size + 1)
     let offset = 0
@@ -129,7 +138,18 @@ async function read(path: string, signal: AbortSignal): Promise<string | undefin
       offset += bytesRead
     }
     const after = await handle.stat()
-    if (offset !== before.size || before.size !== after.size || before.mtimeMs !== after.mtimeMs)
+    const current = await lstat(path)
+    if (
+      current.isSymbolicLink() ||
+      current.dev !== before.dev ||
+      current.ino !== before.ino ||
+      current.nlink !== 1 ||
+      offset !== before.size ||
+      before.size !== after.size ||
+      before.mtimeMs !== after.mtimeMs ||
+      current.size !== after.size ||
+      current.mtimeMs !== after.mtimeMs
+    )
       throw new Error('Account metadata changed')
     return bytes.subarray(0, offset).toString('utf8')
   } catch (error) {

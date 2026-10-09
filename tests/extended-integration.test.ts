@@ -14,11 +14,9 @@ import {
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { spawnSync } from 'node:child_process'
 import { BridgeProtocol } from '../src/host/bridge-protocol.ts'
 import {
   credentialEnvironment,
-  confineExtended,
   privateDirectory,
   sealPrivateTree,
   extendedLaunch,
@@ -465,34 +463,32 @@ describe('extended worker boundaries (simulated protocol)', () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
-  it.skipIf(process.platform !== 'darwin')(
-    'confines project writes in plan mode while permitting private CLI state',
-    () => {
-      const root = mkdtempSync(join(tmpdir(), 'cwn-boundary-'))
-      const state = privateDirectory(join(root, 'state')),
-        project = privateDirectory(join(root, 'project'))
+  it.each(['plan', 'accept-edits'] as const)(
+    'preserves native OpenCode %s permissions without an OS policy wrapper',
+    async mode => {
+      const root = mkdtempSync(join(tmpdir(), 'cwn-native-mode-'))
       try {
-        const code =
-          "const fs=require('fs');fs.writeFileSync(process.argv[1],'state');try{fs.writeFileSync(process.argv[2],'project');process.exit(2)}catch{}"
-        const result = spawnSync(
-          confineExtended(
-            [process.execPath, '-e', code, join(state, 'ok'), join(project, 'forbidden')],
-            state,
-            project,
-            'plan',
-          )[0]!,
-          confineExtended(
-            [process.execPath, '-e', code, join(state, 'ok'), join(project, 'forbidden')],
-            state,
-            project,
-            'plan',
-          ).slice(1),
-          { encoding: 'utf8' },
+        seedSyntheticOpenCode(root)
+        const project = privateDirectory(join(root, 'project'))
+        const launch = await extendedLaunch(
+          'opencode', '/synthetic/opencode', project,
+          { model: 'fixture/model', effort: 'default' }, mode, 'synthetic task',
+          join(root, 'state'), { ...DEFAULT_CONFIG, stateDirectory: root },
         )
-        expect(result.status, result.stderr).toBe(0)
-        expect(readFileSync(join(state, 'ok'), 'utf8')).toBe('state')
-        expect(existsSync(join(project, 'forbidden'))).toBe(false)
-        expect(statSync(state).mode & 0o777).toBe(0o700)
+        try {
+          expect(launch.argv[0]).toBe(process.execPath)
+          expect(launch.argv[1]).toMatch(/private-launch[.]mjs$/)
+          expect(launch.argv[2]).toBe('/synthetic/opencode')
+          expect(launch.argv.join(' ')).not.toMatch(/sandbox-exec|\(deny |\(allow /)
+          expect(launch.argv[launch.argv.indexOf('--agent') + 1]).toBe(mode === 'plan' ? 'plan' : 'build')
+          const permission = JSON.parse(launch.env.OPENCODE_PERMISSION!)
+          expect(permission.edit).toBe(mode === 'plan' ? 'deny' : 'allow')
+          expect(permission.bash).toBe(mode === 'plan' ? 'deny' : 'ask')
+          expect(launch.env.ZHIPU_API_KEY).toBeUndefined()
+          expect(launch.env.OPENCODE_AUTH_CONTENT).toBe('')
+        } finally {
+          await launch.cleanup()
+        }
       } finally {
         rmSync(root, { recursive: true, force: true })
       }

@@ -92,7 +92,7 @@ async function environment(stateDirectory: string, home: string, nousMinimumTtl?
   }
   // Preserve native provider/account configuration. No credentials are copied or injected.
   // SAFE_MODE is the plugin-discovery guard; the CLI --safe-mode switch would ALSO discard
-  // user provider config, so it is deliberately not used. Host supplies the OS sandbox.
+  // user provider config, so it is deliberately not used. Native tool permissions remain active.
   return {
     ...hermesAccountEnvironment(home),
     PYTHONDONTWRITEBYTECODE: '1',
@@ -228,6 +228,8 @@ export async function prepareHermes(
   await verifyHermesExecutable(input.executable, AbortSignal.timeout(15000))
   const [provider, model] = selection(input.preference.model)
   if (!['plan', 'accept-edits'].includes(input.mode)) throw new Error('Invalid Hermes mode')
+  if (input.mode === 'plan')
+    throw new Error('Hermes 当前原生非交互模式不支持只读派遣，请使用其他 CLI 或明确授权写入任务')
   if (!nonempty(input.prompt)) throw new Error('Prompt must not be empty')
   if (input.conversationId !== undefined && !nonempty(input.conversationId))
     throw new Error('Invalid Hermes session identity')

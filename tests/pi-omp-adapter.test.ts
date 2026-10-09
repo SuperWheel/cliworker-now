@@ -257,10 +257,10 @@ describe('Pi/OMP bridge with simulated native RPC processes', () => {
       expect(run.frames.at(-1)).toMatchObject({ type: 'result', status: 'SUCCESS' })
     },
   )
-  it('uses one offline Host sandbox then a metadata-only phase on the same managed OMP snapshot', async () => {
+  it('uses native arguments for SDK discovery and account metadata on the same managed OMP snapshot', async () => {
     const { root, input } = await fixture('omp', 'non-glm')
     vi.stubEnv('HOME', root)
-    const policies: string[] = []
+    const nativePrograms: string[] = []
     const phases: string[] = []
     const states: string[] = []
     const outputs: unknown[] = []
@@ -268,9 +268,10 @@ describe('Pi/OMP bridge with simulated native RPC processes', () => {
       'omp',
       input.executable,
       async (argv, env) => {
-        expect(argv[0]).toBe('/usr/bin/sandbox-exec')
-        expect(argv.filter((arg) => arg === '/usr/bin/sandbox-exec')).toHaveLength(1)
-        policies.push(argv[2]!)
+        expect(argv[0]).toBe(process.execPath)
+        expect(argv[1]).toMatch(/private-launch[.]mjs$/)
+        expect(argv.join(' ')).not.toMatch(/sandbox-exec|\(deny |\(allow /)
+        nativePrograms.push(argv[2]!)
         const request = JSON.parse(await readFile(argv.at(-1)!, 'utf8'))
         phases.push(request.metadataPhase)
         states.push(request.stateDirectory)
@@ -291,8 +292,7 @@ describe('Pi/OMP bridge with simulated native RPC processes', () => {
     )
     expect(phases).toEqual(['native-candidates', 'account-scope'])
     expect(new Set(states).size).toBe(1)
-    expect(policies[0]).toContain('(deny network*)')
-    expect(policies[1]).not.toContain('(deny network*)')
+    expect(nativePrograms).toEqual([process.execPath, process.execPath])
     expect(outputs[0]).toEqual({ phase: 'native-candidates', count: 1 })
     expect(models.map((model) => model.id)).toEqual([input.preference.model])
     expect(JSON.stringify(outputs)).not.toContain(fixtureKey)
@@ -827,7 +827,7 @@ it('sanitizes the bridge process before the Pi SDK reads environment credential 
 })
 
 it.each(['pi', 'omp'] as const)(
-  '%s denies automatic home/project/old-runtime dotenv reads in catalog and worker processes',
+  '%s projects only its own credential environment during native catalog and worker execution',
   async (cli) => {
     const { root, input } = await fixture(cli, 'non-glm')
     vi.stubEnv('HOME', root)
@@ -839,17 +839,15 @@ it.each(['pi', 'omp'] as const)(
     ]
     for (const path of foreign) await writeFile(path, 'FOREIGN_API_KEY=SYNTHETIC_FOREIGN_DOTENV\n')
     const guard = `import {readFileSync as probeRead} from 'node:fs';
-for(const file of [...${JSON.stringify(foreign)}, process.env.PI_CODING_AGENT_DIR+'/.env']) {
-  let readable=false; try {probeRead(file);readable=true} catch {}
-  if(readable) throw new Error('foreign dotenv was readable');
-}
+if(process.env.FOREIGN_API_KEY) throw new Error('foreign dotenv credential was projected');
 if(process.env.FIXTURE_API_KEY!==${JSON.stringify(fixtureKey)}) throw new Error('own env lost');
 probeRead(process.env.PI_CODING_AGENT_DIR+(${JSON.stringify(cli)}==='pi'?'/auth.json':'/agent.db'));
 `
     for (const path of [input.executable, join(root, 'dist/core/model-runtime.js')])
       await writeFile(path, guard + (await readFile(path, 'utf8')))
     const capture = async (argv: string[], env?: Record<string, string>) => {
-      expect(argv[2]).toContain('(deny file-read-data')
+      expect(argv[2]).toBe(process.execPath)
+      expect(argv.join(' ')).not.toMatch(/sandbox-exec|\(deny |\(allow /)
       const request = JSON.parse(await readFile(argv.at(-1)!, 'utf8'))
       await writeFile(join(request.stateDirectory, 'agent/.env'), 'FOREIGN_API_KEY=SYNTHETIC_OLD_WORKER\n')
       return (
@@ -876,7 +874,8 @@ probeRead(process.env.PI_CODING_AGENT_DIR+(${JSON.stringify(cli)}==='pi'?'/auth.
       capture,
     )
     try {
-      expect(launch.argv[2]).toContain('(deny file-read-data')
+      expect(launch.argv[2]).toBe(process.execPath)
+      expect(launch.argv.join(' ')).not.toMatch(/sandbox-exec|\(deny |\(allow /)
       const run = await exec(launch.argv[0]!, launch.argv.slice(1), {
         cwd: input.project,
         env: fixtureEnvironment(root, launch.env),

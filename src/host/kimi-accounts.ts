@@ -97,7 +97,9 @@ function kimiAccountLabel(accessToken: string): string | undefined {
     const safeId = (value: unknown): value is string =>
       typeof value === 'string' &&
       /^[A-Za-z0-9][A-Za-z0-9_-]{6,127}$/.test(value) &&
-      !/^(?:sk[-_]|pk[-_]|api[-_]?key|access[-_]?token|refresh[-_]?token|secret|bearer|token|eyJ|placeholder|changeme|your[-_])/i.test(value)
+      !/^(?:sk[-_]|pk[-_]|api[-_]?key|access[-_]?token|refresh[-_]?token|secret|bearer|token|eyJ|placeholder|changeme|your[-_])/i.test(
+        value,
+      )
     if (
       (claims.sub !== undefined && !safeId(claims.sub)) ||
       (claims.user_id !== undefined && !safeId(claims.user_id)) ||
@@ -120,12 +122,19 @@ async function readToken(directory: string, slot: string, signal: AbortSignal) {
   try {
     signal.throwIfAborted()
     await safePiOmpAncestors(directory)
-    handle = await open(
-      join(directory, `${slot}.json`),
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-    )
+    const path = join(directory, `${slot}.json`)
+    const entry = await lstat(path)
+    if (entry.isSymbolicLink() || !entry.isFile() || entry.nlink !== 1)
+      throw new Error('Unsafe Kimi token file')
+    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
     const before = await handle.stat()
-    if (!before.isFile() || before.nlink !== 1 || before.size > 64 * 1024)
+    if (
+      !before.isFile() ||
+      before.nlink !== 1 ||
+      before.dev !== entry.dev ||
+      before.ino !== entry.ino ||
+      before.size > 64 * 1024
+    )
       throw new Error('Unsafe Kimi token file')
     bytes = Buffer.alloc(before.size + 1)
     let offset = 0
@@ -136,7 +145,18 @@ async function readToken(directory: string, slot: string, signal: AbortSignal) {
       offset += bytesRead
     }
     const after = await handle.stat()
-    if (offset !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs)
+    const current = await lstat(path)
+    if (
+      current.isSymbolicLink() ||
+      current.dev !== before.dev ||
+      current.ino !== before.ino ||
+      current.nlink !== 1 ||
+      offset !== before.size ||
+      after.size !== before.size ||
+      after.mtimeMs !== before.mtimeMs ||
+      current.size !== after.size ||
+      current.mtimeMs !== after.mtimeMs
+    )
       throw new Error('Kimi token changed during read')
     signal.throwIfAborted()
     const parsed: unknown = JSON.parse(bytes.subarray(0, offset).toString('utf8'))

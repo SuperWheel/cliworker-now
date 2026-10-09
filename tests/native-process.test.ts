@@ -4,7 +4,7 @@ import { LocalSubprocessRuntime } from '@deepseek-ai/dsh-subprocess-local'
 import { resolve } from 'node:path'
 import { spawnManagedAgent } from '../src/host/managed-agent.ts'
 
-it('native terminal ownership removes a real child in a separate process group', async () => {
+it('native ownership removes a real detached child (Windows Job or POSIX terminal range)', async () => {
   const ctx = new Context()
   await ctx.plugin(LocalSubprocessRuntime)
   let pid: number | undefined

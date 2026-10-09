@@ -10,7 +10,9 @@ export async function spawnManagedAgent(
 ): Promise<SubprocessHandle> {
   // Unit-test backends can implement only pipe spawning. The production Host
   // always provides the native terminal primitive.
-  if (!backend.spawnTerminal) return backend.spawn(spec)
+  // On Windows ordinary spawning owns a native Job. ConPTY does not have that
+  // owner in the pinned Host, so a terminal bridge would weaken descendant cleanup.
+  if (process.platform === 'win32' || !backend.spawnTerminal) return backend.spawn(spec)
   spec.signal?.throwIfAborted()
   const terminal = await backend.spawnTerminal({
     argv: [process.execPath, fileURLToPath(new URL('./terminal-bridge.mjs', import.meta.url)), ...spec.argv],

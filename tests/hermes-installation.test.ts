@@ -51,36 +51,39 @@ function fixture() {
   writeFileSync(facts, JSON.stringify({ packages: { venv: { environment } } }))
   return { home, checkout, environment, launcher, facts }
 }
-describe('Hermes installation-bound entry (synthetic, no account/network)', () => {
-  it('uses the exact committed environment and preserves native argv while leasing and releasing', async () => {
-    const f = fixture(),
-      command = await hermesNativeCommand(f.launcher, ['model'])
-    expect(command[0]).toBe(join(f.environment, 'bin/python'))
-    expect(hermesCommandInstallationHome(command)).toBe(f.home)
-    expect(command.at(-1)).toBe('model')
-    expect(
-      execFileSync(command[0]!, command.slice(1), {
-        encoding: 'utf8',
-        env: { ...process.env, HERMES_HOME: join(f.home, 'account') },
-      }),
-    ).toBe('synthetic-menu\n')
-    expect(() => readFileSync(join(f.home, 'leased'))).toThrow()
-  })
-  it('refuses a changed selection at child startup without opening the native menu', async () => {
-    const f = fixture(),
-      command = await hermesNativeCommand(f.launcher, ['auth'])
-    writeFileSync(
-      f.facts,
-      JSON.stringify({ packages: { venv: { environment: join(f.home, 'uncommitted') } } }),
-    )
-    expect(() => execFileSync(command[0]!, command.slice(1), { stdio: 'pipe' })).toThrow()
-    expect(() => readFileSync(join(f.home, 'leased'))).toThrow()
-  })
-  it('never falls back to an arbitrary existing generation when facts are missing or escaping', async () => {
-    const f = fixture()
-    writeFileSync(f.facts, JSON.stringify({ packages: { venv: { environment: f.home } } }))
-    await expect(hermesNativeCommand(f.launcher, ['model'])).rejects.toThrow('安装依赖不可用')
-    rmSync(f.facts)
-    await expect(hermesNativeCommand(f.launcher, ['model'])).rejects.toThrow('安装依赖不可用')
-  })
-})
+describe.skipIf(process.platform === 'win32')(
+  'Hermes POSIX installation-bound entry (synthetic, no account/network)',
+  () => {
+    it('uses the exact committed environment and preserves native argv while leasing and releasing', async () => {
+      const f = fixture(),
+        command = await hermesNativeCommand(f.launcher, ['model'])
+      expect(command[0]).toBe(join(f.environment, 'bin/python'))
+      expect(hermesCommandInstallationHome(command)).toBe(f.home)
+      expect(command.at(-1)).toBe('model')
+      expect(
+        execFileSync(command[0]!, command.slice(1), {
+          encoding: 'utf8',
+          env: { ...process.env, HERMES_HOME: join(f.home, 'account') },
+        }),
+      ).toBe('synthetic-menu\n')
+      expect(() => readFileSync(join(f.home, 'leased'))).toThrow()
+    })
+    it('refuses a changed selection at child startup without opening the native menu', async () => {
+      const f = fixture(),
+        command = await hermesNativeCommand(f.launcher, ['auth'])
+      writeFileSync(
+        f.facts,
+        JSON.stringify({ packages: { venv: { environment: join(f.home, 'uncommitted') } } }),
+      )
+      expect(() => execFileSync(command[0]!, command.slice(1), { stdio: 'pipe' })).toThrow()
+      expect(() => readFileSync(join(f.home, 'leased'))).toThrow()
+    })
+    it('never falls back to an arbitrary existing generation when facts are missing or escaping', async () => {
+      const f = fixture()
+      writeFileSync(f.facts, JSON.stringify({ packages: { venv: { environment: f.home } } }))
+      await expect(hermesNativeCommand(f.launcher, ['model'])).rejects.toThrow('安装依赖不可用')
+      rmSync(f.facts)
+      await expect(hermesNativeCommand(f.launcher, ['model'])).rejects.toThrow('安装依赖不可用')
+    })
+  },
+)

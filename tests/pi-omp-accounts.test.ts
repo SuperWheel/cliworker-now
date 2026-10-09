@@ -15,7 +15,7 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { preparePiOmpAccountTerminal } from '../src/host/pi-omp-accounts.ts'
 import { DEFAULT_CONFIG } from '../src/host/process.ts'
 
@@ -61,7 +61,10 @@ it.each(['pi', 'omp'] as const)('%s ignores Host credentials in account terminal
   expect(launch.env.ELECTRON_RUN_AS_NODE).toBe('1')
   expect(launch.env.OMP_PROFILE).toBe('')
   expect(launch.env.PI_PROFILE).toBe('')
-  expect(launch.env.HOME).toBeUndefined()
+  if (cli === 'omp' && process.platform === 'win32') {
+    expect(launch.env.HOME).toBe(dirname(dirname(launch.env.PI_CODING_AGENT_DIR!)))
+    expect(launch.env.USERPROFILE).toBe(launch.env.HOME)
+  } else expect(launch.env.HOME).toBeUndefined()
   expect(launch.argv).toContain('--no-session')
   expect(launch.argv).toContain('--no-tools')
   expect(launch.argv).toContain('--no-extensions')
@@ -84,7 +87,7 @@ it.each(['pi', 'omp'] as const)('%s ignores Host credentials in account terminal
 it('opens native Pi through Node without imposing a model or sending a prompt', async () => {
   const { input } = await fixture('pi')
   const launch = await preparePiOmpAccountTerminal(input)
-  expect(launch.argv.slice(3, 7)).toEqual([
+  expect(launch.argv.slice(0, 4)).toEqual([
     process.execPath,
     expect.stringContaining('private-launch.mjs'),
     process.execPath,
@@ -108,14 +111,15 @@ it('opens native Pi through Node without imposing a model or sending a prompt', 
 it('does not synthesize an OMP CN route and disables automatic fallback before launching', async () => {
   const { input } = await fixture('omp')
   const launch = await preparePiOmpAccountTerminal(input)
-  expect(launch.argv.slice(3, 6)).toEqual([
+  expect(launch.argv.slice(0, 3)).toEqual([
     process.execPath,
     expect.stringContaining('private-launch.mjs'),
     input.executable,
   ])
-  expect(launch.env.PI_CONFIG_DIR).toBe(
-    relative(homedir(), await realpath(join(input.stateDirectory, 'accounts', 'omp'))),
-  )
+  const configRoot = await realpath(join(input.stateDirectory, 'accounts', 'omp'))
+  if (process.platform === 'win32')
+    expect(join(launch.env.HOME!, launch.env.PI_CONFIG_DIR!)).toBe(configRoot)
+  else expect(launch.env.PI_CONFIG_DIR).toBe(relative(homedir(), configRoot))
   const agent = launch.env.PI_CODING_AGENT_DIR!
   const models = JSON.parse(await readFile(join(agent, 'models.yml'), 'utf8'))
   expect(Object.keys(models.providers)).toEqual([])
@@ -317,7 +321,7 @@ it.each(['pi', 'omp'] as const)(
 )
 
 it.each(['pi', 'omp'] as const)(
-  '%s account terminal blocks ambient dotenv reads but retains own projected env and OAuth files',
+  '%s account terminal projects only own dotenv credentials and keeps native OAuth readable',
   async (cli) => {
     const { root, input } = await fixture(cli),
       agent = join(input.stateDirectory, 'accounts', cli, 'agent')
@@ -335,14 +339,13 @@ it.each(['pi', 'omp'] as const)(
     await writeFile(
       executable,
       `import { readFileSync, writeFileSync } from 'node:fs';
-const denied=${JSON.stringify(paths)}.map(path=>{try{readFileSync(path);return false}catch{return true}});
-writeFileSync('observed.json',JSON.stringify({denied,own:process.env.FIXTURE_API_KEY,oauth:JSON.parse(readFileSync(${JSON.stringify(join(agent, 'oauth-fixture.json'))},'utf8')).synthetic}));`,
+writeFileSync('observed.json',JSON.stringify({foreignPresent:!!process.env.OTHER_API_KEY,own:process.env.FIXTURE_API_KEY,oauth:JSON.parse(readFileSync(${JSON.stringify(join(agent, 'oauth-fixture.json'))},'utf8')).synthetic}));`,
     )
     const launch = await preparePiOmpAccountTerminal({ ...input, executable })
     try {
       await exec(launch.argv[0]!, launch.argv.slice(1), { cwd: launch.cwd, env: launch.env, timeout: 5000 })
       expect(JSON.parse(await readFile(join(launch.cwd, 'observed.json'), 'utf8'))).toEqual({
-        denied: [true, true, true, true],
+        foreignPresent: false,
         own: 'SYNTHETIC_OWN_ACCOUNT',
         oauth: true,
       })
@@ -353,29 +356,20 @@ writeFileSync('observed.json',JSON.stringify({denied,own:process.env.FIXTURE_API
   },
 )
 
-it('OMP login permits its native sibling logs only, without opening the account root or another CLI', async () => {
-  const { root, input } = await fixture('omp')
+it('OMP login creates private native sibling logs and preserves accounts after runtime cleanup', async () => {
+  const { input } = await fixture('omp')
   const launch = await preparePiOmpAccountTerminal({ ...input, action: 'login' })
   const agent = launch.env.PI_CODING_AGENT_DIR!
-  const account = join(agent, '..')
-  const logs = await realpath(join(account, 'logs'))
-  const foreign = join(input.stateDirectory, 'accounts/pi/agent')
-  await mkdir(foreign, { recursive: true })
-  const attempts = [join(account, 'root-write'), join(foreign, 'other-account'), join(root, 'outside')]
+  const logs = await realpath(join(agent, '..', 'logs'))
   const script = `import {writeFileSync} from 'node:fs';
 writeFileSync(${JSON.stringify(join(logs, 'omp.synthetic.log'))}, 'synthetic log');
-writeFileSync(${JSON.stringify(join(agent, 'synthetic-auth.json'))}, '{}');
-const denied=${JSON.stringify(attempts)}.map(path=>{try{writeFileSync(path,'forbidden');return false}catch{return true}});
-writeFileSync('observed.json',JSON.stringify({denied}));`
+writeFileSync(${JSON.stringify(join(agent, 'synthetic-auth.json'))}, '{}');`
   try {
-    // The real generated Seatbelt policy and private umask wrapper, simulated CLI payload only.
-    await exec(
-      launch.argv[0]!,
-      [...launch.argv.slice(1, 5), process.execPath, '--input-type=module', '-e', script],
-      { cwd: launch.cwd, env: launch.env, timeout: 5000 },
-    )
-    expect(JSON.parse(await readFile(join(launch.cwd, 'observed.json'), 'utf8'))).toEqual({
-      denied: [true, true, true],
+    expect(launch.argv[0]).toBe(process.execPath)
+    expect(launch.argv.join(' ')).not.toMatch(/sandbox-exec|\(deny |\(allow /)
+    // Only a synthetic Node payload uses the real private umask wrapper.
+    await exec(launch.argv[0]!, [launch.argv[1]!, process.execPath, '--input-type=module', '-e', script], {
+      cwd: launch.cwd, env: launch.env, timeout: 5000,
     })
     expect(await readFile(join(logs, 'omp.synthetic.log'), 'utf8')).toBe('synthetic log')
     expect((await stat(logs)).mode & 0o777).toBe(0o700)

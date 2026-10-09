@@ -43,33 +43,40 @@ describe('distinct Pi and OMP entry identities', () => {
       expect(capture).not.toHaveBeenCalled()
     },
   )
-  it('uses the current official Pi installation before an old private runtime and resolves one canonical entry', async () => {
-    const home = root()
-    vi.stubEnv('HOME', home)
-    const bin = join(home, '.pi/agent/bin')
-    mkdirSync(bin, { recursive: true })
-    mkdirSync(join(home, '.local/bin'), { recursive: true })
-    const native = piPackage(
-      join(home, '.pi/agent/install/releases/1.0.4/node_modules/@earendil-works/pi-coding-agent'),
-    )
-    writeFileSync(join(home, '.pi/agent/install/current-version'), '1.0.4\n')
-    writeFileSync(
-      join(bin, 'pi'),
-      '#!/bin/sh\n# Synthetic official launcher shape; must not execute.\n# install/current-version\nPI_MANAGED_INSTALL_ROOT=unused\nexit 91\n',
-    )
-    symlinkSync(join(bin, 'pi'), join(home, '.local/bin/pi'))
-    piPackage(
-      join(home, '.local/share/cliworker-now/runtimes/pi-1.0.2/node_modules/@earendil-works/pi-coding-agent'),
-      '1.0.2',
-    )
-    const backend = {
-      resolveExecutable: vi.fn(async (entry: string) => entry),
-      spawn: vi.fn(),
-    } as unknown as ProcessBackend
-    expect(executableFor('pi', DEFAULT_CONFIG)).toBe(join(home, '.local/bin/pi'))
-    expect(await resolveCliExecutable('pi', backend, DEFAULT_CONFIG)).toBe(native)
-    expect(backend.spawn).not.toHaveBeenCalled()
-  })
+  it.skipIf(process.platform === 'win32')(
+    'uses the POSIX official Pi launcher before an old private runtime and resolves one canonical entry',
+    async () => {
+      const home = root()
+      vi.stubEnv('HOME', home)
+      vi.stubEnv('USERPROFILE', home)
+      const bin = join(home, '.pi/agent/bin')
+      mkdirSync(bin, { recursive: true })
+      mkdirSync(join(home, '.local/bin'), { recursive: true })
+      const native = piPackage(
+        join(home, '.pi/agent/install/releases/1.0.4/node_modules/@earendil-works/pi-coding-agent'),
+      )
+      writeFileSync(join(home, '.pi/agent/install/current-version'), '1.0.4\n')
+      writeFileSync(
+        join(bin, 'pi'),
+        '#!/bin/sh\n# Synthetic official launcher shape; must not execute.\n# install/current-version\nPI_MANAGED_INSTALL_ROOT=unused\nexit 91\n',
+      )
+      symlinkSync(join(bin, 'pi'), join(home, '.local/bin/pi'))
+      piPackage(
+        join(
+          home,
+          '.local/share/cliworker-now/runtimes/pi-1.0.2/node_modules/@earendil-works/pi-coding-agent',
+        ),
+        '1.0.2',
+      )
+      const backend = {
+        resolveExecutable: vi.fn(async (entry: string) => entry),
+        spawn: vi.fn(),
+      } as unknown as ProcessBackend
+      expect(executableFor('pi', DEFAULT_CONFIG)).toBe(join(home, '.local/bin/pi'))
+      expect(await resolveCliExecutable('pi', backend, DEFAULT_CONFIG)).toBe(native)
+      expect(backend.spawn).not.toHaveBeenCalled()
+    },
+  )
   it('refuses either CLI misconfigured as the other before login or model discovery', async () => {
     const pi = piPackage(root())
     const omp = piPackage(root(), '16.4.4', '@oh-my-pi/pi-coding-agent')
@@ -88,6 +95,7 @@ describe('distinct Pi and OMP entry identities', () => {
   it('prefers a native Pi resolved on PATH and uses the legacy install only when PATH is absent', async () => {
     const home = root()
     vi.stubEnv('HOME', home)
+    vi.stubEnv('USERPROFILE', home)
     const legacy = piPackage(
       join(home, '.local/share/cliworker-now/runtimes/pi-1.0.2/node_modules/@earendil-works/pi-coding-agent'),
       '1.0.2',
@@ -119,7 +127,12 @@ describe('distinct Pi and OMP entry identities', () => {
     let scratch = ''
     const capture = vi.fn(async (argv: string[], cwd: string, env: Record<string, string>) => {
       expect(argv).toEqual(['/synthetic/omp', '--help'])
-      expect(env.PI_CODING_AGENT_DIR).toBe(cwd)
+      expect(env.PI_CODING_AGENT_DIR).toBe(process.platform === 'win32' ? join(cwd, 'config', 'agent') : cwd)
+      if (process.platform === 'win32') {
+        expect(env.HOME).toBe(cwd)
+        expect(env.USERPROFILE).toBe(cwd)
+        expect(env.PI_CONFIG_DIR).toBe('config')
+      }
       expect(env.OMP_PROFILE).toBe('')
       scratch = cwd
       expect(existsSync(cwd)).toBe(true)
@@ -171,6 +184,36 @@ describe('distinct Pi and OMP entry identities', () => {
     await verifyPiOmpExecutable('omp', executable, capture)
     expect(capture).toHaveBeenCalledTimes(2)
   })
+  it('caches only a complete native PE identity and reprobes a damaged PE header', async () => {
+    const executable = join(root(), 'omp.exe'),
+      pe = Buffer.alloc(96)
+    pe.write('MZ', 0, 'ascii')
+    pe.writeUInt32LE(64, 0x3c)
+    pe.write('PE\0\0', 64, 'ascii')
+    writeFileSync(executable, pe)
+    const capture = vi.fn(async () => ompHelp)
+    await verifyPiOmpExecutable('omp', executable, capture)
+    await verifyPiOmpExecutable('omp', executable, capture)
+    expect(capture).toHaveBeenCalledTimes(1)
+    pe.writeUInt32LE(500, 0x3c)
+    writeFileSync(executable, pe)
+    await verifyPiOmpExecutable('omp', executable, capture)
+    await verifyPiOmpExecutable('omp', executable, capture)
+    expect(capture).toHaveBeenCalledTimes(3)
+  })
+  it.skipIf(process.platform !== 'win32')(
+    'identifies the canonical Windows npm Pi package without executing its shim',
+    () => {
+      const directory = root(),
+        executable = piPackage(join(directory, 'node_modules/@earendil-works/pi-coding-agent'))
+      const shim = join(directory, 'pi.cmd')
+      writeFileSync(
+        shim,
+        '@echo off\r\nnode "%~dp0\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\cli.js" %*\r\n',
+      )
+      expect(inspectPiInstallation(shim).executable).toBe(executable)
+    },
+  )
   it('preserves independent project preferences even for the same provider and model', () => {
     const directory = root()
     const storage = new WorkerStorage(join(directory, 'state'))

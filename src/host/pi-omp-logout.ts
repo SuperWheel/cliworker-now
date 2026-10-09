@@ -1,13 +1,10 @@
 import { lstat, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
-import { join, relative, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { confineExtended } from './extended-adapters.ts'
 import { readPiOmpLogoutSources, safePiOmpAncestors } from './pi-omp-native.ts'
 import { projectDirectory } from './process.ts'
+import { ompConfigurationEnvironment } from './pi-omp-environment.mjs'
 import type { PiOmpAccountTerminalInput, PiOmpAccountTerminalLaunch } from './pi-omp-accounts.ts'
-
-const fixed = (path: string) => `(literal ${JSON.stringify(path)})`
 
 /** No snapshot, migration or credential deletion here: only native user-operated menus. */
 export async function preparePiOmpLogout(
@@ -70,14 +67,15 @@ export async function preparePiOmpLogout(
       ...source.env,
       PI_CODING_AGENT_DIR: agent,
       TMPDIR: temporary,
+      TMP: temporary,
+      TEMP: temporary,
       ELECTRON_RUN_AS_NODE: '1',
       OMP_AUTH_BROKER_URL: '',
       OMP_AUTH_BROKER_TOKEN: '',
       OMP_PROFILE: '',
       PI_PROFILE: '',
     }
-    let native: string[],
-      policy = '\n(deny network*)\n'
+    let native: string[]
     if (cli === 'pi') {
       const auth = source.stored ? join(directory, 'auth.json') : join(agent, 'auth.json')
       if (!source.stored) await writeFile(auth, '{}', { flag: 'wx', mode: 0o600 })
@@ -90,19 +88,17 @@ export async function preparePiOmpLogout(
       ]
       env.PI_OFFLINE = '1'
       env.PI_TELEMETRY = '0'
-      if (source.stored) {
-        policy += `(allow file-write-data file-write-mode ${fixed(auth)})\n`
-        policy += `(deny file-write-create ${fixed(auth)})\n`
-        policy += `(allow file-write* ${fixed(auth + '.lock')})\n`
-      }
     } else {
-      // Only the selected real DB is linked. Native broker/config discovery stays
-      // in the private agent root; OAuth rows are never copied to another source.
+      // Operate on the selected real DB, never a copied DB/WAL. Windows uses the
+      // native agent root directly without requiring symlink privileges.
       if (source.stored) {
-        const db = join(directory, 'agent.db')
-        await symlink(db, join(agent, 'agent.db'))
-        policy += `(allow file-write* ${[db, db + '-wal', db + '-shm', db + '-journal'].map(fixed).join(' ')})\n`
-        policy += `(deny file-write-create ${fixed(db)})\n`
+        if (process.platform === 'win32') {
+          if (source.brokerConfigured)
+            throw new Error('请先在 OMP 自身配置中停用账号代理，再退出该来源')
+          env.PI_CODING_AGENT_DIR = directory
+        } else {
+          await symlink(join(directory, 'agent.db'), join(agent, 'agent.db'))
+        }
       }
       await writeFile(
         join(agent, 'config.yml'),
@@ -130,7 +126,7 @@ export async function preparePiOmpLogout(
         }),
         { mode: 0o600 },
       )
-      env.PI_CONFIG_DIR = relative(homedir(), runtime)
+      Object.assign(env, ompConfigurationEnvironment(runtime))
       native = [
         input.executable,
         '--no-session',
@@ -150,16 +146,7 @@ export async function preparePiOmpLogout(
       ]
     }
     signal?.throwIfAborted()
-    const argv = confineExtended(
-      [process.execPath, fileURLToPath(new URL('./private-launch.mjs', import.meta.url)), ...native],
-      runtime,
-      runtime,
-      'plan',
-      undefined,
-      undefined,
-      true,
-    )
-    argv[2] += policy
+    const argv = [process.execPath, fileURLToPath(new URL('./private-launch.mjs', import.meta.url)), ...native]
     return {
       argv,
       cwd: runtime,

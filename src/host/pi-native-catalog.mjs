@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawn } from 'node:child_process'
 import { inspectPiInstallation } from './pi-installation.mjs'
+import { nativeLaunchArgv } from './native-launch.mjs'
 
 const levels = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 export function snapshotNativeCandidates(candidates, env = {}) {
@@ -142,8 +143,7 @@ async function nativeCandidates(
     return runtime.getAvailableSnapshot()
   }
   const args = ['models', '--json', '--no-extensions', '--config', join(directory, 'config.yml')]
-  const js = /\.[cm]?js$/.test(executable)
-  const nativeArgs = [js ? process.execPath : executable, ...(js ? [executable, ...args] : args)]
+  const nativeArgs = nativeLaunchArgv([executable, ...args])
   const child = spawn(nativeArgs[0], nativeArgs.slice(1), {
     cwd: directory,
     env,

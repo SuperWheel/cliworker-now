@@ -13,6 +13,8 @@ const tsc = (project) =>
 tsc('tsconfig.host-build.json')
 for (const name of [
   'private-launch',
+  'native-launch',
+  'pi-omp-environment',
   'terminal-bridge',
   'pi-omp-bridge',
   'pi-native-catalog',
@@ -34,6 +36,10 @@ if (existsSync('src/host/account-models.mjs')) {
 }
 cpSync('src/host/pi-installation.mjs', 'lib/types/host/pi-installation.mjs')
 cpSync('src/host/pi-installation.d.mts', 'lib/types/host/pi-installation.d.mts')
+cpSync('src/host/native-launch.mjs', 'lib/types/host/native-launch.mjs')
+cpSync('src/host/native-launch.d.mts', 'lib/types/host/native-launch.d.mts')
+cpSync('src/host/pi-omp-environment.mjs', 'lib/types/host/pi-omp-environment.mjs')
+cpSync('src/host/pi-omp-environment.d.mts', 'lib/types/host/pi-omp-environment.d.mts')
 for (const name of ['own-account-lease', 'pi-omp-refresh']) {
   cpSync(`src/host/${name}.mjs`, `lib/types/host/${name}.mjs`)
   if (existsSync(`src/host/${name}.d.mts`)) cpSync(`src/host/${name}.d.mts`, `lib/types/host/${name}.d.mts`)
@@ -65,7 +71,7 @@ stagedManifest.exports['.'] = { types: './src/host/index.ts', default: './src/ho
 writeFileSync(join(owner, 'package.json'), JSON.stringify(stagedManifest))
 cpSync('lib/types', join(owner, 'lib/types'), { recursive: true })
 if (!existsSync(join(stage, 'node_modules')))
-  symlinkSync(join(root, 'node_modules'), join(stage, 'node_modules'), 'dir')
+  symlinkSync(join(root, 'node_modules'), join(stage, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
 writeFileSync(
   join(owner, 'tsconfig.host.json'),
   JSON.stringify({

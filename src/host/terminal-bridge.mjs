@@ -2,7 +2,8 @@
 // Keep this root alive until the Host acknowledges cleanup; never merge stderr
 // into the CLI JSON protocol. Envelopes are transport only, not agent events.
 import { spawn } from 'node:child_process'
-const [executable, ...args] = process.argv.slice(2)
+import { nativeLaunchArgv } from './native-launch.mjs'
+const [executable, ...args] = nativeLaunchArgv(process.argv.slice(2))
 const send = (channel, fields) => process.stdout.write(JSON.stringify({ channel, ...fields }) + '\n')
 const keepAlive = setInterval(() => {}, 60000)
 const child = spawn(executable, args, { stdio: ['ignore', 'pipe', 'pipe'] })

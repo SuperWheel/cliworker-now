@@ -1,0 +1,73 @@
+name: Windows native runtime
+
+on:
+  push:
+    branches: [main, 'release/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile --config.verifyDepsBeforeRun=false
+      - name: Build isolated plugin
+        run: pnpm --config.verifyDepsBeforeRun=false build:preview
+      - name: Build and check types
+        run: |
+          pnpm --config.verifyDepsBeforeRun=false build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --config.verifyDepsBeforeRun=false typecheck
+      - name: Verify Windows account sources and process ownership
+        run: >-
+          pnpm --config.verifyDepsBeforeRun=false exec vitest run
+          tests/windows-accounts.test.ts tests/windows-process.test.ts
+          tests/native-launch.test.ts tests/pi-omp-identity.test.ts
+          tests/adapters.test.ts tests/account-login.test.ts
+          tests/model-presentation.test.ts
+          --reporter=default --reporter=json
+          --outputFile=.test-data/windows-ci-tests.json
+      - name: Install official CLI fixtures
+        run: |
+          $nativeRoot = Join-Path $env:RUNNER_TEMP 'cliworker official CLI fixtures'
+          npm install --prefix "$nativeRoot" --no-audit --no-fund @openai/codex@0.160.0 @earendil-works/pi-coding-agent@1.0.4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $ompRoot = Join-Path $env:RUNNER_TEMP 'cliworker official OMP fixture'
+          npm install --prefix "$ompRoot" --no-audit --no-fund --omit=optional @oh-my-pi/pi-coding-agent@16.4.4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "CLIWORKER_VENDOR_ROOT=$nativeRoot" >> $env:GITHUB_ENV
+          "CLIWORKER_OMP_VENDOR_ROOT=$ompRoot" >> $env:GITHUB_ENV
+      - name: Verify installed official Node and Bun CLI entries
+        run: pnpm --config.verifyDepsBeforeRun=false exec tsx scripts/smoke-windows.ts
+      - name: Pack prebuilt plugin
+        run: |
+          $manifest = Get-Content package.json -Raw | ConvertFrom-Json
+          $packagePath = "artifacts/dsh-cliworker-now-$($manifest.version).tgz"
+          pnpm --config.verifyDepsBeforeRun=false pack --out "$packagePath"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-native-runtime-evidence
+          path: |
+            .test-data/windows-ci-tests.json
+            .test-data/windows-native-smoke.json
+            artifacts/*.tgz
+          if-no-files-found: warn

@@ -11,6 +11,8 @@ import {
   parseKimiModelSources,
   parseMimoModelRecords,
   readFirstPartyModelSources,
+  readFirstPartyJson,
+  claudeManagedSettingsPath,
 } from '../src/host/first-party-models.ts'
 import { workerArguments } from '../src/host/adapters.ts'
 
@@ -43,6 +45,28 @@ const fetchModels = (ids: string[], status = 200) =>
   vi.fn<typeof fetch>(
     async () => new Response(JSON.stringify({ data: ids.map((id) => ({ id })) }), { status }),
   )
+
+it('uses current Claude managed paths on macOS, Windows, and Linux (synthetic paths)', () => {
+  expect(claudeManagedSettingsPath('win32', {})).toBe('C:\\Program Files\\ClaudeCode\\managed-settings.json')
+  expect(claudeManagedSettingsPath('win32', { ProgramFiles: 'D:\\Program Files' })).toBe(
+    'D:\\Program Files\\ClaudeCode\\managed-settings.json',
+  )
+  expect(claudeManagedSettingsPath('darwin')).toBe(
+    '/Library/Application Support/ClaudeCode/managed-settings.json',
+  )
+  expect(claudeManagedSettingsPath('linux')).toBe('/etc/claude-code/managed-settings.json')
+})
+
+it('rejects a linked own account/config file before reading on platforms without O_NOFOLLOW (synthetic files)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cwn-first-party-link-'))
+  roots.push(root)
+  const target = join(root, 'other-cli.json'),
+    path = join(root, 'auth.json')
+  await writeFile(target, JSON.stringify({ xiaomi: { type: 'api', key: 'synthetic-other-cli' } }))
+  await symlink(target, path)
+  await expect(readFirstPartyJson(path)).rejects.toThrow('账号配置文件不可用')
+  expect(await readFile(target, 'utf8')).toContain('synthetic-other-cli')
+})
 
 describe('first-party model scopes', () => {
   it('intersects Kimi native aliases with its own API scope and shares one readonly request', async () => {

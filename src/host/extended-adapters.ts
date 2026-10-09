@@ -15,30 +15,23 @@ import {
   type Stats,
 } from 'node:fs'
 import { join } from 'node:path'
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import type { CliId, Preference, TaskMode, ModelChoice } from '../shared/types.ts'
 import type { RuntimeConfig } from './process.ts'
 import { prepareZCode, discoverZCode, zcodeAuthDirectory } from './zcode-adapter.ts'
 import {
   preparePiOmp,
   discoverPiOmp,
-  type PiOmpMetadataPhase,
   type PiOmpMetadataCapture,
 } from './pi-omp-adapter.ts'
 import { prepareOpenCode, discoverOpenCode, openCodeAuthDirectory } from './opencode-adapter.ts'
-import { prepareHermes, discoverHermes, hermesHomeDirectory } from './hermes-adapter.ts'
-import { hermesCommandInstallationHome } from './hermes-installation.ts'
-import { hermesSandbox } from './hermes-sandbox.ts'
+import { prepareHermes, discoverHermes } from './hermes-adapter.ts'
 import { effectiveHermesHome } from './hermes-account-context.ts'
 import { prepareGrok, discoverGrok } from './grok-adapter.ts'
 
 export const EXTENDED_CLIS = ['zcode', 'grok', 'omp', 'pi', 'hermes', 'opencode'] as const
 export const isExtendedCli = (cli: string): cli is (typeof EXTENDED_CLIS)[number] =>
   (EXTENDED_CLIS as readonly string[]).includes(cli)
-// OMP eagerly loads home/project dotenv files, including before CLI parsing.
-// Own dotenv values have already been read and projected by Host. This fixed
-// basename regex also covers Bun's .env.local / .env.production variants.
-export const PI_OMP_ENVIRONMENT_POLICY = '\n(deny file-read-data (regex #"(^|/)[.]env([.][^/]*)?$"))\n'
 const privateArgv = (argv: string[]) => [
   process.execPath,
   fileURLToPath(new URL('./private-launch.mjs', import.meta.url)),
@@ -69,6 +62,25 @@ export function sealPrivateTree(root: string): void {
     assertLocations()
     const info = lstatSync(path)
     if (info.isSymbolicLink() || (!info.isDirectory() && !info.isFile())) return
+    if (info.isDirectory() && process.platform === 'win32') {
+      // Windows does not support opening directories with POSIX O_DIRECTORY.
+      // Keep the same location/inode checks without widening to linked targets.
+      const canonical = realpathSync(path)
+      ancestors.push({ path, info })
+      try {
+        assertLocations()
+        if (realpathSync(path) !== canonical)
+          throw new Error('CLI private state changed during permission cleanup')
+        chmodSync(path, 0o700)
+        for (const entry of readdirSync(path)) visit(join(path, entry))
+        assertLocations()
+        if (realpathSync(path) !== canonical)
+          throw new Error('CLI private state changed during permission cleanup')
+      } finally {
+        ancestors.pop()
+      }
+      return
+    }
     const fd = openSync(
       path,
       constants.O_RDONLY |
@@ -104,31 +116,6 @@ export async function credentialEnvironment(
 ): Promise<Record<string, string>> {
   return {}
 }
-/** The new adapters need writable private state even for a read-only project. */
-export function confineExtended(
-  argv: string[],
-  state: string,
-  project: string,
-  mode: TaskMode,
-  temporary?: string,
-  authDirectory?: string,
-  isolateDotenv = false,
-  leaseDirectory?: string,
-): string[] {
-  if (process.platform !== 'darwin') throw new Error('这些新增 CLI 当前仅验收 macOS 沙箱；本平台暂不能运行')
-  const roots = [
-    realpathSync(state),
-    ...(authDirectory ? [realpathSync(authDirectory)] : []),
-    ...(leaseDirectory && isolateDotenv ? [realpathSync(join(leaseDirectory, 'agent'))] : []),
-    ...(temporary ? [realpathSync(temporary)] : []),
-    ...(mode === 'accept-edits' ? [realpathSync(project)] : []),
-  ]
-  const leasePolicy = leaseDirectory
-    ? `(deny file-write* (subpath ${JSON.stringify(realpathSync(leaseDirectory))}))\n${isolateDotenv ? `(allow file-write* (subpath ${JSON.stringify(realpathSync(join(leaseDirectory, 'agent')))}))\n` : ''}`
-    : ''
-  const policy = `(version 1)\n(allow default)\n(deny file-write*)\n(allow file-write* ${roots.map((r) => `(subpath ${JSON.stringify(r)})`).join(' ')} (literal "/dev/null") (literal "/dev/tty"))\n${leasePolicy}${isolateDotenv ? PI_OMP_ENVIRONMENT_POLICY : ''}`
-  return ['/usr/bin/sandbox-exec', '-p', policy, ...argv]
-}
 export async function extendedLaunch(
   cli: CliId,
   executable: string,
@@ -145,20 +132,8 @@ export async function extendedLaunch(
   const input = { executable, project, preference, mode, prompt, conversationId, stateDirectory: state }
   const metadata: PiOmpMetadataCapture | undefined =
     metadataCapture &&
-    (async (argv, env, phase, scope) => {
-      const confined = confineExtended(
-        privateArgv(argv),
-        state,
-        state,
-        'plan',
-        undefined,
-        undefined,
-        cli === 'pi' || cli === 'omp',
-        scope?.leaseDirectory,
-      )
-      if (phase === 'native-candidates') confined[2] += '\n(deny network*)\n'
-      return metadataCapture(confined, { ...env, ELECTRON_RUN_AS_NODE: '1' }, phase, scope)
-    })
+    ((argv, env, phase, scope) =>
+      metadataCapture(privateArgv(argv), { ...env, ELECTRON_RUN_AS_NODE: '1' }, phase, scope))
   const launch =
     cli === 'zcode'
       ? await prepareZCode({
@@ -188,40 +163,15 @@ export async function extendedLaunch(
               ? await prepareGrok(input)
               : undefined
   if (!launch) throw new Error('未知 CLI')
-  const temporary = cli === 'zcode' ? mkdtempSync('/private/tmp/cwn-') : undefined
+  const temporary = cli === 'zcode' ? mkdtempSync(join(tmpdir(), 'cwn-')) : undefined
   if (temporary) chmodSync(temporary, 0o700)
   const env = {
     ...launch.env,
-    ...(temporary ? { TMPDIR: temporary } : {}),
+    ...(temporary ? { TMPDIR: temporary, TMP: temporary, TEMP: temporary } : {}),
     ELECTRON_RUN_AS_NODE: '1',
   }
   try {
-    const argv =
-      cli === 'hermes'
-        ? hermesSandbox(
-            privateArgv(launch.argv),
-            state,
-            project,
-            mode,
-            effectiveHermesHome(config),
-            hermesCommandInstallationHome(launch.argv) ?? hermesHomeDirectory(config.hermesHome),
-          )
-        : confineExtended(
-            privateArgv(launch.argv),
-            state,
-            project,
-            mode,
-            temporary,
-            cli === 'opencode' ? openCodeAuthDirectory(config.stateDirectory) : undefined,
-            cli === 'pi' || cli === 'omp',
-            'leaseDirectory' in launch && typeof launch.leaseDirectory === 'string'
-              ? launch.leaseDirectory
-              : undefined,
-          )
-    if (cli === 'grok') {
-      const grokHome = (launch.env as Record<string, string> | undefined)?.GROK_HOME
-      argv[2] += `\n(deny file-write* (subpath ${JSON.stringify(join(homedir(), '.grok'))})${grokHome ? ` (literal ${JSON.stringify(join(grokHome, 'auth.json'))})` : ''})\n`
-    }
+    const argv = privateArgv(launch.argv)
     return {
       argv,
       env,
@@ -252,44 +202,13 @@ export async function extendedCatalog(
   signal?.throwIfAborted()
   const catalogRoot = privateDirectory(join(stateDirectory, 'catalog', cli))
   const state = privateDirectory(mkdtempSync(join(catalogRoot, 'query-')))
-  type Scope = { leaseDirectory?: string }
-  const run = async (
-    argv: string[],
-    env?: Record<string, string>,
-    phaseOrScope?: PiOmpMetadataPhase | Scope,
-    scope?: Scope,
-  ) => {
-    const phase = typeof phaseOrScope === 'string' ? phaseOrScope : undefined
-    const sandboxScope = typeof phaseOrScope === 'object' ? phaseOrScope : scope
-    const temporary = cli === 'zcode' ? mkdtempSync('/private/tmp/cwn-') : undefined
+  const run = async (argv: string[], env?: Record<string, string>) => {
+    const temporary = cli === 'zcode' ? mkdtempSync(join(tmpdir(), 'cwn-')) : undefined
     if (temporary) chmodSync(temporary, 0o700)
     try {
-      const confined =
-        cli === 'hermes'
-          ? hermesSandbox(
-              privateArgv(argv),
-              state,
-              state,
-              'plan',
-              effectiveHermesHome({ ...config, stateDirectory: config.stateDirectory ?? stateDirectory }),
-              hermesCommandInstallationHome(argv) ?? hermesHomeDirectory(config.hermesHome),
-            )
-          : confineExtended(
-              privateArgv(argv),
-              state,
-              state,
-              'plan',
-              temporary,
-              cli === 'opencode' ? openCodeAuthDirectory(config.stateDirectory ?? stateDirectory) : undefined,
-              cli === 'pi' || cli === 'omp',
-              sandboxScope?.leaseDirectory,
-            )
-      // Exactly one outer sandbox owns each phase. Only the SDK/native directory
-      // phase is offline; the account phase performs bounded metadata GETs.
-      if (phase === 'native-candidates') confined[2] += '\n(deny network*)\n'
-      return await capture(confined, {
+      return await capture(privateArgv(argv), {
         ...env,
-        ...(temporary ? { TMPDIR: temporary } : {}),
+        ...(temporary ? { TMPDIR: temporary, TMP: temporary, TEMP: temporary } : {}),
         ELECTRON_RUN_AS_NODE: '1',
       })
     } finally {

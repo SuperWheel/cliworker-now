@@ -2,10 +2,10 @@
 
 ## 1. 原生保护与账号边界
 - [ ] 1.1 移除插件附加 OS 沙箱及策略拼接，保留 CLI 原生保护、宿主授权、准确自身账号和模型重检，调整必要回归与当前文档。
-- [ ] 1.2 修正 Windows 账号路径、盘符/UNC、MiMo 原生认证直连及 Claude 当前 managed 路径，验证退出/换号不恢复副本。
+- [x] 1.2 修正 Windows 账号路径、盘符/UNC、MiMo 原生认证直连及 Claude 当前 managed 路径，验证退出/换号不恢复副本。
 
 ## 2. Windows 运行
-- [ ] 2.1 实现 Windows 官方 launcher 归一化、Pi/OMP 身份和 Hermes 官方入口，参数始终数组并拒绝未知 batch。
+- [x] 2.1 实现 Windows 官方 Node/Bun launcher 归一化、Pi/OMP 身份和 Hermes 官方入口，参数始终数组并拒绝未知 batch。
 - [ ] 2.2 Windows 任务使用 Host Job ownership，处理账号终端/取消清理，并覆盖真实 Windows 后代退出。
 - [ ] 2.3 建立并运行 Windows CI，验证实际启动、临时账号来源、模型/强度范围、目录与取消；修复失败后核对原生结果，不生成内容。
 

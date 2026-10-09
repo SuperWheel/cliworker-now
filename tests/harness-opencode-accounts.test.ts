@@ -12,7 +12,6 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { spawnSync } from 'node:child_process'
 import { DEFAULT_CONFIG } from '../src/host/process.ts'
 import {
   readPiOmpAccount,
@@ -350,8 +349,8 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
     terminal.cleanup()
     expect(existsSync(terminal.cwd)).toBe(false)
   })
-  it.skipIf(process.platform !== 'darwin')(
-    'permits native OAuth refresh in shared data while denying plan project writes',
+  it(
+    'binds current own auth and delegates plan restrictions to native OpenCode permissions',
     async () => {
       const config = fixture(),
         project = join(config.stateDirectory, 'project')
@@ -367,22 +366,15 @@ describe('Managed API/OpenCode accounts (explicit synthetic fixtures)', () => {
         join(config.stateDirectory, 'native', 'one'),
         config,
       )
-      const authFile = join(
-        openCodeAuthDirectory(config.stateDirectory),
-        'opencode',
-        'synthetic-refresh.json',
-      )
-      const denied = join(project, 'forbidden')
-      const code =
-        "const fs=require('fs');fs.writeFileSync(process.argv[1],'synthetic-refresh');try{fs.writeFileSync(process.argv[2],'project');process.exit(2)}catch{}"
-      const outcome = spawnSync(
-        launch.argv[0]!,
-        [...launch.argv.slice(1, 3), process.execPath, '-e', code, authFile, denied],
-        { encoding: 'utf8' },
-      )
-      expect(outcome.status, outcome.stderr).toBe(0)
-      expect(readFileSync(authFile, 'utf8')).toBe('synthetic-refresh')
-      expect(existsSync(denied)).toBe(false)
+      expect(launch.argv[0]).toBe(process.execPath)
+      expect(launch.argv[1]).toMatch(/private-launch[.]mjs$/)
+      expect(launch.argv[2]).toBe('/bin/opencode')
+      expect(launch.argv.join(' ')).not.toMatch(/sandbox-exec|\(deny |\(allow /)
+      expect(launch.argv[launch.argv.indexOf('--agent') + 1]).toBe('plan')
+      expect(JSON.parse(launch.env.OPENCODE_PERMISSION!)).toMatchObject({ edit: 'deny', bash: 'deny' })
+      expect(launch.env.XDG_DATA_HOME).toContain(openCodeAuthDirectory(config.stateDirectory))
+      expect(readFileSync(join(launch.env.XDG_DATA_HOME!, 'opencode/auth.json'), 'utf8')).toContain('synthetic-key')
+      expect(launch.env.OPENCODE_AUTH_CONTENT).toBe('')
       launch.cleanup()
     },
   )

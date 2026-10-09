@@ -1,7 +1,7 @@
 import { constants } from 'node:fs'
 import { lstat, open, mkdir, writeFile, rename, rm, mkdtemp, realpath, readlink } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { dirname, join, resolve, sep } from 'node:path'
+import { dirname, join, resolve, sep, parse, relative } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { parse as parseYaml } from 'yaml'
@@ -54,10 +54,22 @@ export interface PiOmpNativeOptions {
 export const piOmpAccountDirectory = (cli: PiOmpCli, root = defaultRoot()) =>
   join(root, 'accounts', cli, 'agent')
 
+/** Preserve drive and UNC roots instead of treating them as ordinary path components. */
+export function nativeAccountAncestors(
+  path: string,
+  paths = { resolve, parse, relative, join, sep },
+): string[] {
+  const absolute = paths.resolve(path)
+  let current = paths.parse(absolute).root
+  return paths
+    .relative(current, absolute)
+    .split(paths.sep)
+    .filter(Boolean)
+    .map((component) => (current = paths.join(current, component)))
+}
+
 export async function safePiOmpAncestors(path: string) {
-  let current: string = sep
-  for (const component of resolve(path).split(sep).filter(Boolean)) {
-    current = join(current, component)
+  for (const current of nativeAccountAncestors(path)) {
     try {
       const info = await lstat(current)
       if (info.isSymbolicLink()) {
@@ -84,14 +96,34 @@ async function readOptional(path: string, limit = 2 * 1024 * 1024): Promise<Buff
     await safePiOmpAncestors(directory)
     const parent = await lstat(directory)
     if (!parent.isDirectory() || parent.isSymbolicLink()) throw new Error('Unsafe native account directory')
+    const entry = await lstat(path)
+    if (entry.isSymbolicLink() || !entry.isFile() || entry.nlink !== 1)
+      throw new Error('Unsafe native account file')
     file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
     const before = await file.stat()
-    if (!before.isFile() || before.nlink !== 1 || before.size > limit)
+    if (
+      !before.isFile() ||
+      before.nlink !== 1 ||
+      before.dev !== entry.dev ||
+      before.ino !== entry.ino ||
+      before.size > limit
+    )
       throw new Error('Unsafe native account file')
     const buffer = Buffer.alloc(before.size + 1)
     const { bytesRead } = await file.read(buffer, 0, buffer.length, 0)
     const after = await file.stat()
-    if (bytesRead !== before.size || before.size !== after.size || before.mtimeMs !== after.mtimeMs)
+    const current = await lstat(path)
+    if (
+      current.isSymbolicLink() ||
+      current.dev !== before.dev ||
+      current.ino !== before.ino ||
+      current.nlink !== 1 ||
+      bytesRead !== before.size ||
+      before.size !== after.size ||
+      before.mtimeMs !== after.mtimeMs ||
+      current.size !== after.size ||
+      current.mtimeMs !== after.mtimeMs
+    )
       throw new Error('Native account changed during read')
     return buffer.subarray(0, bytesRead)
   } catch (error) {
@@ -150,6 +182,7 @@ interface NativeSource {
   kinds: Set<string>
   expired: boolean
   env: Record<string, string>
+  brokerConfigured: boolean
 }
 async function source(cli: PiOmpCli, path: string, scratch?: string): Promise<NativeSource> {
   const result: NativeSource = {
@@ -162,6 +195,7 @@ async function source(cli: PiOmpCli, path: string, scratch?: string): Promise<Na
     kinds: new Set(),
     expired: false,
     env: {},
+    brokerConfigured: false,
   }
   const dotenv = await readOptional(join(path, '.env'), 64 * 1024)
   if (dotenv)
@@ -172,6 +206,8 @@ async function source(cli: PiOmpCli, path: string, scratch?: string): Promise<Na
       let value = match[2]
       if ((value.startsWith('\"') && value.endsWith('\"')) || (value.startsWith("'") && value.endsWith("'")))
         value = value.slice(1, -1)
+      if (cli === 'omp' && /^OMP_AUTH_BROKER_(?:URL|TOKEN)$/.test(match[1]) && value.trim())
+        result.brokerConfigured = true
       if (/`|\$\(|\x00/.test(value)) throw new Error('Native environment command interpolation is disabled')
       // Preserve provider credential env only, never PATH/HOME/runtime overrides.
       if (!runtimeEnv.test(match[1])) result.env[match[1]] = value
@@ -198,6 +234,7 @@ async function source(cli: PiOmpCli, path: string, scratch?: string): Promise<Na
   } else {
     result.models = parseObject(await readOptional(join(path, 'models.yml')), true)
     const config = parseObject(await readOptional(join(path, 'config.yml')), true)
+    result.brokerConfigured ||= !!config.auth?.broker
     // Only model/auth-specific settings enter workers; extension/hooks/tools do not.
     result.config = {
       ...(object(config.auth)
@@ -314,8 +351,9 @@ export async function readPiOmpLogoutSources(
   signal: AbortSignal,
   options: { nativeHome?: string } = {},
 ) {
-  return withSources(cli, { accountRoot: stateDirectory, ...options, signal }, async (sources) =>
-    sources.flatMap((source, index) => {
+  return withSources(cli, { accountRoot: stateDirectory, ...options, signal }, async (sources) => {
+    const result = []
+    for (const [index, source] of sources.entries()) {
       const configured =
         Object.keys(source.auth).length ||
         source.credentials.length ||
@@ -323,19 +361,38 @@ export async function readPiOmpLogoutSources(
           (provider) => object(provider) && provider.apiKey,
         ) ||
         Object.values(knownProviderEnvironment).some((key) => usableNativeApiKey(source.env[key]))
-      if (!configured) return []
-      return [
-        {
-          id: (index === 0 ? 'native' : 'plugin') as AccountSource,
-          label: index === 0 ? 'CLI 全局账号' : '插件账号',
-          directory: source.sourceId,
-          env: source.env,
-          config: source.config ?? {},
-          stored: Object.keys(source.auth).length > 0 || source.credentials.length > 0,
-        },
-      ]
-    }),
-  )
+      if (!configured) continue
+      // OMP also autoloads its own config-root .env. Expose only a flag, never
+      // inject those broker fields into a private/native account menu.
+      const parentEnv =
+        cli === 'omp' ? await readOptional(join(dirname(source.sourceId), '.env'), 64 * 1024) : undefined
+      const brokerConfigured =
+        source.brokerConfigured ||
+        !!parentEnv
+          ?.toString('utf8')
+          .split(/\r?\n/)
+          .some((line) => {
+            const match = /^(?:export\s+)?OMP_AUTH_BROKER_(?:URL|TOKEN)\s*=\s*(.*)$/.exec(line.trim())
+            return (
+              match &&
+              match[1]
+                .trim()
+                .replace(/^(["'])(.*)\1$/, '$2')
+                .trim()
+            )
+          })
+      result.push({
+        id: (index === 0 ? 'native' : 'plugin') as AccountSource,
+        label: index === 0 ? 'CLI 全局账号' : '插件账号',
+        directory: source.sourceId,
+        env: source.env,
+        config: source.config ?? {},
+        stored: Object.keys(source.auth).length > 0 || source.credentials.length > 0,
+        brokerConfigured,
+      })
+    }
+    return result
+  })
 }
 
 export async function listPiOmpAccountSources(
@@ -473,7 +530,7 @@ async function sharedOAuthStore(cli: PiOmpCli, sources: NativeSource[], options:
   const root = join(await realpath(parent), sourceKey)
   await mkdir(root, { recursive: true, mode: 0o700 })
   const info = await lstat(root)
-  if (!info.isDirectory() || info.isSymbolicLink() || info.mode & 0o077)
+  if (!info.isDirectory() || info.isSymbolicLink() || (process.platform !== 'win32' && info.mode & 0o077))
     throw new Error('Unsafe OAuth runtime')
   const agent = join(root, 'agent')
   const receipt = {
@@ -496,7 +553,11 @@ async function sharedOAuthStore(cli: PiOmpCli, sources: NativeSource[], options:
     options.signal?.throwIfAborted()
     await mkdir(agent, { recursive: true, mode: 0o700 })
     const agentInfo = await lstat(agent)
-    if (!agentInfo.isDirectory() || agentInfo.isSymbolicLink() || agentInfo.mode & 0o077)
+    if (
+      !agentInfo.isDirectory() ||
+      agentInfo.isSymbolicLink() ||
+      (process.platform !== 'win32' && agentInfo.mode & 0o077)
+    )
       throw new Error('Unsafe OAuth runtime')
     let previous
     try {

@@ -2,6 +2,7 @@
 // Resolve installation metadata only; never execute an arbitrary shell launcher.
 import { readFileSync, realpathSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
+import { resolveNativeEntry } from './native-launch.mjs'
 
 const versions = new Set(['1.0.2', '1.0.4'])
 const failure = () =>
@@ -18,7 +19,10 @@ function metadata(path) {
 export function inspectPiInstallation(entry) {
   try {
     let executable = realpathSync(entry)
-    if (basename(executable) === 'pi' && basename(dirname(executable)) === 'bin') {
+    if (
+      ['pi', 'pi.cmd', 'pi.bat'].includes(basename(executable).toLowerCase()) &&
+      basename(dirname(executable)) === 'bin'
+    ) {
       const launcher = metadata(executable)
       if (launcher.includes('PI_MANAGED_INSTALL_ROOT=') && launcher.includes('install/current-version')) {
         const install = join(dirname(dirname(executable)), 'install')
@@ -29,6 +33,7 @@ export function inspectPiInstallation(entry) {
         )
       }
     }
+    executable = realpathSync(resolveNativeEntry(executable))
     let directory = dirname(executable)
     for (let depth = 0; depth < 5; depth++, directory = dirname(directory)) {
       let manifest

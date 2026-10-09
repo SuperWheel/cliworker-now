@@ -13,7 +13,7 @@
 
 - 任务及目录运行使用各 CLI 原生参数。保留只读/plan 模式与无能力时的拒绝；不再使用 sandbox-exec 或为认证/退出套附加读写、禁网策略。原生 CLI 对文件操作的权限由其自身负责。
 - Host 仍只读各 CLI 自己的原生/插件账号和 API 配置；清理通用凭据环境，不注入 dsh 密钥，不用其他 CLI 认证作为本 CLI 登录。保留来源版本、账号换号/退出重检、模型与强度交集，私有状态和旧会话保持。
-- Windows 后端集中归一化官方 Node/npm shim 和实际 exe。仅解析已确认固定入口，未知 batch 拒绝；参数独立数组，不经过 cmd /c 或拼 shell。Hermes Windows 使用其官方 exe/固定 Python shim，不猜虚构 Python 路径。
+- Windows 后端集中归一化官方 Node/Bun/npm shim 和实际 exe。仅解析已确认固定入口，未知 batch 拒绝；参数独立数组，不经过 cmd /c 或拼 shell。Hermes Windows 使用其官方 exe/固定 Python shim，不猜虚构 Python 路径。
 - Windows 任务走 Harness 普通 spawn 的 Job owner；账号交互用原生终端并按实际进程范围确认退出。路径从 parse(path).root 遍历，支持盘符/UNC。MiMo 登录直接绑定当前原生认证路径，不复制凭据，不要求管理员开启 symlink。
 - 宿主安装与 CLI 原生支持分开记录：macOS/Windows 插件运行层均验证；第三方 CLI 必须有对应系统的有效安装，未获得模型选型授权不生成。
 - README.md 为默认中文入口，README.en.md 提供完整英文与双向切换；安装代码块只一行固定版本 tarball URL，不加入 # 备注。预构建包覆盖双方文档和动态运行资产。

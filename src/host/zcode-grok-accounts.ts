@@ -225,9 +225,11 @@ export async function zcodeGrokAccountStatus(
       )
         throw new Error('Invalid account directory')
     }
+    const location = await lstat(path)
+    if (location.isSymbolicLink() || !location.isFile()) throw new Error('Invalid account file')
     file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
     const info = await file.stat()
-    if (!info.isFile() || info.nlink !== 1 || info.size > 64 * 1024 || !info.size)
+    if (!info.isFile() || info.dev !== location.dev || info.ino !== location.ino || info.nlink !== 1 || info.size > 64 * 1024 || !info.size)
       throw new Error('Invalid account file')
     let offset = 0
     while (offset < buffer.length) {
@@ -237,6 +239,10 @@ export async function zcodeGrokAccountStatus(
       offset += bytesRead
     }
     if (offset > 64 * 1024) throw new Error('Account file too large')
+    const current = await lstat(path)
+    const after = await file.stat()
+    if (current.isSymbolicLink() || current.dev !== info.dev || current.ino !== info.ino || after.size !== info.size || after.mtimeMs !== info.mtimeMs)
+      throw new Error('Account file changed during read')
     const raw: unknown = JSON.parse(buffer.subarray(0, offset).toString('utf8'))
     signal.throwIfAborted()
     let username = 'unknown'

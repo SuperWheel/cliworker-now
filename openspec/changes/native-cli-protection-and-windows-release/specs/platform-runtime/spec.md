@@ -18,11 +18,11 @@
 - **THEN** 保留明确拒绝，不添加不存在的开关或绕过宿主限制
 
 ### Requirement: Windows 原生入口与路径
-插件 SHALL 在 Windows 按实际官方安装入口启动 exe、Node 和 Python CLI，参数保持独立 argv，不拼接 shell。盘符与 UNC、当前原生账号目录和安装资产 MUST 按该平台解析；未知 batch 形态短错误拒绝。
+插件 SHALL 在 Windows 按实际官方安装入口启动 exe、Node/Bun 和 Python CLI，参数保持独立 argv，不拼接 shell。盘符与 UNC、当前原生账号目录和安装资产 MUST 按该平台解析；未知 batch 形态短错误拒绝。
 
 #### Scenario: npm Windows shim
 - **WHEN** 官方固定 npm shim 指向可核验的自身 JavaScript 入口
-- **THEN** 使用 Node 与该入口启动，CLI 参数按原数组保留，包含空格/中文/引号的参数不触发 shell 执行
+- **THEN** 使用该入口记录的 Node/Bun 运行时启动，CLI 参数按原数组保留，包含空格/中文/引号的参数不触发 shell 执行
 
 #### Scenario: 不受支持的入口
 - **WHEN** 自定义 batch 包含无法确认的程序或逻辑

@@ -66,13 +66,15 @@ async function state(stateDirectory: string, project?: string) {
     } catch (e) {
       if (!record(e) || e.code !== 'ENOENT') throw e
     }
-    if (existsSync(original)) await symlink(original, target)
+    if (process.platform !== 'win32' && existsSync(original)) await symlink(original, target)
   }
   return {
     root,
     env: {
       GROK_HOME: home,
-      GROK_AUTH_PATH: join(home, 'auth.json'),
+      GROK_AUTH_PATH: process.platform === 'win32' && project
+        ? join(homedir(), '.grok', 'auth.json')
+        : join(home, 'auth.json'),
       XAI_API_KEY: '',
       GROK_CODE_XAI_API_KEY: '',
       TMPDIR: tmp,

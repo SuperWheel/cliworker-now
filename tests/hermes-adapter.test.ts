@@ -206,10 +206,11 @@ describe('Hermes adapter (synthetic fixtures; no inference)', () => {
       stateDirectory,
       hermesHome,
       preference: { model: '["openrouter","synthetic/model"]', effort: 'low' as const },
-      mode: 'plan' as const,
+      mode: 'accept-edits' as const,
       prompt: '$(touch nope); `echo unsafe`\n你好',
       conversationId: 'existing-native-session',
     }
+    await expect(prepareHermes({ ...input, mode: 'plan' })).rejects.toThrow('原生非交互模式不支持只读')
     const result = await prepareHermes(input)
     expect(result.argv).toEqual([
       '/bin/hermes',
@@ -269,7 +270,7 @@ describe('Hermes adapter (synthetic fixtures; no inference)', () => {
         stateDirectory,
         hermesHome: native,
         preference: { model: '["openrouter","synthetic/model"]', effort: 'default' },
-        mode: 'plan',
+        mode: 'accept-edits',
         prompt: 'fixture',
       }),
     ).rejects.toThrow('Unsafe')

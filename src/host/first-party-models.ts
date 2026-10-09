@@ -1,7 +1,8 @@
 import { constants } from 'node:fs'
-import { open } from 'node:fs/promises'
+import { lstat, open } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, isAbsolute, join } from 'node:path'
+import { dirname, isAbsolute, join, win32 } from 'node:path'
+import { safePiOmpAncestors } from './pi-omp-native.ts'
 import { EFFORTS, type ModelChoice } from '../shared/types.ts'
 import { probeAccountModels, type AccountModelInput } from './account-models.mjs'
 import { parseNativeJsonc } from './opencode-native.ts'
@@ -39,9 +40,19 @@ export interface FirstPartyModelSource extends AccountModelInput {
 export async function readFirstPartyJson(path: string): Promise<Record<string, any>> {
   let file, bytes: Buffer | undefined
   try {
+    await safePiOmpAncestors(dirname(path))
+    const entry = await lstat(path)
+    if (entry.isSymbolicLink() || !entry.isFile() || entry.nlink !== 1) throw new Error('账号配置文件不可用')
     file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
     const stat = await file.stat()
-    if (!stat.isFile() || stat.nlink !== 1 || stat.size > 1_048_576) throw new Error('账号配置文件不可用')
+    if (
+      !stat.isFile() ||
+      stat.nlink !== 1 ||
+      stat.dev !== entry.dev ||
+      stat.ino !== entry.ino ||
+      stat.size > 1_048_576
+    )
+      throw new Error('账号配置文件不可用')
     bytes = Buffer.alloc(stat.size + 1)
     let offset = 0
     while (offset < bytes.length) {
@@ -50,7 +61,18 @@ export async function readFirstPartyJson(path: string): Promise<Record<string, a
       offset += bytesRead
     }
     const after = await file.stat()
-    if (offset !== stat.size || after.size !== stat.size || after.mtimeMs !== stat.mtimeMs)
+    const current = await lstat(path)
+    if (
+      current.isSymbolicLink() ||
+      current.dev !== stat.dev ||
+      current.ino !== stat.ino ||
+      current.nlink !== 1 ||
+      offset !== stat.size ||
+      after.size !== stat.size ||
+      after.mtimeMs !== stat.mtimeMs ||
+      current.size !== after.size ||
+      current.mtimeMs !== after.mtimeMs
+    )
       throw new Error('账号配置读取期间发生变化')
     try {
       const raw = bytes.subarray(0, stat.size).toString('utf8')
@@ -66,6 +88,22 @@ export async function readFirstPartyJson(path: string): Promise<Record<string, a
     bytes?.fill(0)
     await file?.close()
   }
+}
+
+/** Current Claude native managed-file location; Windows no longer reads ProgramData. */
+export function claudeManagedSettingsPath(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  return platform === 'darwin'
+    ? '/Library/Application Support/ClaudeCode/managed-settings.json'
+    : platform === 'win32'
+      ? win32.join(
+          env.ProgramFiles || env.PROGRAMFILES || 'C:\\Program Files',
+          'ClaudeCode',
+          'managed-settings.json',
+        )
+      : '/etc/claude-code/managed-settings.json'
 }
 
 /** Disable inherited SDK credentials and cross-CLI plugin imports in the native MiMo provider resolver. */
@@ -324,11 +362,7 @@ export async function readFirstPartyModelSources(
     Object.assign(configured, settings)
     if (record(settings.env)) Object.assign(env, settings.env)
   }
-  const managed = await readFirstPartyJson(
-    process.platform === 'darwin'
-      ? '/Library/Application Support/ClaudeCode/managed-settings.json'
-      : '/etc/claude-code/managed-settings.json',
-  )
+  const managed = await readFirstPartyJson(claudeManagedSettingsPath())
   const authOption = /ANTHROPIC|CLAUDE_CODE_(?:OAUTH|USE_|API)|AWS_|GOOGLE_|CLOUD_ML|API_KEY|BEARER_TOKEN/
   if (Object.entries(process.env).some(([key, value]) => value && authOption.test(key))) return []
   if (

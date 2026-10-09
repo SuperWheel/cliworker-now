@@ -13,6 +13,7 @@ for (const file of [
   'package.json',
   'cordis.patch.yml',
   'README.md',
+  'README.en.md',
   'LICENSE',
   'tsconfig.base.json',
   'tsconfig.host-build.json',
@@ -20,6 +21,6 @@ for (const file of [
 ]) {
   cpSync(join(root, file), join(preview, file), { recursive: true })
 }
-symlinkSync(join(root, 'node_modules'), join(preview, 'node_modules'), 'dir')
+symlinkSync(join(root, 'node_modules'), join(preview, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
 execFileSync(process.execPath, ['scripts/build.mjs'], { cwd: preview, stdio: 'inherit' })
 console.log(`Isolated package ready: ${preview}`)

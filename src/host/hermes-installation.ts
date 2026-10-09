@@ -3,6 +3,7 @@ import { access, open, realpath } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { nativeLaunchArgv } from './native-launch.mjs'
 
 export class HermesExecutableError extends Error {}
 
@@ -21,6 +22,15 @@ export async function hermesNativeCommand(
   args: string[],
   signal?: AbortSignal,
 ): Promise<string[]> {
+  // The official Windows distlib exe selects the recorded store Python itself.
+  // Its fixed fallback cmd is decoded as data, never interpreted by cmd.exe.
+  // Keep bootstrap and update/lease behavior owned by the installed CLI.
+  if (process.platform === 'win32') {
+    signal?.throwIfAborted()
+    const command = nativeLaunchArgv([executable, ...args])
+    await access(command[0]!, constants.R_OK)
+    return command
+  }
   let current = executable
   const read = async (path: string, limit: number) => {
     const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
@@ -96,6 +106,27 @@ export async function hermesNativeCommand(
 /** Inspect the installed fixed exec shim without invoking its installer or auth UI. */
 export async function verifyHermesExecutable(executable: string, signal: AbortSignal): Promise<void> {
   signal.throwIfAborted()
+  if (process.platform === 'win32') {
+    try {
+      const command = nativeLaunchArgv([executable])
+      await access(command[0]!, constants.R_OK)
+      if (
+        !(await open(command[0]!, 'r').then(async (file) => {
+          try {
+            return (await file.stat()).isFile()
+          } finally {
+            await file.close()
+          }
+        }))
+      )
+        throw new Error('Invalid Hermes entry')
+      signal.throwIfAborted()
+      return
+    } catch {
+      signal.throwIfAborted()
+      throw new HermesExecutableError('启动入口不可用，请修复安装')
+    }
+  }
   let current = executable
   for (let depth = 0; depth < 4; depth++) {
     let file: Awaited<ReturnType<typeof open>> | undefined

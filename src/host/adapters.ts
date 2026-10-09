@@ -54,6 +54,26 @@ export const executableFor = (cli: CliId, config: RuntimeConfig): string => {
   if (cli === 'antigravity') return config.executable
   const configured = config[`${cli}Executable`]
   if (configured && configured !== cli) return configured
+  if (process.platform === 'win32') {
+    const roots = [
+      join(homedir(), '.local', 'bin'),
+      join(homedir(), cli === 'pi' ? '.pi/agent/bin' : cli === 'grok' ? '.grok/bin' : cli === 'kimi' ? '.kimi-code/bin' : cli === 'mimo' ? '.mimocode/bin' : '.local/bin'),
+    ]
+    if (cli === 'zcode') {
+      const programs = process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'Programs')
+      for (const root of [programs, process.env.ProgramFiles]) {
+        if (!root) continue
+        const entry = join(root, 'ZCode', 'resources', 'glm', 'zcode.cjs')
+        if (entryPresent(entry)) return entry
+      }
+    }
+    for (const root of roots)
+      for (const extension of ['.exe', '.com', '.cmd', '.bat']) {
+        const entry = join(root, cli + extension)
+        if (entryPresent(entry)) return entry
+      }
+    return configured || cli
+  }
   if (cli === 'zcode')
     return existsSync(managedZCodeEntry())
       ? managedZCodeEntry()

@@ -58,13 +58,16 @@ export async function refreshJson(path, privateFile = true) {
   let buffer
   try {
     if ((await realpath(dirname(path))) !== dirname(path)) throw unsafe()
+    const location = await lstat(path)
+    if (location.isSymbolicLink() || !location.isFile() || location.nlink !== 1) throw unsafe()
     handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
     const before = await handle.stat()
     if (
       !before.isFile() ||
+      before.dev !== location.dev || before.ino !== location.ino ||
       before.nlink !== 1 ||
       before.size > 16 * 1024 * 1024 ||
-      (privateFile && before.mode & 0o077)
+      (privateFile && (process.platform !== 'win32' && (before.mode & 0o077)))
     )
       throw unsafe()
     buffer = Buffer.alloc(before.size + 1)
@@ -75,6 +78,8 @@ export async function refreshJson(path, privateFile = true) {
       length += bytesRead
     }
     const after = await handle.stat()
+    const current = await lstat(path)
+    if (current.isSymbolicLink() || current.dev !== before.dev || current.ino !== before.ino) throw changed()
     if (length !== before.size || after.mtimeMs !== before.mtimeMs || after.size !== before.size)
       throw changed()
     return JSON.parse(buffer.subarray(0, length).toString('utf8'))

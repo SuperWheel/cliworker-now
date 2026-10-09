@@ -1,7 +1,8 @@
 // Set a private file-creation mask without mutating the shared Harness process.
 import { spawn } from 'node:child_process'
+import { nativeLaunchArgv } from './native-launch.mjs'
 process.umask(0o077)
-const [executable, ...argv] = process.argv.slice(2)
+const [executable, ...argv] = nativeLaunchArgv(process.argv.slice(2))
 const child = spawn(executable, argv, { env: process.env, stdio: 'inherit' })
 let stopped = false
 for (const signal of ['SIGTERM', 'SIGINT'])

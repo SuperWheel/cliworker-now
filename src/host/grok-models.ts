@@ -83,9 +83,11 @@ export async function readGrokOwnAccount(options: { home?: string; signal?: Abor
     if (!directory.isDirectory() || directory.isSymbolicLink() || (await realpath(root)) !== root)
       throw new Error()
     const path = join(root, 'auth.json')
+    const location = await lstat(path)
+    if (location.isSymbolicLink() || !location.isFile()) throw new Error()
     file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
     const stat = await file.stat()
-    if (!stat.isFile() || stat.nlink !== 1 || stat.size > 65536) throw new Error()
+    if (!stat.isFile() || stat.dev !== location.dev || stat.ino !== location.ino || stat.nlink !== 1 || stat.size > 65536) throw new Error()
     let size = 0
     while (size < buffer.length) {
       options.signal?.throwIfAborted()
@@ -94,6 +96,10 @@ export async function readGrokOwnAccount(options: { home?: string; signal?: Abor
       size += bytesRead
     }
     if (!size || size > 65536) throw new Error()
+    const current = await lstat(path)
+    const after = await file.stat()
+    if (current.isSymbolicLink() || current.dev !== stat.dev || current.ino !== stat.ino || after.size !== stat.size || after.mtimeMs !== stat.mtimeMs)
+      throw new Error()
     const bytes = buffer.subarray(0, size)
     const account = selectGrokOwnAccount(JSON.parse(bytes.toString('utf8')))
     if (!account || (!account.active && !account.refresh)) throw new Error()

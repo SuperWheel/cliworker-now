@@ -1,12 +1,14 @@
 import { afterEach, expect, it } from 'vitest'
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, symlink, link, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
 import {
   snapshotPiOmpNative,
   inspectPiOmpNativeAccount,
   restorePiOmpEnvironment,
+  nativeAccountAncestors,
+  readPiOmpLogoutSources,
 } from '../src/host/pi-omp-native.ts'
 
 // Every path and credential in this suite is synthetic; no user native home is read.
@@ -29,6 +31,54 @@ async function fixture(cli: 'pi' | 'omp') {
 }
 const save = (directory: string, name: string, value: unknown) =>
   writeFile(join(directory, name), JSON.stringify(value), { mode: 0o600 })
+
+it('preserves Windows drive and UNC roots while walking account ancestors (synthetic paths)', () => {
+  expect(nativeAccountAncestors('C:\\Users\\名字\\.pi\\agent', win32)).toEqual([
+    'C:\\Users',
+    'C:\\Users\\名字',
+    'C:\\Users\\名字\\.pi',
+    'C:\\Users\\名字\\.pi\\agent',
+  ])
+  expect(nativeAccountAncestors('D:\\CLI Worker\\accounts', win32)).toEqual([
+    'D:\\CLI Worker',
+    'D:\\CLI Worker\\accounts',
+  ])
+  expect(nativeAccountAncestors('\\\\server\\share\\名字\\.kimi-code', win32)).toEqual([
+    '\\\\server\\share\\名字',
+    '\\\\server\\share\\名字\\.kimi-code',
+  ])
+  expect(nativeAccountAncestors('C:\\', win32)).toEqual([])
+  expect(nativeAccountAncestors('\\\\server\\share\\', win32)).toEqual([])
+  expect(nativeAccountAncestors('/Users/name/.pi', posix)).toEqual([
+    '/Users',
+    '/Users/name',
+    '/Users/name/.pi',
+  ])
+})
+
+it.each(['config', 'agent-env', 'root-env'] as const)(
+  'OMP logout retains only the configured broker flag from %s (synthetic credentials)',
+  async (kind) => {
+    const f = await fixture('omp')
+    await save(f.global, 'models.yml', { providers: { own: { apiKey: 'synthetic-api-key', models: [] } } })
+    if (kind === 'config')
+      await save(f.global, 'config.yml', {
+        auth: { broker: { url: 'https://broker.invalid', token: 'synthetic-broker' } },
+      })
+    else
+      await writeFile(
+        join(kind === 'agent-env' ? f.global : join(f.root, '.omp'), '.env'),
+        'OMP_AUTH_BROKER_TOKEN=synthetic-broker\n',
+      )
+    const sources = await readPiOmpLogoutSources('omp', f.state, new AbortController().signal, {
+      nativeHome: f.root,
+    })
+    expect(sources).toHaveLength(1)
+    expect(sources[0].brokerConfigured).toBe(true)
+    expect(sources[0].stored).toBe(false)
+    expect(JSON.stringify(sources)).not.toContain('synthetic-broker')
+  },
+)
 
 it('merges Pi native accounts, custom providers and cached models by provider without source writes', async () => {
   const f = await fixture('pi')

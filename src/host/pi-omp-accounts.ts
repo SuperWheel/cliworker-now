@@ -1,12 +1,11 @@
 import { constants } from 'node:fs'
-import { lstat, mkdir, mkdtemp, open, realpath, rename, rm, writeFile, readFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
-import { join, relative, resolve } from 'node:path'
+import { chmod, lstat, mkdir, mkdtemp, open, realpath, rename, rm, writeFile, readFile } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { snapshotPiOmpNative, safePiOmpAncestors } from './pi-omp-native.ts'
-import { confineExtended } from './extended-adapters.ts'
 import type { AccountAction, AccountSource } from '../shared/accounts.ts'
 import { preparePiOmpLogout } from './pi-omp-logout.ts'
+import { ompConfigurationEnvironment } from './pi-omp-environment.mjs'
 import type { PiOmpCli } from './pi-omp-adapter.ts'
 import { projectDirectory, type RuntimeConfig } from './process.ts'
 
@@ -36,6 +35,20 @@ async function privateDirectory(path: string) {
   await mkdir(path, { recursive: true, mode: 0o700 })
   const before = await lstat(path)
   if (before.isSymbolicLink() || !before.isDirectory()) throw new Error('Unsafe account directory symlink')
+  if (process.platform === 'win32') {
+    const canonical = await realpath(path)
+    await chmod(path, 0o700)
+    const after = await lstat(path)
+    if (
+      after.isSymbolicLink() ||
+      !after.isDirectory() ||
+      before.dev !== after.dev ||
+      before.ino !== after.ino ||
+      (await realpath(path)) !== canonical
+    )
+      throw new Error('Account directory changed while opening')
+    return canonical
+  }
   const handle = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
   try {
     const opened = await handle.stat()
@@ -104,6 +117,8 @@ export async function preparePiOmpAccountTerminal(
       ...native.env,
       PI_CODING_AGENT_DIR: agent,
       TMPDIR: temporary,
+      TMP: temporary,
+      TEMP: temporary,
       ELECTRON_RUN_AS_NODE: '1',
       // Do not let a caller's active profile redirect this disposable TUI to
       // another credential store. Harness already scrubs ambient secret names.
@@ -150,7 +165,7 @@ export async function preparePiOmpAccountTerminal(
         memory: { backend: 'off' },
         tools: { approvalMode: 'always-ask' },
       })
-      env.PI_CONFIG_DIR = relative(homedir(), account)
+      Object.assign(env, ompConfigurationEnvironment(account))
       nativeArgs.push(
         '--no-rules',
         '--no-title',
@@ -173,20 +188,10 @@ export async function preparePiOmpAccountTerminal(
           ? [input.executable, 'setup']
           : [process.execPath, fileURLToPath(new URL('./pi-login.mjs', import.meta.url)), input.executable]
     }
-    const argv = confineExtended(
-      [process.execPath, fileURLToPath(new URL('./private-launch.mjs', import.meta.url)), ...nativeArgv],
-      runtime,
-      runtime,
-      'plan',
-      undefined,
-      agent,
-      true,
-    )
+    const argv = [process.execPath, fileURLToPath(new URL('./private-launch.mjs', import.meta.url)), ...nativeArgv]
     if (cli === 'omp') {
       // OMP's native logger uses configRoot/logs, beside its agent directory.
-      // Allow only that canonical private subtree, never the account root.
-      const logs = await privateDirectory(join(account, 'logs'))
-      argv[2] += `\n(allow file-write* (subpath ${JSON.stringify(logs)}))\n`
+      await privateDirectory(join(account, 'logs'))
     }
     return {
       argv,

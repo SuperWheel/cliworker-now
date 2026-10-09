@@ -1,9 +1,10 @@
-import { open } from 'node:fs/promises'
+import { lstat, open } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { CliId } from '../shared/types.ts'
 import type { AccountStatus } from '../shared/accounts.ts'
+import { safePiOmpAncestors } from './pi-omp-native.ts'
 
 export type AccountIdentity = Pick<
   AccountStatus,
@@ -60,9 +61,20 @@ export function localAccountIdentity(
     let buffer: Buffer | undefined
     try {
       signal.throwIfAborted()
+      await safePiOmpAncestors(dirname(path))
+      const entry = await lstat(path)
+      if (entry.isSymbolicLink() || !entry.isFile() || entry.nlink !== 1)
+        throw new Error('Invalid account metadata')
       handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
       const stat = await handle.stat()
-      if (!stat.isFile() || stat.nlink !== 1 || stat.size > LIMIT) throw new Error('Invalid account metadata')
+      if (
+        !stat.isFile() ||
+        stat.nlink !== 1 ||
+        stat.dev !== entry.dev ||
+        stat.ino !== entry.ino ||
+        stat.size > LIMIT
+      )
+        throw new Error('Invalid account metadata')
       buffer = Buffer.alloc(LIMIT + 1)
       let offset = 0
       while (offset <= LIMIT) {
@@ -72,6 +84,20 @@ export function localAccountIdentity(
         offset += bytesRead
       }
       if (offset > LIMIT) throw new Error('Invalid account metadata')
+      const after = await handle.stat()
+      const current = await lstat(path)
+      if (
+        current.isSymbolicLink() ||
+        current.dev !== stat.dev ||
+        current.ino !== stat.ino ||
+        current.nlink !== 1 ||
+        offset !== stat.size ||
+        after.size !== stat.size ||
+        after.mtimeMs !== stat.mtimeMs ||
+        current.size !== after.size ||
+        current.mtimeMs !== after.mtimeMs
+      )
+        throw new Error('Account metadata changed during read')
       const value: unknown = JSON.parse(buffer.subarray(0, offset).toString('utf8'))
       signal.throwIfAborted()
       if (!record(value)) throw new Error('Invalid account metadata')

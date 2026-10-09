@@ -177,9 +177,10 @@ describe('Hermes native accounts (explicit synthetic fixtures)', () => {
     expect(manage.argv.slice(-2)).toEqual(['/fixture/hermes', 'auth'])
     expect(login.argv).not.toContain('chat')
     expect(login.argv.join(' ')).toContain('private-launch.mjs')
-    expect(login.argv[0]).toBe('/usr/bin/sandbox-exec')
-    expect(login.argv[2]).toContain(config.hermesHome)
-    expect(login.argv[2]).not.toContain(project)
+    expect(login.argv[0]).toBe(process.execPath)
+    expect(login.argv[2]).toBe('/fixture/hermes')
+    expect(login.argv.join(' ')).not.toMatch(/sandbox-exec|\(deny |\(allow /)
+    expect(login.argv).not.toContain(project)
     expect(login.cwd).not.toBe(manage.cwd)
     expect(login.env).toMatchObject({
       HERMES_HOME: join(config.stateDirectory, 'accounts/hermes'),

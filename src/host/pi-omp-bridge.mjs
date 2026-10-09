@@ -4,9 +4,10 @@ import { spawn } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdir, writeFile, rename, realpath, unlink, rmdir, lstat, open, rm } from 'node:fs/promises'
 import { constants } from 'node:fs'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { homedir } from 'node:os'
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
+import { ompConfigurationEnvironment } from './pi-omp-environment.mjs'
 import { readFile } from 'node:fs/promises'
+import { nativeLaunchArgv } from './native-launch.mjs'
 import { ownsOwnAccountLease, OWN_ACCOUNT_BUSY } from './own-account-lease.mjs'
 import { assertPiOmpRefreshSources, assertPiOmpRefreshCache } from './pi-omp-refresh.mjs'
 import {
@@ -35,6 +36,14 @@ async function privateDirectory(path) {
   await mkdir(path, { recursive: true, mode: 0o700 })
   const info = await lstat(path)
   if (info.isSymbolicLink() || !info.isDirectory()) throw new Error('Unsafe Pi/OMP state directory symlink')
+  if (process.platform === 'win32') {
+    // Windows cannot open directory descriptors with Node's POSIX O_DIRECTORY.
+    const canonical = await realpath(path),
+      current = await lstat(path)
+    if (current.isSymbolicLink() || current.dev !== info.dev || current.ino !== info.ino)
+      throw new Error('Pi/OMP state directory changed while opening')
+    return canonical
+  }
   const handle = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
   try {
     const opened = await handle.stat()
@@ -148,7 +157,19 @@ try {
   const env = Object.fromEntries(
     [
       'PATH',
+      'BUN_INSTALL',
       'HOME',
+      'USERPROFILE',
+      'SystemRoot',
+      'SYSTEMROOT',
+      'WINDIR',
+      'COMSPEC',
+      'ComSpec',
+      'PATHEXT',
+      'APPDATA',
+      'LOCALAPPDATA',
+      'TEMP',
+      'TMP',
       'LANG',
       'LC_ALL',
       'USER',
@@ -166,6 +187,7 @@ try {
   Object.assign(env, {
     PI_CODING_AGENT_DIR: nativeRoot,
     TMPDIR: temporaryDirectory,
+    ...(process.platform === 'win32' ? { TMP: temporaryDirectory, TEMP: temporaryDirectory } : {}),
     PI_OFFLINE: '1',
     PI_TELEMETRY: '0',
     ELECTRON_RUN_AS_NODE: '1',
@@ -179,7 +201,7 @@ try {
     Object.entries(nativeEnvironment).some(
       ([key, value]) =>
         !/^[A-Z][A-Z0-9_]*$/.test(key) ||
-        /^(?:PATH|HOME|SHELL|TMPDIR|NODE_OPTIONS|NODE_PATH|ELECTRON_RUN_AS_NODE|OMP_AUTH_BROKER_.*|OMP_PROFILE|PI_PROFILE|PI_CONFIG_DIR|PI_CODING_AGENT_DIR|LD_.*|DYLD_.*)$/.test(
+        /^(?:PATH|HOME|USERPROFILE|SYSTEMROOT|WINDIR|COMSPEC|PATHEXT|APPDATA|LOCALAPPDATA|SHELL|TMPDIR|TMP|TEMP|NODE_OPTIONS|NODE_PATH|ELECTRON_RUN_AS_NODE|OMP_AUTH_BROKER_.*|OMP_PROFILE|PI_PROFILE|PI_CONFIG_DIR|PI_CODING_AGENT_DIR|LD_.*|DYLD_.*)$/i.test(
           key,
         ) ||
         typeof value !== 'string',
@@ -213,7 +235,8 @@ try {
           join(nativeRoot, 'config.yml'),
         ]
   if (config.cli === 'omp') {
-    env.PI_CONFIG_DIR = relative(homedir(), dirname(nativeRoot))
+    Object.assign(env, ompConfigurationEnvironment(dirname(nativeRoot)))
+    Object.assign(process.env, ompConfigurationEnvironment(dirname(nativeRoot)))
     const nativeAuth = JSON.parse(await readFile(join(nativeRoot, 'native-auth.json'), 'utf8'))
     await writePrivateFile(
       join(nativeRoot, 'config.yml'),
@@ -335,18 +358,14 @@ try {
       tools.join(','),
       ...(resume ? [config.cli === 'pi' ? '--session' : '--resume', resume] : []),
     ]
-    const jsEntry = /\.[cm]?js$/.test(config.executable)
+    const launch = nativeLaunchArgv([config.executable, ...nativeArgs])
     if (stopped) throw new Error('任务已停止')
-    child = spawn(
-      jsEntry ? process.execPath : config.executable,
-      jsEntry ? [config.executable, ...nativeArgs] : nativeArgs,
-      {
-        cwd: config.project,
-        env,
-        detached: false,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      },
-    )
+    child = spawn(launch[0], launch.slice(1), {
+      cwd: config.project,
+      env,
+      detached: false,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
     let pending = '',
       bytes = 0,
       stderrBytes = 0,

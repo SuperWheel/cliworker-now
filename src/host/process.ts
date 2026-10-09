@@ -6,7 +6,7 @@ import type {
 } from '@deepseek-ai/dsh-subprocess'
 import { accessSync, constants, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { isAbsolute, resolve, sep } from 'node:path'
+import { isAbsolute, parse, resolve, sep } from 'node:path'
 import type { ModelChoice, Preference, TaskMode } from '../shared/types.ts'
 
 export interface ProcessBackend {
@@ -62,7 +62,8 @@ export function projectDirectory(input: string): string {
   if (!isAbsolute(input)) throw new Error('Project must be an absolute directory')
   const path = realpathSync(input)
   const home = realpathSync(homedir())
-  if (path === sep || path === home || home.startsWith(path + sep))
+  const key = (value: string) => process.platform === 'win32' ? value.toLowerCase() : value
+  if (key(path) === key(parse(path).root) || key(path) === key(home) || key(home).startsWith(key(path + sep)))
     throw new Error('Refusing a root or home directory as workspace')
   const forbidden = [
     '.ssh',
@@ -89,7 +90,7 @@ export function projectDirectory(input: string): string {
   if (
     forbidden.some((name) => {
       const root = resolve(home, name)
-      return path === root || path.startsWith(root + sep)
+      return key(path) === key(root) || key(path).startsWith(key(root + sep))
     })
   )
     throw new Error('Refusing a credential or application configuration directory')

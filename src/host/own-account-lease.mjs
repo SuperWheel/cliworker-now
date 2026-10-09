@@ -9,7 +9,7 @@ async function privateRoot(root) {
   if (
     !info.isDirectory() ||
     info.isSymbolicLink() ||
-    info.mode & 0o077 ||
+    (process.platform !== 'win32' && (info.mode & 0o077)) ||
     (await realpath(root)) !== resolve(root)
   )
     throw new Error('账号运行目录无法安全使用')
@@ -53,14 +53,14 @@ export async function ownsOwnAccountLease(root, nonce) {
   let handle
   try {
     const lock = await lstat(join(root, '.lease'))
-    if (!lock.isDirectory() || lock.isSymbolicLink() || lock.mode & 0o077)
+    if (!lock.isDirectory() || lock.isSymbolicLink() || (process.platform !== 'win32' && (lock.mode & 0o077)))
       throw new Error('账号使用状态无法确认')
     handle = await open(
       join(root, '.lease/owner.json'),
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
     )
     const info = await handle.stat()
-    if (!info.isFile() || info.nlink !== 1 || info.mode & 0o077 || info.size > 1024)
+    if (!info.isFile() || info.nlink !== 1 || (process.platform !== 'win32' && (info.mode & 0o077)) || info.size > 1024)
       throw new Error('账号使用状态无法确认')
     return JSON.parse(await handle.readFile('utf8')).nonce === nonce
   } catch (error) {
@@ -80,14 +80,14 @@ export async function releaseOwnAccountLease(root, nonce) {
   let handle
   try {
     const directory = await lstat(lock)
-    if (!directory.isDirectory() || directory.isSymbolicLink() || directory.mode & 0o077)
+    if (!directory.isDirectory() || directory.isSymbolicLink() || (process.platform !== 'win32' && (directory.mode & 0o077)))
       throw new Error('账号使用状态无法安全清理')
     handle = await open(
       join(lock, 'owner.json'),
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
     )
     const info = await handle.stat()
-    if (!info.isFile() || info.nlink !== 1 || info.mode & 0o077 || info.size > 1024)
+    if (!info.isFile() || info.nlink !== 1 || (process.platform !== 'win32' && (info.mode & 0o077)) || info.size > 1024)
       throw new Error('账号使用状态无法安全清理')
     const owner = JSON.parse(await handle.readFile('utf8'))
     if (owner.nonce !== nonce) return

@@ -4,8 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import { execFileSync } from 'node:child_process'
-import { confineExtended, extendedLaunch } from '../src/host/extended-adapters.ts'
+import { extendedLaunch } from '../src/host/extended-adapters.ts'
 import { DEFAULT_CONFIG, ProcessCleanupUnconfirmedError } from '../src/host/process.ts'
 import { snapshotPiOmpNative } from '../src/host/pi-omp-native.ts'
 import { preparePiOmp } from '../src/host/pi-omp-adapter.ts'
@@ -417,58 +416,8 @@ it('unconfirmed metadata process cleanup never writes refreshes back or releases
   await releaseOwnAccountLease(request.leaseDirectory, request.leaseNonce)
 })
 
-it.skipIf(process.platform !== 'darwin')(
-  'real sandbox permits native cache refresh but denies lease/receipt tampering and native-source writes',
-  async () => {
-    const f = await fixture('pi'),
-      native = await f.snapshot(),
-      nonce = randomUUID()
-    await acquireOwnAccountLease(native.leaseDirectory!, nonce)
-    const paths = {
-      source: f.path,
-      receipt: join(native.leaseDirectory!, 'receipt.json'),
-      owner: join(native.leaseDirectory!, '.lease/owner.json'),
-      cache: join(native.directory, 'auth.json'),
-      moved: join(native.leaseDirectory!, 'moved'),
-    }
-    const script = `const fs=require('fs'),p=${JSON.stringify(paths)};const attempt=fn=>{try{fn();return true}catch(e){return e.code}};process.stdout.write(JSON.stringify({source:attempt(()=>fs.writeFileSync(p.source,'bad')),receipt:attempt(()=>fs.writeFileSync(p.receipt,'bad')),owner:attempt(()=>fs.unlinkSync(p.owner)),lease:attempt(()=>fs.renameSync(require('path').dirname(p.owner),p.moved)),cache:attempt(()=>fs.writeFileSync(p.cache,fs.readFileSync(p.cache)))}));`
-    // Even a broad project write grant cannot override the private lease boundary.
-    const argv = confineExtended(
-      [process.execPath, '-e', script],
-      f.worker,
-      f.root,
-      'accept-edits',
-      undefined,
-      undefined,
-      true,
-      native.leaseDirectory,
-    )
-    const result = JSON.parse(execFileSync(argv[0]!, argv.slice(1), { encoding: 'utf8' }))
-    expect(result.cache).toBe(true)
-    for (const name of ['receipt', 'owner', 'lease']) expect(['EPERM', 'EACCES']).toContain(result[name])
-    // A project equal to the entire fixture intentionally grants the synthetic source;
-    // ordinary plugin launches use a separate project, checked in the next process.
-    const separate = confineExtended(
-      [
-        process.execPath,
-        '-e',
-        `const fs=require('fs');try{fs.writeFileSync(${JSON.stringify(f.path)},'bad');process.stdout.write('wrote')}catch(e){process.stdout.write(e.code)}`,
-      ],
-      f.worker,
-      join(f.root, 'project'),
-      'plan',
-      undefined,
-      undefined,
-      true,
-      native.leaseDirectory,
-    )
-    expect(execFileSync(separate[0]!, separate.slice(1), { encoding: 'utf8' })).toMatch(/EPERM|EACCES/)
-    await releaseOwnAccountLease(native.leaseDirectory!, nonce)
-  },
-)
-
-it.skipIf(process.platform !== 'darwin')(
-  'extended launch metadata forwards the shared OAuth scope into its real sandbox',
+it(
+  'extended launch metadata retains current own OAuth leases without modifying native arguments',
   async () => {
     const f = await fixture('pi')
     vi.stubEnv('HOME', f.root)
@@ -486,10 +435,15 @@ it.skipIf(process.platform !== 'darwin')(
       async (argv, _env, phase, scope) => {
         phases.push(phase!)
         expect(scope?.leaseDirectory).toBeTruthy()
-        const script = `const fs=require('fs'),p=${JSON.stringify(scope!.leaseDirectory)};fs.writeFileSync(p+'/agent/synthetic-metadata','ok');try{fs.unlinkSync(p+'/.lease/owner.json');process.exit(9)}catch{};process.stdout.write('ok');`
-        expect(
-          execFileSync(argv[0]!, [argv[1]!, argv[2]!, process.execPath, '-e', script], { encoding: 'utf8' }),
-        ).toBe('ok')
+        expect(argv[0]).toBe(process.execPath)
+        expect(argv[1]).toMatch(/private-launch[.]mjs$/)
+        expect(argv[2]).toBe(process.execPath)
+        expect(argv.join(' ')).not.toMatch(/sandbox-exec|\(deny |\(allow /)
+        const request = JSON.parse(await readFile(argv.at(-1)!, 'utf8'))
+        expect(request.metadataPhase).toBe(phase)
+        expect(request.leaseDirectory).toBe(scope!.leaseDirectory)
+        expect(await ownsOwnAccountLease(request.leaseDirectory, request.leaseNonce)).toBe(true)
+        expect(await f.get()).toEqual(f.original)
         return phase === 'native-candidates'
           ? JSON.stringify({ phase, count: 1 })
           : JSON.stringify([{ id: 'fixture/chat', label: 'Synthetic', efforts: ['default'] }])

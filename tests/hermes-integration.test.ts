@@ -45,7 +45,7 @@ afterEach(() => {
 // These dispatch/receipt tests simulate CLI output. Real read-only catalog evidence lives
 // in the private .test-data/hermes-catalog-real report, not in this fixture suite.
 describe('Hermes dispatch and telemetry integration (synthetic fixtures)', () => {
-  it('dispatches sequential sandboxed scalar catalog queries without resolving shared credentials', async () => {
+  it('dispatches sequential native scalar catalog queries without resolving shared credentials', async () => {
     const calls: string[][] = [],
       stateDirectory = directory(),
       hermesHome = nativeHome()
@@ -57,8 +57,9 @@ describe('Hermes dispatch and telemetry integration (synthetic fixtures)', () =>
         expect(running).toBe(false)
         running = true
         calls.push(spec.argv)
-        expect(spec.argv[0]).toBe('/usr/bin/sandbox-exec')
-        expect(spec.argv[2]).toContain(realpathSync(hermesHome))
+        expect(spec.argv[0]).toBe(process.execPath)
+        expect(spec.argv[2]).toBe('/synthetic/hermes')
+        expect(spec.argv.join(' ')).not.toMatch(/sandbox-exec|\(deny |\(allow /)
         expect(spec.env?.HERMES_HOME).toBe(realpathSync(hermesHome))
         expect(spec.env?.ZAI_CODING_CN_API_KEY).toBeUndefined()
         const field = spec.argv[spec.argv.indexOf('get') + 1]
@@ -115,7 +116,7 @@ describe('Hermes dispatch and telemetry integration (synthetic fixtures)', () =>
     ).toThrow('历史记录')
   })
 
-  it('prepares the native Hermes launch inside the project sandbox with no inherited shared credential', async () => {
+  it('prepares the native Hermes launch with native protections with no inherited shared credential', async () => {
     const project = directory(),
       stateDirectory = directory(),
       hermesHome = nativeHome()
@@ -125,15 +126,17 @@ describe('Hermes dispatch and telemetry integration (synthetic fixtures)', () =>
       '/synthetic/hermes',
       project,
       { cli: 'hermes', model: '["openrouter","fixture/model"]', effort: 'default' },
-      'plan',
+      'accept-edits',
       'synthetic prompt',
       stateDirectory,
       { ...DEFAULT_CONFIG, stateDirectory, hermesHome, zaiCredentialRef: 'DO_NOT_SHARE', resolveCredential },
       'synthetic-session',
     )
     try {
-      expect(launch.argv[0]).toBe('/usr/bin/sandbox-exec')
-      expect(launch.argv[2]).not.toContain(`(subpath ${JSON.stringify(project)})`)
+      expect(launch.argv[0]).toBe(process.execPath)
+      expect(launch.argv[2]).toBe('/synthetic/hermes')
+      expect(launch.argv.join(' ')).not.toMatch(/sandbox-exec|\(deny |\(allow /)
+      expect(launch.argv[launch.argv.indexOf('--in') + 1]).toBe(project)
       expect(launch.argv).toContain('--resume')
       expect(launch.argv).toContain('synthetic-session')
       expect(launch.argv).toContain('stream-json')
@@ -223,7 +226,7 @@ it('uses the explicit plugin login source for status, catalog, binding and task 
     '/synthetic/hermes',
     project,
     { cli: 'hermes', model: '["openrouter","fixture/model"]', effort: 'default' },
-    'plan',
+    'accept-edits',
     'synthetic',
     directory(),
     config,

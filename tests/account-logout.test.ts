@@ -3,13 +3,12 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { preparePiOmpAccountTerminal } from '../src/host/pi-omp-accounts.ts'
 import { listPiOmpAccountSources, inspectPiOmpNativeAccount } from '../src/host/pi-omp-native.ts'
 import {
-  hermesLogoutPolicy,
   prepareHermesAccount,
   listHermesAccountSources,
 } from '../src/host/hermes-accounts.ts'
@@ -40,6 +39,7 @@ async function fixture(cli: 'pi' | 'omp') {
       stateDirectory: join(root, 'state'),
       nativeHome: root,
       action: 'logout' as const,
+      config: DEFAULT_CONFIG,
     },
   }
 }
@@ -106,7 +106,8 @@ it('Pi uses selected real auth with private runtime and accurately keeps env/mod
   expect(launch.argv).not.toContain(join(f.native, 'models.json'))
   expect(launch.cwd).not.toBe(f.input.project)
   expect(launch.env.PI_OFFLINE).toBe('1')
-  expect(launch.argv[2]).toContain('(deny network*)')
+  expect(launch.argv[0]).toBe(process.execPath)
+  expect(launch.argv.join(' ')).not.toMatch(/sandbox-exec|\(deny |\(allow /)
   expect(launch.instruction).toContain('其他来源保留')
   const config = await preparePiOmpAccountTerminal({ ...f.input, source: 'plugin' })
   expect(config.argv.at(-1)).toBe(join(config.env.PI_CODING_AGENT_DIR!, 'auth.json'))
@@ -118,112 +119,79 @@ it('Pi uses selected real auth with private runtime and accurately keeps env/mod
   expect(JSON.parse(await readFile(join(f.native, 'auth.json'), 'utf8')).anthropic).toBeDefined()
 })
 
-it.skipIf(process.platform !== 'darwin')(
-  'OMP selected source DB and WAL persist deletion through symlink; other source and config stay protected',
-  async () => {
-    const f = await fixture('omp')
-    saveOmp(f.native)
-    saveOmp(f.plugin)
-    const config = 'auth:\n  broker:\n    url: https://synthetic.invalid\n'
-    await writeFile(join(f.native, 'config.yml'), config)
-    const launch = await preparePiOmpAccountTerminal({ ...f.input, source: 'native' })
-    const agent = launch.env.PI_CODING_AGENT_DIR!
-    expect(await realpath(join(agent, 'agent.db'))).toBe(join(f.native, 'agent.db'))
-    expect(await readFile(join(agent, 'config.yml'), 'utf8')).not.toContain('broker')
-    const code = `
+it('OMP native logout targets the selected real DB, preserves other sources, and keeps runtime private', async () => {
+  const f = await fixture('omp')
+  saveOmp(f.native)
+  saveOmp(f.plugin)
+  const config = 'startup:\n  checkUpdate: false\n'
+  await writeFile(join(f.native, 'config.yml'), config)
+  const other = await readFile(join(f.plugin, 'agent.db'))
+  const launch = await preparePiOmpAccountTerminal({ ...f.input, source: 'native' })
+  const agent = launch.env.PI_CODING_AGENT_DIR!
+  const dbPath = join(agent, 'agent.db')
+  const configPath = launch.argv[launch.argv.indexOf('--config') + 1]!
+  expect(await realpath(dbPath)).toBe(join(f.native, 'agent.db'))
+  expect(configPath).toBe(join(launch.cwd, 'agent', 'config.yml'))
+  expect(await readFile(configPath, 'utf8')).not.toContain('broker')
+  expect(launch.argv[0]).toBe(process.execPath)
+  expect(launch.argv.join(' ')).not.toMatch(/sandbox-exec|\(deny |\(allow /)
+  expect(launch.argv).toContain('--no-session')
+  expect(launch.argv[launch.argv.indexOf('--session-dir') + 1]).toBe(join(launch.cwd, 'sessions'))
+  expect(launch.env.OMP_AUTH_BROKER_URL).toBe('')
+  const code = `
 const fs=require('node:fs'),{DatabaseSync}=require('node:sqlite');
-const db=new DatabaseSync(${JSON.stringify(join(agent, 'agent.db'))});
+const db=new DatabaseSync(${JSON.stringify(dbPath)});
 db.exec('PRAGMA journal_mode=WAL'); db.exec('DELETE FROM auth_credentials WHERE id=1');
 const wal=fs.existsSync(${JSON.stringify(join(f.native, 'agent.db-wal'))});
-const denied=[];for(const path of ${JSON.stringify([join(f.plugin, 'agent.db'), join(f.native, 'config.yml'), join(f.native, 'unrelated')])}){try{fs.writeFileSync(path,'unsafe')}catch{denied.push(true)}}
-db.close();process.stdout.write(JSON.stringify({wal,denied:denied.length}));`
-    try {
-      const result = await exec(
-        '/usr/bin/sandbox-exec',
-        ['-p', launch.argv[2]!, process.execPath, '-e', code],
-        { cwd: launch.cwd, env: { PATH: process.env.PATH }, timeout: 10000 },
-      )
-      expect(JSON.parse(result.stdout)).toEqual({ wal: true, denied: 3 })
-      const db = new DatabaseSync(join(f.native, 'agent.db'))
-      expect(db.prepare('SELECT * FROM auth_credentials').all()).toEqual([])
-      db.close()
-      expect(await readFile(join(f.native, 'config.yml'), 'utf8')).toBe(config)
-      expect(
-        (await listPiOmpAccountSources('omp', f.input.stateDirectory, signal(), { nativeHome: f.root })).map(
-          (x) => x.id,
-        ),
-      ).toEqual(['plugin'])
-      expect(
-        (await inspectPiOmpNativeAccount('omp', f.input.stateDirectory, signal(), { nativeHome: f.root }))
-          .state,
-      ).toBe('authenticated')
-    } finally {
-      await launch.cleanup()
-    }
-  },
-)
+db.close();process.stdout.write(JSON.stringify({wal}));`
+  try {
+    const result = await exec(process.execPath, ['-e', code], { cwd: launch.cwd, timeout: 10000 })
+    expect(JSON.parse(result.stdout)).toEqual({ wal: true })
+    const db = new DatabaseSync(join(f.native, 'agent.db'))
+    expect(db.prepare('SELECT * FROM auth_credentials').all()).toEqual([])
+    db.close()
+    expect(await readFile(join(f.native, 'config.yml'), 'utf8')).toBe(config)
+    expect(await readFile(join(f.plugin, 'agent.db'))).toEqual(other)
+    expect((await listPiOmpAccountSources('omp', f.input.stateDirectory, signal(), { nativeHome: f.root })).map(x => x.id)).toEqual(['plugin'])
+    expect((await inspectPiOmpNativeAccount('omp', f.input.stateDirectory, signal(), { nativeHome: f.root })).state).toBe('authenticated')
+  } finally {
+    await launch.cleanup()
+  }
+  expect(existsSync(launch.cwd)).toBe(false)
+  expect(existsSync(join(f.native, 'agent.db'))).toBe(true)
+})
 
-it.skipIf(process.platform !== 'darwin')(
-  'Pi source lock/delete stays writable while unrelated source and recreated auth stay blocked',
-  async () => {
-    const f = await fixture('pi')
-    await savePi(f.native)
-    await savePi(f.plugin)
-    const launch = await preparePiOmpAccountTerminal({ ...f.input, source: 'native' })
-    const auth = join(f.native, 'auth.json')
-    const code = `const fs=require('node:fs');fs.mkdirSync(${JSON.stringify(auth + '.lock')});fs.writeFileSync(${JSON.stringify(auth)},'{}');fs.rmdirSync(${JSON.stringify(auth + '.lock')});let denied=false;try{fs.writeFileSync(${JSON.stringify(join(f.plugin, 'auth.json'))},'{}')}catch{denied=true}process.stdout.write(String(denied));`
-    try {
-      expect(
-        (
-          await exec('/usr/bin/sandbox-exec', ['-p', launch.argv[2]!, process.execPath, '-e', code], {
-            cwd: launch.cwd,
-            timeout: 5000,
-          })
-        ).stdout,
-      ).toBe('true')
-      expect(
-        (await listPiOmpAccountSources('pi', f.input.stateDirectory, signal(), { nativeHome: f.root })).map(
-          (x) => x.id,
-        ),
-      ).toEqual(['plugin'])
-      await rm(auth)
-      await expect(
-        exec(
-          '/usr/bin/sandbox-exec',
-          [
-            '-p',
-            launch.argv[2]!,
-            process.execPath,
-            '-e',
-            `require('node:fs').writeFileSync(${JSON.stringify(auth)},'{}')`,
-          ],
-          { cwd: launch.cwd, timeout: 5000 },
-        ),
-      ).rejects.toBeDefined()
-      expect(existsSync(auth)).toBe(false)
-    } finally {
-      await launch.cleanup()
-    }
-  },
-)
+it('Pi native logout can update its selected source and current reads never restore the old account', async () => {
+  const f = await fixture('pi')
+  await savePi(f.native)
+  await savePi(f.plugin)
+  const other = await readFile(join(f.plugin, 'auth.json'), 'utf8')
+  const launch = await preparePiOmpAccountTerminal({ ...f.input, source: 'native' })
+  const auth = launch.argv.at(-1)!
+  const code = `const fs=require('node:fs');fs.mkdirSync(${JSON.stringify(auth + '.lock')});fs.writeFileSync(${JSON.stringify(auth)},'{}');fs.rmdirSync(${JSON.stringify(auth + '.lock')});`
+  try {
+    await exec(process.execPath, ['-e', code], { cwd: launch.cwd, timeout: 5000 })
+    expect((await listPiOmpAccountSources('pi', f.input.stateDirectory, signal(), { nativeHome: f.root })).map(x => x.id)).toEqual(['plugin'])
+    expect(await readFile(join(f.plugin, 'auth.json'), 'utf8')).toBe(other)
+    await rm(auth)
+    expect((await listPiOmpAccountSources('pi', f.input.stateDirectory, signal(), { nativeHome: f.root })).map(x => x.id)).toEqual(['plugin'])
+  } finally {
+    await launch.cleanup()
+  }
+  expect(existsSync(auth)).toBe(false)
+})
 
-it.skipIf(process.platform !== 'darwin')(
-  'Hermes logout policy permits native atomic account writes, denies config/history/siblings/network',
-  async () => {
-    const f = await fixture('pi'),
-      home = join(f.root, 'hermes.[native]')
-    await mkdir(home)
-    for (const name of ['auth.json', '.env', 'config.yaml', 'history.json'])
-      await writeFile(join(home, name), '{}')
-    const policy = `(version 1)(allow default)(deny file-write*)(allow file-write* (subpath ${JSON.stringify(join(f.root, 'state'))}))${hermesLogoutPolicy(home)}`
-    const code = `const fs=require('node:fs'),p=${JSON.stringify(home)};fs.chmodSync(p,448);for(const [tmp,to]of [['.auth_synthetic.tmp','auth.json'],['.env_synthetic.tmp','.env']]){fs.writeFileSync(p+'/'+tmp,'{}');fs.renameSync(p+'/'+tmp,p+'/'+to)}fs.writeFileSync(p+'/auth.lock','');fs.unlinkSync(p+'/auth.lock');let denied=0;for(const name of ['config.yaml','history.json','unrelated','.auth_nested/evil.tmp'])try{fs.writeFileSync(p+'/'+name,'unsafe')}catch{denied++}process.stdout.write(String(denied));`
-    expect(
-      (await exec('/usr/bin/sandbox-exec', ['-p', policy, process.execPath, '-e', code], { timeout: 5000 }))
-        .stdout,
-    ).toBe('4')
-    expect(await readFile(join(home, 'config.yaml'), 'utf8')).toBe('{}')
-  },
-)
+it.skipIf(process.platform !== 'win32')('OMP Windows refuses native broker sources without rewriting their configuration', async () => {
+  const f = await fixture('omp')
+  saveOmp(f.native)
+  const config = 'auth:\n  broker:\n    url: https://synthetic.invalid\n'
+  await writeFile(join(f.native, 'config.yml'), config)
+  const before = await readFile(join(f.native, 'agent.db'))
+  await expect(preparePiOmpAccountTerminal({ ...f.input, source: 'native' })).rejects.toThrow('停用账号代理')
+  expect(await readFile(join(f.native, 'config.yml'), 'utf8')).toBe(config)
+  expect(await readFile(join(f.native, 'agent.db'))).toEqual(before)
+  expect(await readdir(join(f.input.stateDirectory, 'account-runtime'))).toEqual([])
+})
 
 it('Hermes logout retains the current global source and never creates a plugin marker', async () => {
   const f = await fixture('pi'),
@@ -246,7 +214,8 @@ it('Hermes logout retains the current global source and never creates a plugin m
   )
   expect(launch.argv.at(-1)).toBe('auth')
   expect(launch.env.HERMES_HOME).toBe(home)
-  expect(launch.argv[2]).toContain('(deny network*)')
+  expect(launch.argv[0]).toBe(process.execPath)
+  expect(launch.argv.join(' ')).not.toMatch(/sandbox-exec|\(deny |\(allow /)
   expect(existsSync(join(f.input.stateDirectory, 'accounts', 'hermes-source.json'))).toBe(false)
   await launch.cleanup()
   expect(existsSync(launch.cwd)).toBe(false)

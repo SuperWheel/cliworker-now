@@ -78,13 +78,13 @@ async function readRequest(path) {
   if (parent !== expected || parent !== resolve(dirname(path)))
     throw new Error('Request escaped private state')
   const directory = await lstat(parent)
-  if (!directory.isDirectory() || directory.isSymbolicLink() || directory.mode & 0o077)
+  if (!directory.isDirectory() || directory.isSymbolicLink() || (process.platform !== 'win32' && (directory.mode & 0o077)))
     throw new Error('Unsafe private request directory')
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   let value
   try {
     const before = await file.stat()
-    if (!before.isFile() || before.nlink !== 1 || before.size > 1024 * 1024 || before.mode & 0o077)
+    if (!before.isFile() || before.nlink !== 1 || before.size > 1024 * 1024 || (process.platform !== 'win32' && (before.mode & 0o077)))
       throw new Error('Unsafe private request')
     const text = await file.readFile('utf8')
     const after = await file.stat()

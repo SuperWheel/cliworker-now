@@ -1,6 +1,6 @@
 {
   "name": "dsh-cliworker-now",
-  "version": "0.6.14",
+  "version": "0.6.15",
   "private": true,
   "description": "Multiple agent CLI conversations in the DeepSeek Harness sidebar",
   "type": "module",
@@ -34,6 +34,7 @@
     "!lib/*.tsbuildinfo",
     "cordis.patch.yml",
     "README.md",
+    "README.en.md",
     "lib/typert.host.js",
     "lib/typert.host.d.ts",
     "lib/typert.remote-client.js",

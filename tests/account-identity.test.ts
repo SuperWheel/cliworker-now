@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { accountEmail, localAccountIdentity } from '../src/host/account-identity.ts'
@@ -129,6 +129,19 @@ describe('bounded account identity projection', () => {
     )
     expect(await f.source('codex', f.signal)).toBeUndefined()
     expect(await f.source('kimi', f.signal)).toBeUndefined()
+  })
+
+  it('rejects an aliased account directory and recognizes a replaced current source (synthetic files)', async () => {
+    const f = fixture()
+    writeFileSync(f.agyPath, JSON.stringify(agy()))
+    renameSync(f.agyPath, join(f.home, 'retired-account'))
+    writeFileSync(f.agyPath, JSON.stringify(agy({ id_token: jwt({ email: 'current@example.com' }) })))
+    expect((await f.source('antigravity', f.signal))?.accountLabel).toBe('current@example.com')
+    const own = join(f.home, '.gemini'),
+      alias = join(f.home, 'other-cli')
+    renameSync(own, alias)
+    symlinkSync(alias, own, 'junction')
+    expect(await f.source('antigravity', f.signal)).toMatchObject({ state: 'unavailable' })
   })
 
   it('cancels before reading files and accepts only a bounded plain email', async () => {
