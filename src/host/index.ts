@@ -528,7 +528,8 @@ export class CliWorkerService extends TypertRemoteService {
             parameters: {
               cli: {
                 type: 'string',
-                description: `明确指定的 CLI 规范 ID 或别名：${CLI_NAME_GUIDANCE}。较长名称仅接受唯一轻微误差；短名须精确，不猜模型。仅旧 Antigravity 调用可省略。`,
+                required: true,
+                description: `本次用户明确指定的 CLI 规范 ID 或别名：${CLI_NAME_GUIDANCE}。每次调用必填，Antigravity 也不可省略；不得照搬历史调用中省略 cli 的写法。较长名称仅接受唯一轻微误差；短名须精确，不猜模型。`,
               },
               title: { type: 'string', required: true },
               prompt: { type: 'string', required: true },
@@ -549,7 +550,7 @@ export class CliWorkerService extends TypertRemoteService {
             execute: async (args, exec) => {
               if (!exec.agent) throw new Error('A parent Agent is required')
               this.assertExecution(exec.agent)
-              const cli = requireCliName(args.cli ?? 'antigravity')
+              const cli = requireCliName(args.cli)
               const agentName =
                 args.agent_name === undefined ? undefined : agentNameSchema.parse(args.agent_name)
               if (cli === 'kimi' && args.read_only) throw new Error('Kimi 非交互模式不支持只读派遣')

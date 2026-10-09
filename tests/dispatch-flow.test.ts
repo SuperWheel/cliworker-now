@@ -2,6 +2,9 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Context } from '@deepseek-ai/cordis'
+import { SystemPrompt } from '@deepseek-ai/dsh-system-prompt'
+import { ToolRuntime } from '@deepseek-ai/dsh-tools'
 import type { AskUserQuestionAnswer } from '@deepseek-ai/dsh-user-questions/types'
 import { CliWorkerService } from '../src/host/index.ts'
 import { WorkerStorage, type DispatchSetup } from '../src/host/storage.ts'
@@ -434,4 +437,48 @@ it('reopened Host storage reuses this conversation without any question', async 
   expect(await f.choose()).toEqual(f.setup)
   expect(f.ask).not.toHaveBeenCalled()
   expect(f.service.querySelection).toHaveBeenCalledOnce()
+})
+
+it('replays omitted CLI then explicit Hermes without consuming the previous Antigravity setup', async () => {
+  const f = fixture()
+  const ctx = new Context()
+  await ctx.plugin(SystemPrompt, { includeHarnessIdentity: false })
+  await ctx.plugin(ToolRuntime, { mode: 'native' })
+  const launch = vi.fn(async (_agent, _title, _prompt, preference) => JSON.stringify(preference))
+  Object.assign(f.service, { ctx, launch })
+  f.service.registerTools()
+  const agy = structuredClone(f.setup)
+  const hermes: DispatchSetup = {
+    preference: { cli: 'hermes', model: 'fixture-b', effort: 'default' },
+    role: null,
+    binding: f.setup.binding,
+  }
+  f.storage.setDispatchSetup(f.project, agy)
+  f.storage.setConversationSetup('parent', f.project, agy)
+  f.storage.setDispatchSetup(f.project, hermes)
+  const start = ctx.tools.get('cliworker_start')!
+  const exec = { agent: f.agent(), signal: new AbortController().signal } as any
+  const request = { title: '说一句你好', prompt: '请只回复一句话：你好。' }
+  try {
+    await expect(start.execute(request, exec)).rejects.toThrow(/cli/)
+    expect(f.service.queryCatalog).not.toHaveBeenCalled()
+    expect(f.ask).not.toHaveBeenCalled()
+    expect(launch).not.toHaveBeenCalled()
+    const pending = start.execute({ ...request, cli: 'hermes' }, exec)
+    await f.ready(1)
+    expect(f.requests[0]!.request.questions).toMatchObject([
+      { id: 'cliworker_reuse', question: '是否沿用 Fixture B · default · 不使用角色预设？' },
+    ])
+    expect(f.service.queryCatalog.mock.calls.map((args: any[]) => args[0])).toEqual(['hermes'])
+    expect(launch).not.toHaveBeenCalled()
+    f.respond(0, { cliworker_reuse: '沿用' })
+    expect(JSON.parse((await pending) as string)).toEqual(hermes.preference)
+    expect(f.storage.conversationSetup('parent', f.project, 'hermes')).toEqual(hermes)
+    expect(f.storage.conversationSetup('parent', f.project, 'antigravity')).toEqual(agy)
+    expect(f.storage.dispatchSetup(f.project, 'antigravity')).toEqual(agy)
+    expect(f.service.querySelection.mock.calls[0][0]).toEqual(hermes.preference)
+    expect(launch).toHaveBeenCalledOnce()
+  } finally {
+    await ctx.fiber.dispose()
+  }
 })

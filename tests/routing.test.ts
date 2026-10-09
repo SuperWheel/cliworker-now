@@ -357,8 +357,27 @@ describe('native prompt/tool integration', () => {
       expect(f.chooseDispatch).toHaveBeenLastCalledWith(f.agent, expect.any(AbortSignal), cli)
       expect(f.launch.mock.calls.at(-1)![3]).toMatchObject({ cli })
     }
-    await f.start()
-    expect(f.chooseDispatch).toHaveBeenLastCalledWith(f.agent, expect.any(AbortSignal), 'antigravity')
+    for (const cli of CLI_IDS) {
+      await f.start(cli)
+      expect(f.chooseDispatch).toHaveBeenLastCalledWith(f.agent, expect.any(AbortSignal), cli)
+      expect(f.launch.mock.calls.at(-1)![3]).toMatchObject({ cli })
+    }
+  })
+
+  it('requires cli in the model schema and never defaults an omitted selector after Hermes routing', async () => {
+    const f = await fixture()
+    await f.request([user('用agy和我说你好')])
+    const current = await f.request([user('用hermes跟我说你好')])
+    expect(current.text).toContain('必须显式传入 cli="hermes"')
+    const schema = current.prompt.tools.find((tool) => tool.name === 'cliworker_start')!
+    expect(schema.parameters.required).toContain('cli')
+    // Exact shape from the incident: title + prompt, without cli. Native
+    // defineTool validation must fail before account/selection or publication.
+    await expect(f.start()).rejects.toThrow(/cli/)
+    for (const cli of ['', '   ', null, 42]) await expect(f.start(undefined, { cli })).rejects.toThrow()
+    expect(f.chooseDispatch).not.toHaveBeenCalled()
+    expect(f.launch).not.toHaveBeenCalled()
+    expect(f.ask).not.toHaveBeenCalled()
   })
 
   it('refuses unknown/ambiguous and preserves cancellation, role and permission gates before publication', async () => {
