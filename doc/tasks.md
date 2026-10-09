@@ -795,3 +795,7 @@
 
 - 用户本轮明确授权GitHub提交及npm公开发布。18个既有提交已正常快进推送main至86e4232，Windows native runtime CI成功（37952678662）；原未提交86项不进入push。
 - npm官方网页登录由用户完成，仅临时私有userconfig保存；凭据不输出、不入Git。发布目录285文件、运行lib280文件与原已验收包一致，SDK peers/exports保留，根private:true、公开private:false、无消费侧脚本。node语法及3项隔离错误输入拒绝通过，npm发布dry-run通过；README短安装为发布候选，远端发布及实际安装仍按后续证据记录。
+
+- GitHub公开v0.7.6 Release，完整commit741495a21cafe8952155739f06e24ad232e033d3；下载包与本地公开包一致，SHA256 654d5f128fd7aff6f24bb7e37a5cf4091461c77cdb322fb2572ce7f3acd20f7e。Windows CI 37956748796成功。独立profile实际GitHub URL安装/版本列表及全新Host graph通过，280 lib/19 helper一致，Agent/模型/CLI/账号查询0，服务18780已清理；这不是npm registry验收。
+- npm官方登录已成功。首次发布EOTP；旧CLI大上传超时；npm12标准web流程和gzip传输均维持二次验证，gzip将首次PUT401响应缩短至4885ms，tarball不变。网页停在Security key，用户尚未完成安全密钥验证，各验证链接最终过期（done接口404）。registry对应包仍404；未重复覆盖已发布版本，临时userconfig和日志留在0700/0600私有目录且不入Git。
+- 本次仅任务1.1实际完成。任务2.1的npm发布、2.2的registry实际安装及3.1的npm推荐/页面验收待账号安全密钥验证；活动OpenSpec保持，不归档或虚勾。GitHub README中英临时推荐使用已验证v0.7.6 Release URL，56字符npm短命令仅留私有候选，原131字符推荐不宣称已缩短。用户完成验证后继续相同公开包发布和registry验收。

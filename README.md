@@ -119,7 +119,7 @@ MiMo 指 [XiaomiMiMo/MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code)。Herme
 ### 5.1 一行安装
 
 ```sh
-dsh plugin --profile desktop add https://github.com/SuperWheel/cliworker-now/releases/download/v0.6.15/dsh-cliworker-now-0.6.15.tgz
+dsh plugin --profile desktop add https://github.com/SuperWheel/cliworker-now/releases/download/v0.7.6/dsh-cliworker-now-0.7.6.tgz
 ```
 
 <details>
@@ -128,7 +128,7 @@ dsh plugin --profile desktop add https://github.com/SuperWheel/cliworker-now/rel
 使用 Web profile 时：
 
 ```sh
-dsh plugin --profile web add https://github.com/SuperWheel/cliworker-now/releases/download/v0.6.15/dsh-cliworker-now-0.6.15.tgz
+dsh plugin --profile web add https://github.com/SuperWheel/cliworker-now/releases/download/v0.7.6/dsh-cliworker-now-0.7.6.tgz
 ```
 
 安装或更新前先结束活动任务并完整退出 Harness，完成后重新打开。预构建包无需手动解压或编译。也可以在插件页“添加插件”中粘贴同一安装包 URL。
