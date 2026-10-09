@@ -773,3 +773,8 @@
 - 后续集成、隔离渲染与Desktop交付结果将按实际执行追加；默认不发起真实CLI/模型请求。
 
 - 集成检查实际通过：pnpm typecheck、pnpm test（68文件/1304通过、7跳过）、pnpm spec:check（10/10）、pnpm build:preview。隔离真实原生UI21项通过，banner与原生按钮均38px；v074→v075名称字起点不变，按钮增加8px，两侧字距11px、button到线3px；短/长名及实际543.5px窄pane均完整。无会话提示节点0且输入/发送禁用；新建取消保留草稿，复制离开1037ms恢复，原生右键及回收返回通过。所有消息/账号/目录为模拟，真实CLI/模型/远端请求0，临时Host/Tabbit页面已清理。证据：.test-data/card-polish-075/ui/ui-verification.json及4张截图。
+
+- 正式交付：更新前21 Worker/活动0/账号或任务桥0，原生退出Desktop后正式pnpm build、pnpm pack及包完整性核查通过；v0.7.5共285打包文件，111源码与preview一致，Client仅构建路径注释不同、执行文本一致。包SHA-256 dbc77e03ffa6a257d3384038c34a615accbdfcbdc8e6a5dc0ac97285bbbc115f，artifacts/dsh-cliworker-now-0.7.5-verification.json记录结果。
+- 已安装Desktop原生核对v0.7.5、启用及1组件运行；原标题下状态条加高，卡片名称与细线字距正常，agy-3无会话说明已删除但输入和发送仍禁用；返回原“调用Antigravity工具说你好”总览/全部。真实任务、发送、新建、删除及改名0。4189份原文件核对4188份完全一致，仅重启host.lock变化，账号/历史/偏好保持；交付后活动仍0。实现提交7b523ab，未推送。
+
+- OpenSpec 4/4任务按实际结果完成；worker-management主规格完整更新2块并增加无会话输入区1块，Purpose及其余8块和旧场景保持。同步后严格10/10；归档到openspec/changes/archive/2026-10-09-polish-worker-name-and-notice/后严格9/9、活动change0。本次交付及归档阶段提交，不推送。
