@@ -790,3 +790,8 @@
 - Desktop原生插件页确认v0.7.6、启用及1组件运行；原会话三状态都没有匹配说明/清除文字，最终恢复原“进行中”视图，截图核对空白正确。原4210文件核对4208完全一致，仅重启host.lock及一份宿主session_projcache投影缓存检查点变化；已查rc.2原生SessionProjectionCache在会话释放时重写检查点的源码，原始日志/账号/历史/偏好文件保持，交付后活动0。未发送、新建、删除或改名任何真实任务，凭据查询和模型生成0。实现提交5d5b38c，本地不推送。
 
 - OpenSpec 3/3任务均实际完成；主worker-management完整更新固定筛选需求1块，保留Purpose、其余10块及旧场景。同步严格10/10，归档到openspec/changes/archive/2026-10-09-simplify-worker-filter-view/后严格9/9、活动change0；交付与归档阶段提交，不推送。
+
+## v0.7.6：npm预构建分发（2026-10-10）
+
+- 用户本轮明确授权GitHub提交及npm公开发布。18个既有提交已正常快进推送main至86e4232，Windows native runtime CI成功（37952678662）；原未提交86项不进入push。
+- npm官方网页登录由用户完成，仅临时私有userconfig保存；凭据不输出、不入Git。发布目录285文件、运行lib280文件与原已验收包一致，SDK peers/exports保留，根private:true、公开private:false、无消费侧脚本。node语法及3项隔离错误输入拒绝通过，npm发布dry-run通过；README短安装为发布候选，远端发布及实际安装仍按后续证据记录。

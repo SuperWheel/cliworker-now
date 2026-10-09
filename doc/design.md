@@ -509,3 +509,9 @@ Hermes 与角色功能共享同一 WorkerRuntime；名称、角色快照与原�
 
 - 从panel移除统一cwn-filter-info JSX及其CSS，不再生成匹配数量/没有匹配的任务和清除筛选。visibleWorkers过滤逻辑保持，清空搜索及选择全部仍可恢复列表。
 - 初始无任务短文案、回收空页、固定控件和列表滚动保持；不改变Host、账号、模型、会话及持久化。
+
+## v0.7.6：npm预构建分发（2026-10-10）
+
+- scripts/package-release.mjs使用既有已验收lib生成独立dist/npm/dsh-cliworker-now，根private:true保留。公开manifest补registry/repository并移除scripts/devDependencies/packageManager，消费者不构建源码；保留SDK peers、exports和原生helper。
+- 检查公开运行入口及14动态helper的可达模块、.d.ts相对声明、所有发行文件无链接/私有路径；非公开tsc附带JS保持原字节但不视作第二入口。公开tarball仅manifest/README不同，运行lib280文件与原包一致；同一tarball用于npm和GitHubRelease。
+- 推荐明确profile和固定短包名dsh-cliworker-now@0.7.6，避免省略必填profile或引用无lib的Git源码；首页仍仅一行可执行推荐，备用Release与web放折叠段。
