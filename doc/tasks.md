@@ -682,3 +682,14 @@
 - [x] 更新前核查 12 条 Worker 记录，无 running/queued/stopping 或账号/任务桥接进程，Desktop 两个后台任务均已结束。退出后正式构建并打包，重启后插件页实际显示 **v0.6.16、运行中**，原来的 Hermes/Pi 子任务和主对话可见。
 - [x] 原账号、配置与 Worker/偏好基线 64 文件中 63 文件逐字不变；另一个 Codex 全局配置差异在更新前已存在，本轮未修改或恢复。8 个额外主会话历史文件中 7 个逐字不变；当前会话原始 87592 字节完整保留，宿主重开时仅追加 81 字节的 session/end-seed 记录。未退出账号、未替换历史数据。
 - [x] 本地包 `artifacts/dsh-cliworker-now-0.6.16.tgz` 共 267 文件，逐项匹配正式构建；Host 与 preview 完全一致，Client 仅构建位置的 node_modules 区域注释不同、可执行内容一致。SHA-256：`fe266c100c186b2508dfa54213c516e3b3ef66cbea8554211313981078e78805`。私有日志、界面证据和校验记录位于 `.test-data/dispatch-flow-0616/`，不纳入 Git。仅提交本轮源码、测试、规格和文档追加，不包含既有素材归档及历史文档整理，不推送。
+
+
+## 2026-10-09：v0.6.17 派遣指引源头修复交付
+
+- 根因核对：真实会话第一步自建角色问题，第二步才收到当前 agy 指引；对照 Harness 0.2.0-rc.2 AgentLoop 源码确认 assemble 早于 pre-step。修复同次请求上下文与工具入口说明，未采用问题拦截。
+- `pnpm typecheck` 通过；定向测试 62 项通过；`pnpm test` 62 文件通过、1 文件跳过，1165 项通过、7 项跳过。严格规格检查 8 项通过。pnpm 使用当前已安装依赖（`pnpm_config_verify_deps_before_run=never`），未自动重装依赖。
+- `pnpm build:preview`、`pnpm build` 与打包通过。267 个包文件核对，105 个源码文件与预览一致；Host 完全一致，Client 仅构建路径 region 注释不同。包哈希及结果见忽略目录 `artifacts/dsh-cliworker-now-0.6.17-verification.json`。
+- 原生 UI 隔离验收：辅助插件补独立 package.json 后重跑，确认实际客户端来自 `.cache/preview-package`。首次依次显示模型和强度／角色；新对话仅沿用问题；同对话零新增问题。三次 assemble→pre-step 均在同次准入消息中得到正确 agy 指引，原生通用提问工具可见，原用户消息未改。模拟目录与启动替身，不访问真实账号、不生成内容。
+- Desktop 更新前 15 个 Worker 中活动数 0，账号／任务桥接进程 0；退出后构建更新本地链接，原生插件页确认 v0.6.17 已启用、1 个组件运行，恢复原会话页面。核对 4151 个基线文件，其中 4150 个账号、偏好和历史等文件哈希不变，仅正常重启更新 `host.lock`。
+- 隔离服务器与浏览器验收任务已清理。实际结果、日志、截图及数据保护核对位于忽略目录 `.test-data/dispatch-question-0617/source-*` 和 `source-ui/ui-verification.json`；撤回拦截草案的早期记录不作为本次完成证据。
+- 本地提交、不推送；原有文档图片和历史文档改动保留，未混入本次提交。OpenSpec 变更 `fix-dispatch-guidance-timing` 完成后同步并归档。

@@ -524,7 +524,7 @@ export class CliWorkerService extends TypertRemoteService {
         this.ctx.tools.register(
           defineTool({
             name: 'cliworker_start',
-            description: `用户明确要求“调用 agy cli”或“用 glm cli 完成任务”时，通过 CLI Worker Now 新建任务。${CLI_NAME_GUIDANCE}。直接进入插件流程：Host 仅在首次选择模型、思考强度与角色，或同项目新对话确认是否沿用时提问；同对话后续不重复。不要提前自行提问或增加确认，不代答。返回后台 job、worker ID 和 agentName。已有智能体续聊用 cliworker_followup；歧义返回简短候选错误，不启动、不额外发问题卡。`,
+            description: `用户明确要求“调用 agy cli”或“用 glm cli 完成任务”时，调用本工具打开 CLI Worker 的选型流程。只需提供 CLI、任务标题和任务内容；模型、思考强度与角色由插件收集，完成选型前不会启动任务，不要把它们当作调用本工具的前置输入。${CLI_NAME_GUIDANCE}。Host 仅在首次选择模型、思考强度与角色，或同项目新对话确认是否沿用时提问；同对话后续不重复。不要提前自行提问或增加确认，不代答。返回后台 job、worker ID 和 agentName。已有智能体续聊用 cliworker_followup；歧义返回简短候选错误，不启动、不额外发问题卡。`,
             parameters: {
               cli: {
                 type: 'string',

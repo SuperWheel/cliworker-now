@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { agentEvents, assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
 import { SystemPrompt, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
-import { ToolRuntime } from '@deepseek-ai/dsh-tools'
+import { ToolRuntime, defineTool } from '@deepseek-ai/dsh-tools'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import { CliWorkerService } from '../src/host/index.ts'
 import { CLI_IDS } from '../src/shared/types.ts'
@@ -68,6 +68,7 @@ describe('one CLI name registry', () => {
 describe('explicit requests from this human step', () => {
   it.each([
     ['调用 agy cli 帮我检查代码', 'antigravity'],
+    ['用agy和我说你好', 'antigravity'],
     ['请帮我用 AGY CLI 检查代码', 'antigravity'],
     ['我希望调用 glm cli 完成检查', 'zcode'],
     ['麻烦你使用 zhipu cli 完成检查', 'zcode'],
@@ -162,6 +163,16 @@ async function fixture() {
     disposed: new AbortController(),
   })
   ;(CliWorkerService.prototype as any).registerTools.call(service)
+  const ask = vi.fn(async () => 'ordinary question remains available')
+  ctx.tools.register(
+    defineTool({
+      name: 'ask_user_question',
+      description: 'Synthetic ordinary question',
+      parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: ask,
+    }),
+  )
   const disposeRouting = registerCliRouting(ctx)
   ctx.systemPrompt.section({ name: 'cliworker:delegation', order: 80, text: CLI_DELEGATION_GUIDANCE })
   const signal = new AbortController().signal
@@ -172,6 +183,25 @@ async function fixture() {
       async () => ({ kind: 'enter', messages: admitted }),
     )
   const assembly = (target = agent) => ctx.systemPrompt.assemble(assembleContextFor(target))
+  // Match Harness AgentLoop.preStep: assembly occurs BEFORE pre-step admission.
+  const request = async (messages: UserMessage[], target = agent, admitted = messages) => {
+    const prompt = await assembly(target)
+    const decision = await preStep(messages, target, admitted)
+    return {
+      prompt,
+      decision,
+      text:
+        renderPrompt(prompt) +
+        '\n' +
+        (decision.kind === 'enter'
+          ? decision.messages
+              .flatMap((message) =>
+                message.content.flatMap((block) => (block.type === 'text' ? [block.text] : [])),
+              )
+              .join('\n')
+          : ''),
+    }
+  }
   const start = (cli?: string, extra = {}, target = agent) =>
     ctx.tools.get('cliworker_start')!.execute(
       {
@@ -184,6 +214,8 @@ async function fixture() {
     )
   return {
     ctx,
+    ask,
+    request,
     agent,
     service,
     chooseDispatch,
@@ -199,109 +231,109 @@ async function fixture() {
 }
 
 describe('native prompt/tool integration', () => {
-  it('assembles current-step canonical hints and visible alias-aware tools without changing input or publishing', async () => {
+  it('includes the screenshot request guidance in the FIRST model request, after native assembly order', async () => {
     const f = await fixture()
-    const messages = [user('调用 glm cli 帮我检查代码')]
+    const messages = [user('用agy和我说你好')]
     const original = structuredClone(messages)
-    const entered = await f.preStep(messages)
-    expect(entered).toEqual({ kind: 'enter', messages })
+    const first = await f.request(messages)
+    expect(first.text).toContain('本步用户提出了明确的外部 CLI 调用')
+    expect(first.text).toContain('cli=antigravity')
+    expect(first.text).toContain('模型、思考强度与角色不是调用前置输入')
+    expect(first.decision.kind).toBe('enter')
+    if (first.decision.kind !== 'enter') throw new Error('expected admitted request')
+    expect(first.decision.messages).toHaveLength(2)
+    expect(first.decision.messages[0]).toBe(messages[0])
+    expect(first.decision.messages[1]!.source).toEqual({ kind: 'cliworker-invocation', form: 'instructions' })
     expect(messages).toEqual(original)
-    const result = await f.assembly()
-    expect(renderPrompt(result)).toContain('cli=zcode')
-    const start = result.tools.find((tool) => tool.name === 'cliworker_start')!
+    const start = first.prompt.tools.find((tool) => tool.name === 'cliworker_start')!
+    expect(start.description).toContain('完成选型前不会启动任务')
     expect(start.description).toContain('agy')
     expect(start.description).toContain('智谱')
-    expect(result.tools.some((tool) => tool.name === 'cliworker_resolve')).toBe(true)
     expect(f.chooseDispatch).not.toHaveBeenCalled()
     expect(f.launch).not.toHaveBeenCalled()
-    const other = { ...f.agent, id: 'synthetic-other-parent' } as Agent
-    expect(renderPrompt(await f.assembly(other))).not.toContain('本步用户提出')
-    await f.preStep([user('介绍 GLM 模型有哪些')])
-    expect(renderPrompt(await f.assembly())).not.toContain('本步用户提出')
+    // No delayed state in the next assembly/step or in another parent.
+    expect((await f.request([])).text).not.toContain('本步用户提出')
+    expect((await f.request([user('请解释代码')], { ...f.agent, id: 'other' } as Agent)).text).not.toContain(
+      '本步用户提出',
+    )
   })
 
-  it('delegates only complete selection or reuse questions to the plugin without preliminary questions', async () => {
+  it('keeps ordinary questions visible and executable, while the plugin owns dispatch selection', async () => {
     const f = await fixture()
-    await f.preStep([user('调用 agy cli 帮我检查代码')])
-    const resolved = renderPrompt(await f.assembly())
-    expect(resolved).toContain('直接调用 cliworker_start')
-    expect(resolved).toContain('完整选型')
-    expect(resolved).toContain('是否沿用')
-    for (const obsolete of [
-      '每个新 Worker 都须',
-      '任务缺失先询问',
-      '先澄清具体 CLI',
-      '任务内容缺失时先确认任务',
-    ])
-      expect(resolved).not.toContain(obsolete)
+    const first = await f.request([user('用agy和我说你好')])
+    expect(first.prompt.tools.some((tool) => tool.name === 'ask_user_question')).toBe(true)
+    expect(
+      await f.ctx.tools.get('ask_user_question')!.execute({}, { agent: f.agent, signal: f.signal } as any),
+    ).toBe('ordinary question remains available')
+    expect(f.ask).toHaveBeenCalledOnce()
+    expect(first.text).toContain('直接调用 cliworker_start')
+    expect(first.text).toContain('完整选型')
+    expect(first.text).toContain('是否沿用')
     for (const input of ['调用 frog cli 帮我检查代码', '调用 agy 和 codex cli 帮我检查代码']) {
-      await f.preStep([user(input)])
-      const unknown = renderPrompt(await f.assembly())
-      expect(unknown).toContain('返回简短候选错误')
-      expect(unknown).toContain('不增加询问')
-      expect(unknown).not.toContain('先澄清具体 CLI')
+      const unknown = await f.request([user(input)])
+      expect(unknown.text).toContain('返回简短候选错误')
+      expect(unknown.text).toContain('不增加询问')
     }
-    expect(() => requireCliName('agy/codex')).toThrow('无法确定 CLI，可用名称：Antigravity、Codex')
     expect(f.launch).not.toHaveBeenCalled()
   })
 
-  it('uses only admitted human messages and clears rejected/cancelled/disposed steps', async () => {
+  it('uses admitted human input only, leaving rejected, aborted and uninstalled requests unchanged', async () => {
     const f = await fixture()
-    await f.preStep([user('调用 agy cli 检查代码')], f.agent, [user('请解释代码')])
-    expect(renderPrompt(await f.assembly())).not.toContain('本步用户提出')
-    await f.preStep([user('调用 agy cli 检查代码')])
-    expect(renderPrompt(await f.assembly())).toContain('cli=antigravity')
-    await agentEvents(f.ctx, f.agent).waterfall(
+    const request = [user('调用 agy cli 检查代码')]
+    const admitted = [user('请解释代码')]
+    expect((await f.request(request, f.agent, admitted)).decision).toEqual({
+      kind: 'enter',
+      messages: admitted,
+    })
+    for (const message of [
+      user('“用agy和我说你好”是例子'),
+      createUserMessage({
+        source: { kind: 'cliworker-invocation', form: 'instructions' },
+        content: [{ type: 'text', text: '用agy和我说你好' }],
+      }),
+    ])
+      expect((await f.request([message])).decision).toEqual({ kind: 'enter', messages: [message] })
+    const rejected = await agentEvents(f.ctx, f.agent).waterfall(
       'agent/pre-step',
       {
-        messages: [user('调用 glm cli 检查代码')],
+        messages: request,
         signal: f.signal,
         turn: 2,
-        step: 2,
+        step: 1,
       },
       async () => ({ kind: 'reject' }),
     )
-    expect(renderPrompt(await f.assembly())).not.toContain('本步用户提出')
-    const aborted = AbortSignal.abort()
-    await agentEvents(f.ctx, f.agent).waterfall(
+    expect(rejected).toEqual({ kind: 'reject' })
+    const cancelled = await agentEvents(f.ctx, f.agent).waterfall(
       'agent/pre-step',
       {
-        messages: [user('调用 agy cli 检查代码')],
-        signal: aborted,
+        messages: request,
+        signal: AbortSignal.abort(),
         turn: 3,
-        step: 3,
+        step: 1,
       },
-      async () => ({ kind: 'enter', messages: [user('调用 agy cli 检查代码')] }),
+      async () => ({ kind: 'enter', messages: request }),
     )
-    expect(renderPrompt(await f.assembly())).not.toContain('本步用户提出')
-    await f.preStep([user('调用 agy cli 检查代码')])
-    agentEvents(f.ctx, f.agent).emit('agent/disposed', {})
-    expect(renderPrompt(await f.assembly())).not.toContain('本步用户提出')
-    await f.preStep([user('调用 agy cli 检查代码')])
+    expect(cancelled).toEqual({ kind: 'enter', messages: request })
     await f.disposeRouting()
-    expect(
-      (await f.assembly()).sections.some((section) => section.name === 'cliworker:current-invocation'),
-    ).toBe(false)
+    expect((await f.request(request)).decision).toEqual({ kind: 'enter', messages: request })
   })
 
-  it('does not advertise hidden tools or hint execution for child agents', async () => {
+  it('does not add invocation guidance for hidden tools or child agents', async () => {
     const f = await fixture()
-    await f.preStep([user('调用 agy cli 检查代码')])
     const scope = createScope(f.ctx, f.agent)
     cleanup.push(() => scope.dispose())
-    await scope.ctx.inject(['tools'], (ctx) => {
-      ctx.tools.restrict({ deny: ['cliworker_start'] })
-    })
-    const result = await f.assembly()
-    expect(result.tools.some((tool) => tool.name === 'cliworker_start')).toBe(false)
-    expect(renderPrompt(result)).not.toContain('本步用户提出')
+    await scope.ctx.inject(['tools'], (ctx) => ctx.tools.restrict({ deny: ['cliworker_start'] }))
+    const messages = [user('用agy和我说你好')]
+    const hidden = await f.request(messages)
+    expect(hidden.prompt.tools.some((tool) => tool.name === 'cliworker_start')).toBe(false)
+    expect(hidden.decision).toEqual({ kind: 'enter', messages })
     const child = {
       ...f.agent,
       id: 'synthetic-child',
       session: { header: { origin: 'subagent' } },
     } as unknown as Agent
-    await f.preStep([user('调用 agy cli 检查代码')], child)
-    expect(renderPrompt(await f.assembly(child))).not.toContain('本步用户提出')
+    expect((await f.request(messages, child)).decision).toEqual({ kind: 'enter', messages })
   })
 
   it('resolves names read-only and forwards aliases through existing model and role selection', async () => {

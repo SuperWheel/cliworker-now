@@ -183,6 +183,8 @@ The complete model, effort and role choice is saved before the task starts. Ther
 
 Later invocations in the same main conversation use its confirmed setup, including after a restart. Cancelling or leaving the selection incomplete does not save partial settings or start a task. Legacy model-and-effort defaults require one complete selection after upgrading.
 
+Each explicit CLI request includes routing guidance in that same model request: call `cliworker_start` to open setup. The plugin collects model, effort and role before launching, so the main model needs no preliminary role or launch questions. The ordinary question tool remains unchanged.
+
 All 11 CLIs use only their own native login or an API key configured in that CLI's own settings or private `.env`. Selectable models and reasoning efforts are the intersection of CLI capabilities and the current account's available scope. A public catalog, old cache, fixed alias or anonymous free model alone does not establish availability. If access cannot be confirmed, the list stays empty with a short reason. Permission discovery uses read-only metadata, rather than generation requests.
 
 Model menus show readable names without provider prefixes or parenthesized notes, and deduplicate the same native model. Saved choices and execution retain the full route ID. For a new choice, models with confirmed available free allowance appear first; missing prices and default zero-cost metadata are not treated as proof of free access. Existing valid choices remain, and a failed free route never silently becomes a paid request.
