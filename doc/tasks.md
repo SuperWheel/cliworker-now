@@ -756,3 +756,12 @@
 - 集成检查：`pnpm typecheck`通过；完整Vitest 68文件通过、1文件跳过，1304项通过、7项跳过；严格规格10/10通过；`pnpm build:preview`通过。独立源码审查确认显示清理不改原生分组身份/执行ID，Menu实际anchor保留原生焦点恢复。
 - 最终preview+原生Harness隔离UI35项通过：首卡顶缘8px留白、名称左右4px、整行箭头中心差0、无省略号；回收站四筛选正确返回且query保留，浅暗主题深红白图标；右键/键盘菜单与Escape还焦、正常打开和复制隔离；复制hover1250ms保留、leave1029ms恢复；Hermes卡/详情/菜单/设置只显示ling-3.1-flash和默认，两次模型选择RPC都保留完整tuple及default，原模拟Hermes/legacy Worker和events四文件不变；长列表scrollTop500进入/返回保持500，滚回顶部仍完整，旧缺绑定任务仍禁发。1000×780px窄窗口实际右栏543.5px、宽窗口右栏656.5px，无横向溢出且固定控件不动，未冒称320px已验。
 - 18775隔离wrapper/Host均退出，自建Tabbit页面0、任务finish无issues。启动时一次subprocess尝试被guard拒绝，真实CLI、远端请求和模型生成均0。原账号/偏好/历史4189文件更新前哈希全部相同。证据 `.test-data/card-regressions-074/ui/{ui-verification,model-id-verification,cleanup-verification}.json`及六张截图。
+
+### v0.7.4 Desktop 交付（2026-10-09）
+
+- 原生Desktop更新前21个Worker、活动0、账号/任务桥0；通过原生菜单正常退出并确认主进程已结束，正式 `pnpm build`、`pnpm pack --pack-destination artifacts`及包验证通过。实现阶段本地提交 `d403b9b`，未推送。
+- 包 `artifacts/dsh-cliworker-now-0.7.4.tgz` 含285文件，SHA-256 `e5d276c0bf7c994c6f3daf881566efd663c0b4fcc0a06e56958f9c6f92ad1a1a`；111源码与最终preview相同，Host逐字一致，Client仅node_modules区域注释相对路径不同，所有可执行内容与35项最终UI验收一致。
+- 重启后的原生插件详情显示v0.7.4、启用、1组件运行中。安装后实际查看Antigravity完整顶缘、名称留白、无省略号及整行居中箭头、Hermes显示ling-3.1-flash和默认；实际进入已删除视图，查看灰色四筛选和深红白图标，并逐一通过全部/进行中/已完成/异常返回正常列表及对应选中态。恢复原“调用Antigravity工具说你好”会话的全部列表，没有新增、删除、改名或发送实际任务。
+- 原账号/配置/偏好/历史4189文件中4188逐字不变，仅重启的host.lock允许改变，缺失0、意外变化0；更新后21个Worker、活动0、账号/任务桥0。真实模型生成0、远端凭据查询0。证据 `.test-data/card-regressions-074/{desktop-verification,state-preservation}.json`与 `artifacts/dsh-cliworker-now-0.7.4-verification.json`。
+
+- OpenSpec最后交付任务已核对完成（5/5）；主worker-management规格完整替换4块、增加1块，Purpose和其余5块及全部旧场景保持。同步后严格10/10，归档到 `openspec/changes/archive/2026-10-09-fix-worker-overview-regressions/` 后严格9/9、活动change0。本次交付和归档另作阶段提交，不推送。
