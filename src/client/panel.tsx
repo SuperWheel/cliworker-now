@@ -2,8 +2,15 @@ import { ComposerTelemetry } from './telemetry.tsx'
 import { ConversationTimeline } from './conversation-timeline.tsx'
 import { displayModelName } from '../shared/model-presentation.ts'
 import { operationMessage } from './operation-error.ts'
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import { Button, Input, Tooltip, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  Button,
+  Input,
+  Tooltip,
+  StateDot,
+  IconChevronDownOutlineRegular,
+} from '@deepseek-ai/dsh-client-ui-primitives'
+import { createComposerKeymap } from './composer-keymap.ts'
 import {
   active,
   CLI_IDS,
@@ -126,6 +133,16 @@ function SessionPanel({
   const retired = !!worker && isRetiredCli(cliOf(worker.preference))
   const prompt = drafts[selected] ?? ''
   const composerInput = useRef<HTMLTextAreaElement>(null)
+  const composerForm = useRef<HTMLFormElement>(null)
+  const submitEnabled = useRef(false)
+  const composerKeys = useMemo(
+    () =>
+      createComposerKeymap(
+        () => submitEnabled.current,
+        () => composerForm.current?.requestSubmit(),
+      ),
+    [selected],
+  )
   useLayoutEffect(() => {
     const el = composerInput.current
     if (!el) return
@@ -162,6 +179,7 @@ function SessionPanel({
   const running = worker && active(worker.status)
   const unavailable = connecting || !!streamError
   const canResume = worker?.conversationId && !retired && !running && !unavailable
+  submitEnabled.current = !!prompt.trim() && !!canResume && !busy
   const jumpToLatest = () => {
     setHistoryPage(undefined)
     stick.current = true
@@ -523,47 +541,56 @@ function SessionPanel({
         </div>
       )}
       {selected && (
-        <div
-          className="cwn-feed"
-          ref={feed}
-          onScroll={() => {
-            if (history) return
-            const el = feed.current!
-            stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
-            setFollowing(stick.current)
-          }}
-          aria-label="对话记录"
-          aria-busy={running || false}
-        >
-          {snapshot.configuring && (
-            <div className="cwn-notice">等待确认设定。请在主对话的问题卡片中选择。</div>
-          )}
-          {!history && snapshot.truncated && (
-            <div className="cwn-history-start">
-              <span>当前显示最近 {snapshot.timeline.length} 条记录</span>
-              <Button
+        <div className="cwn-conversation">
+          <div
+            className="cwn-feed"
+            ref={feed}
+            onScroll={() => {
+              if (history) return
+              const el = feed.current!
+              // Harness rc.2 ScrollFollow uses a 25px bottom tolerance.
+              stick.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 25
+              setFollowing(stick.current)
+            }}
+            aria-label="对话记录"
+            aria-busy={running || false}
+          >
+            {snapshot.configuring && (
+              <div className="cwn-notice">等待确认设定。请在主对话的问题卡片中选择。</div>
+            )}
+            {!history && snapshot.truncated && (
+              <div className="cwn-history-start">
+                <span>当前显示最近 {snapshot.timeline.length} 条记录</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={busy || unavailable}
+                  onClick={() => loadHistory('before')}
+                >
+                  查看更早记录
+                </Button>
+              </div>
+            )}
+            <ConversationTimeline items={displayedTimeline} latestItems={snapshot.timeline} worker={worker} />
+          </div>
+          {!history && !following && worker && (
+            <div className="cwn-jump">
+              <button
+                className="cwn-jump-button"
                 type="button"
-                size="sm"
-                variant="outline"
-                disabled={busy || unavailable}
-                onClick={() => loadHistory('before')}
+                aria-label="回到最新消息"
+                onClick={jumpToLatest}
               >
-                查看更早记录
-              </Button>
+                <IconChevronDownOutlineRegular />
+              </button>
             </div>
           )}
-          <ConversationTimeline items={displayedTimeline} worker={worker} />
-        </div>
-      )}
-      {selected && !history && !following && worker && (
-        <div className="cwn-jump">
-          <Button type="button" size="sm" variant="outline" onClick={jumpToLatest}>
-            ↓ 回到最新消息
-          </Button>
         </div>
       )}
       {selected && worker && (
         <form
+          ref={composerForm}
           className="cwn-compose"
           onSubmit={(e) => {
             e.preventDefault()
@@ -585,6 +612,9 @@ function SessionPanel({
               aria-label="继续对话"
               value={prompt}
               onChange={(e) => editDraft(worker.id, e.target.value)}
+              onKeyDown={composerKeys.onKeyDown}
+              onCompositionStart={composerKeys.onCompositionStart}
+              onCompositionEnd={composerKeys.onCompositionEnd}
               disabled={!canResume || busy}
               maxLength={100000}
               placeholder={running ? '本轮完成后可以继续对话' : '给这个子 Agent 分配下一步…'}
@@ -622,6 +652,10 @@ function SessionPanel({
                   aria-label="继续对话"
                   title="继续对话"
                   disabled={!canResume || busy || !prompt.trim()}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    composerInput.current?.focus({ preventScroll: true })
+                  }}
                 >
                   <Glyph name="send" />
                 </button>

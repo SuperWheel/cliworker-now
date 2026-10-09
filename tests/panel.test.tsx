@@ -166,7 +166,15 @@ async function setup(openFirst = true, openNativeSettings?: () => void, snapshot
   let r!: ReactTestRenderer
   await act(async () => {
     r = create(<Panel api={api} sessionId="parent" openNativeSettings={openNativeSettings} />, {
-      createNodeMock: (el) => (el.props.className === 'cwn-feed' ? feed : null),
+      createNodeMock: (el) =>
+        el.props.className === 'cwn-feed'
+          ? feed
+          : el.props.className === 'cwn-compose'
+            ? {
+                requestSubmit: () =>
+                  r.root.findByProps({ className: 'cwn-compose' }).props.onSubmit({ preventDefault() {} }),
+              }
+            : null,
     })
     mounted.push(r)
   })
@@ -344,9 +352,9 @@ it('keeps reading position during updates and offers jump to latest', async () =
   t.feed.scrollHeight = 2000
   await t.push('a', 2)
   expect(t.feed.scrollTop).toBe(50)
-  await t.click('↓ 回到最新消息')
+  await t.click('回到最新消息')
   expect(t.feed.scrollTop).toBe(2000)
-  expect(t.text()).not.toContain('↓ 回到最新消息')
+  expect(t.r.root.findAllByProps({ 'aria-label': '回到最新消息' })).toHaveLength(0)
 })
 it('explains missing CLI session and displays durable interrupted errors', async () => {
   const t = await setup()
@@ -865,4 +873,145 @@ it('keeps retired Harness history readable without offering resume or configurat
   await t.edit('must not run')
   await t.submit()
   expect(t.followup).not.toHaveBeenCalled()
+})
+
+it.each([{}, { ctrlKey: true }, { metaKey: true }])(
+  'uses native Enter submission for the selected worker (%j)',
+  async (modifiers) => {
+    const t = await setup()
+    await t.edit('keyboard followup')
+    const preventDefault = vi.fn()
+    await act(async () => {
+      t.input().props.onKeyDown({
+        key: 'Enter',
+        ...modifiers,
+        preventDefault,
+        getModifierState: () => false,
+        nativeEvent: {},
+      })
+    })
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(t.followup).toHaveBeenCalledExactlyOnceWith('parent', 'a', 'keyboard followup')
+    expect(t.input().props.value).toBe('')
+  },
+)
+
+it('keeps keyboard submission on the current worker and preserves failed drafts', async () => {
+  const t = await setup()
+  await t.edit('draft a')
+  await t.select('b')
+  await t.push('b')
+  await t.edit('draft b')
+  t.followup.mockRejectedValueOnce(new Error('synthetic failure'))
+  await act(async () => {
+    t.input().props.onKeyDown({
+      key: 'Enter',
+      preventDefault() {},
+      getModifierState: () => false,
+      nativeEvent: {},
+    })
+  })
+  expect(t.followup).toHaveBeenCalledExactlyOnceWith('parent', 'b', 'draft b')
+  expect(t.input().props.value).toBe('draft b')
+  await t.select('a')
+  await t.push('a')
+  expect(t.input().props.value).toBe('draft a')
+})
+
+it('blocks repeated Enter while a followup is pending', async () => {
+  const t = await setup()
+  const pending = deferred()
+  t.followup.mockReturnValueOnce(pending.promise)
+  await t.edit('once')
+  const event = { key: 'Enter', preventDefault() {}, getModifierState: () => false, nativeEvent: {} }
+  await act(async () => {
+    t.input().props.onKeyDown(event)
+    t.input().props.onKeyDown(event)
+  })
+  expect(t.followup).toHaveBeenCalledOnce()
+  await act(async () => pending.resolve({ ok: true, value: '{}' }))
+})
+
+it('marks history actions against the live conversation end and updates the assistant tail on a new user turn', async () => {
+  const t = await setup()
+  const row = (id: string, kind: 'user' | 'assistant') => ({
+    id,
+    kind,
+    text: `synthetic-${id}`,
+    time: '2026-10-09T00:00:00Z',
+  })
+  const timeline = [
+    row('r1:user', 'user'),
+    row('r1:reply', 'assistant'),
+    row('r2:user', 'user'),
+    row('r2:reply', 'assistant'),
+  ]
+  await act(async () => t.streams.at(-1)!.push({ ...t.snapshot('a', 2), timeline }))
+  const reveal = (id: string) => {
+    const article = t.r.root.findByProps({ 'data-message-id': id })
+    return (
+      article.props['data-actions-reveal'] ??
+      article.findByProps({ className: 'cwn-message-tail' }).props['data-actions-reveal']
+    )
+  }
+  expect(timeline.map((row) => reveal(row.id))).toEqual(['hover', 'hover', 'always', 'always'])
+  // Copy/time/usage remain mounted and keyboard reachable while opacity hides them.
+  expect(t.r.root.findAllByProps({ className: 'cwn-message-label' })).toHaveLength(4)
+  const next = [...timeline, row('r3:user', 'user')]
+  await act(async () => t.streams.at(-1)!.push({ ...t.snapshot('a', 3), timeline: next }))
+  expect(reveal('r2:reply')).toBe('hover')
+  expect(reveal('r3:user')).toBe('always')
+  t.history.mockResolvedValueOnce({
+    ok: true,
+    value: JSON.stringify({
+      workerId: 'a',
+      start: 0,
+      end: 2,
+      total: 5,
+      hasOlder: false,
+      hasNewer: true,
+      items: timeline.slice(0, 2),
+    }),
+  })
+  await act(async () => t.streams.at(-1)!.push({ ...t.snapshot('a', 4), timeline: next, truncated: true }))
+  await t.click('查看更早记录')
+  expect(reveal('r1:user')).toBe('hover')
+  expect(reveal('r1:reply')).toBe('hover')
+})
+
+it('uses native bottom tolerance without treating a scrolled-up reader as following', async () => {
+  const t = await setup()
+  t.feed.scrollTop = t.feed.scrollHeight - t.feed.clientHeight - 25
+  await act(async () => t.r.root.findByProps({ className: 'cwn-feed' }).props.onScroll())
+  expect(t.r.root.findAllByProps({ 'aria-label': '回到最新消息' })).toHaveLength(0)
+  t.feed.scrollTop -= 1
+  await act(async () => t.r.root.findByProps({ className: 'cwn-feed' }).props.onScroll())
+  expect(t.r.root.findAllByProps({ 'aria-label': '回到最新消息' })).toHaveLength(1)
+})
+
+it('keeps an unfinished streaming reply tail on native hover until its run completes', async () => {
+  const t = await setup()
+  const timeline = [
+    { id: 'stream:user', kind: 'user' as const, text: 'synthetic prompt', time: '2026-10-09T00:00:00Z' },
+    {
+      id: 'stream:reply',
+      kind: 'assistant' as const,
+      text: 'synthetic partial',
+      time: '2026-10-09T00:00:00Z',
+    },
+  ]
+  await act(async () =>
+    t.streams.at(-1)!.push({ ...t.snapshot('a', 2, { status: 'running', runId: 'stream' }), timeline }),
+  )
+  expect(
+    t.r.root.findByProps({ 'data-message-id': 'stream:reply' }).findByProps({ className: 'cwn-message-tail' })
+      .props['data-actions-reveal'],
+  ).toBe('hover')
+  await act(async () =>
+    t.streams.at(-1)!.push({ ...t.snapshot('a', 3, { status: 'completed', runId: 'stream' }), timeline }),
+  )
+  expect(
+    t.r.root.findByProps({ 'data-message-id': 'stream:reply' }).findByProps({ className: 'cwn-message-tail' })
+      .props['data-actions-reveal'],
+  ).toBe('always')
 })

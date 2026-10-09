@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
-import { CLI_LABELS, cliOf, type TimelineItem, type Worker } from '../shared/types.ts'
+import { CLI_LABELS, cliOf, active, type TimelineItem, type Worker } from '../shared/types.ts'
 import { messageClock } from '../shared/telemetry.ts'
 import { UsageIndicator } from './telemetry.tsx'
 import { CopyText } from './copy-text.tsx'
@@ -67,7 +67,25 @@ function Progress({ rows, item, worker }: { rows: TimelineItem[]; item: Timeline
     </details>
   )
 }
-export function ConversationTimeline({ items, worker }: { items: TimelineItem[]; worker?: Worker }) {
+export function ConversationTimeline({
+  items,
+  latestItems = items,
+  worker,
+}: {
+  items: TimelineItem[]
+  latestItems?: TimelineItem[]
+  worker?: Worker
+}) {
+  // Match rc.2 UserMessageNodeView / TurnTailNodeView. A newer user turn
+  // hides the preceding assistant tail; a history page is never the live end.
+  const latestUser = latestItems.findLast((item) => item.kind === 'user')?.id
+  const lastContent = latestItems.findLast((item) => ['user', 'assistant', 'tool'].includes(item.kind))
+  const latestReply =
+    lastContent?.kind === 'assistant' &&
+    lastContent.text.trim() &&
+    !(worker && active(worker.status) && worker.runId === runOf(lastContent))
+      ? lastContent.id
+      : undefined
   const runs = new Map<string | undefined, TimelineItem[]>()
   for (const item of items) {
     const id = runOf(item)
@@ -84,7 +102,13 @@ export function ConversationTimeline({ items, worker }: { items: TimelineItem[];
           <Fragment key={item.id}>
             {first && <Progress rows={runs.get(id)!} item={item} worker={worker} />}
             {(item.kind === 'user' || item.kind === 'assistant') && (
-              <article className={`cwn-message ${item.kind}`}>
+              <article
+                className={`cwn-message ${item.kind}`}
+                data-message-id={item.id}
+                data-actions-reveal={
+                  item.kind === 'user' ? (item.id === latestUser ? 'always' : 'hover') : undefined
+                }
+              >
                 <div className={item.kind === 'assistant' ? 'cwn-markdown' : 'cwn-text'}>
                   {item.kind === 'assistant' ? (
                     <MarkdownText text={item.text} labels={markdownLabels} />
@@ -92,20 +116,27 @@ export function ConversationTimeline({ items, worker }: { items: TimelineItem[];
                     item.text
                   )}
                 </div>
-                <div className="cwn-message-label">
-                  <span className="cwn-sr-only">
-                    {item.kind === 'user' ? '你' : worker ? CLI_LABELS[cliOf(worker.preference)] : 'CLI'}
-                  </span>
-                  {item.kind === 'assistant' && item.text && (
-                    <CopyText text={item.text} label="复制回复" iconOnly />
-                  )}
-                  {item.kind === 'assistant' && <UsageIndicator usage={item.usage} reply />}
-                  <time dateTime={item.time} title={new Date(item.time).toLocaleString('zh-CN')}>
-                    {messageClock(item.time)}
-                  </time>
-                  {item.kind === 'user' && item.text && (
-                    <CopyText text={item.text} label="复制消息" iconOnly />
-                  )}
+                <div
+                  className="cwn-message-tail"
+                  data-actions-reveal={
+                    item.kind === 'assistant' ? (item.id === latestReply ? 'always' : 'hover') : undefined
+                  }
+                >
+                  <div className="cwn-message-label">
+                    <span className="cwn-sr-only">
+                      {item.kind === 'user' ? '你' : worker ? CLI_LABELS[cliOf(worker.preference)] : 'CLI'}
+                    </span>
+                    {item.kind === 'assistant' && item.text && (
+                      <CopyText text={item.text} label="复制回复" iconOnly />
+                    )}
+                    {item.kind === 'assistant' && <UsageIndicator usage={item.usage} reply />}
+                    <time dateTime={item.time} title={new Date(item.time).toLocaleString('zh-CN')}>
+                      {messageClock(item.time)}
+                    </time>
+                    {item.kind === 'user' && item.text && (
+                      <CopyText text={item.text} label="复制消息" iconOnly />
+                    )}
+                  </div>
                 </div>
               </article>
             )}

@@ -704,3 +704,12 @@
 - Desktop 更新：更新前 17 个 Worker、0 活动任务、0 账号/任务桥进程；更新后插件页显示 v0.6.18、已启用、1 组件运行中，并返回原对话。更新前 4163 个基线文件中 4162 个未变，仅 host.lock 随重启更新；原生账号、偏好与历史保留。
 - 本轮没有发起真实模型生成。私有证据保存于忽略目录 `.test-data/hermes-dispatch-0618/`（根因、测试、模拟截图、包校验、数据保留记录），不入 Git。打包 SHA256：bf693240d3a66094dd7ca6893498fb33914666d16613df69c33c74afeef7f54d。
 - 按 OpenSpec 完成核验后同步规格和归档；只提交本轮变更，不包含原有文档/资源修改，不推送。
+
+
+## v0.7.1：原生聊天交互与 Desktop 验收（2026-10-09）
+
+- OpenSpec `align-native-chat-interactions`；本轮限定子对话返回最新按钮、消息功能条、续聊键盘交互。原生私有组件无独立公开入口；公开图标及主题直接复用，私有规则按 rc.2 实现。新增 `composer-keymap.ts`，保留所选 Worker 身份、现有权限/续聊限制、成功清稿和失败留稿。
+- `pnpm typecheck` 通过；键盘/面板定向 2 文件 63 项通过；全量 Vitest 63 文件通过、1 文件跳过，1201 项通过、7 项跳过。首轮受限环境测试有单 worker 无进展并手动中断，不计成功；同一源码在可用本机环境重跑完成。证据 `.test-data/native-chat-071/{typecheck-final,targeted-final,tests-final}.log`。
+- `pnpm build:preview` 先完成并验收。Tabbit 在独立 HOME/DSH_HOME、真实 preview 插件和原生 Harness UI 上使用明确标记的模拟对话：亮暗主题 34px 圆球及 shadow/hover 与原生计算样式逐项相同；历史整条功能区 opacity 0/80ms、hover/focus、真实末条常显；即时回底、历史阅读遇新消息保持位置；Enter/Ctrl/Cmd 发送、Shift 换行、IME/229/确认短窗口、空白/repeat、防重复、失败草稿保留和重试一次均通过。早期验收脚本的跨环境数组比较、元素选择及 IME 窗口时序已修正后重新核对，不冒充产品通过；回执 `ui/ui-verification.json`、截图 `ui/circle-comparison-light.png`。只调用夹具模拟续聊，真实 CLI/模型生成 0，夹具进程、浏览器页和任务已关闭。
+- 严格规格校验归档前 8 项通过。确认 Desktop 的 20 个 Worker 中活动数 0、账号/任务桥进程 0，退出应用后正式 `pnpm build`、`pnpm pack --pack-destination artifacts`，包逐文件及 preview 源码/Host/Client 一致性核对通过。Client 仅构建位置的 node_modules region 注释路径不同，执行文本相同。包 270 文件、106 源码文件；SHA-256 `56889e7cdf6d86400dbb6bdf33dec529353809e84a633d5296ee6e23adf76df7`；摘要 `artifacts/dsh-cliworker-now-0.7.1-verification.json`。
+- 原生 Desktop 辅助功能 UI 确认 v0.7.1 启用、1 组件运行，原会话和子对话恢复、续聊框可见；没有在生产会话发送测试消息。更新前 4182 文件基线中 4181 个哈希不变，仅 `host.lock` 随重启变化，无文件丢失；账号、偏好和已记录历史保留。证据 `idle-before-update.json`、`desktop-verification.json`、`state-preservation.json`。本轮不新增远端查询或真实生成验收，不修改 Harness 核心；原有图标整理及文档改动继续保留，不推送远程。

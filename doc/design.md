@@ -464,3 +464,10 @@ Hermes 与角色功能共享同一 WorkerRuntime；名称、角色快照与原�
 新建派遣将 cli 设为原生工具必填参数，处理器删除 Antigravity 默认回落；静态工具说明和同请求提示均要求每次显式传当前用户选择的 CLI。缺失参数由原生工具校验返回参数错误，在模型目录、选型和任务创建前结束。没有新增提问过滤器、文本推断回填或用户询问。旧记录的 cliOf 兼容读取及只读目录兼容行为保留，续聊仍绑定既有 Worker。
 
 回归覆盖全部 11 个 CLI 显式选择，以及同对话已有 Antigravity、项目已有 Hermes 时的原始漏参复现和显式 Hermes 派遣。隔离原生界面模拟确认沿用卡和最终提交均绑定 Hermes 的模型、强度与角色。该模拟不证明真实主模型永不漏参；必填契约确保漏参不会再静默变成 Antigravity。
+
+
+## v0.7.1：子对话原生交互对齐（2026-10-09）
+
+- 原生核查绑定 Harness 0.2.0-rc.2。ui-chat 的返回按钮、ScrollFollow、MessageIconActions 与 ui-conversation 的 Lexical composer/keymap 均是私有实现；公开 InputHub 会发送主会话，不能用于 Worker。复用 primitives 公开向下图标、现有 Button/Tooltip 和宿主主题 token；私有规则在 Client 的局部适配器中注明源码来源，不修改 Harness 核心。
+- 返回按钮使用原生 34×34、100px 圆角、14px 图标、浮层边距及 floating/elevation 主题；原生没有入出场或平滑动画，点击即时回底。跟随阈值为原生 25px，历史阅读遇新消息保留位置。历史功能条整体使用 opacity 80ms；用户整条消息、AI 回复尾部 hover/focus-within 显示，触屏常显。实时 timeline 决定真正最新消息，历史分页不产生假最新，进行中的流式尾部不提前常显 AI 功能条。
+- Enter 与单独 Ctrl/Cmd+Enter 经原表单和所选 Worker 续聊入口提交，Shift+Enter 换行；保留 IME/isComposing/229、确认后 10ms、repeat 和修饰键规则。同步提交锁防止连续按键重复发送，失败保留草稿。原生 busyEnter 控制运行中 queue/steer，与本插件仅空闲续聊的规则不相同，本轮不新增运行中发送行为或设置桥。

@@ -129,6 +129,21 @@ body:not([data-ds-dark-theme]) .cwn button:disabled:not(.cwn-send):hover{backgro
 @media(prefers-reduced-motion:reduce){.cwn button,.cwn summary,.cwn-entry,.cwn-model-popover button{transition:none}}
 `
 
+// Harness 0.2.0-rc.2 ui-chat: ChatView / MessageIconActions module styles.
+// These private components are not exported; public icons and theme tokens are
+// reused. Native jump has no transition, and history actions fade in 80ms.
+export const conversationInteractionStyles = `
+.cwn-conversation{position:relative;flex:1;min-height:60px;display:flex;flex-direction:column}
+.cwn-jump{z-index:8;height:0;padding:0;padding-right:max(calc(var(--dsh-composer-side-clearance,16px) + 16px),calc((100% - var(--dsh-chat-content-width,100%))/2));pointer-events:none;justify-content:flex-end;display:flex;position:absolute;bottom:16px;left:0;right:0}
+.cwn .cwn-jump-button{--dsw-elevation-stroke-color:var(--dsw-alias-border-l3);corner-shape:round;width:34px;height:34px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-button-floating-fill);box-shadow:var(--dsw-elevation-panel);cursor:pointer;pointer-events:auto;border:0;border-radius:100px;justify-content:center;align-items:center;margin-top:-34px;padding:0;display:flex;transition:none}
+.cwn .cwn-jump-button:hover{background:var(--dsw-alias-button-floating-hover)}
+.cwn-message-label button{transition:none}
+@media(hover:hover){
+.cwn [data-actions-reveal=hover] .cwn-message-label{opacity:0;transition:opacity 80ms}
+.cwn [data-actions-reveal=hover]:hover .cwn-message-label,.cwn [data-actions-reveal=hover]:focus-within .cwn-message-label{opacity:1}
+}
+`
+
 export const settingsStyles = `
 .cwn-settings-dialog{width:min(800px,90vw);max-width:90vw;height:700px;max-height:100%}
 .cwn-settings-content{padding-top:4px!important;min-height:0;flex:1;overflow:hidden}

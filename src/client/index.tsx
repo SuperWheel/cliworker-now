@@ -18,6 +18,7 @@ import {
   telemetryStyles,
   nativeInteractionStyles,
   hoverFeedbackStyles,
+  conversationInteractionStyles,
   settingsStyles,
   rolePresetStyles,
 } from './styles.ts'
@@ -86,6 +87,7 @@ export function apply(ctx: Context): void {
         telemetryStyles +
         nativeInteractionStyles +
         hoverFeedbackStyles +
+        conversationInteractionStyles +
         settingsStyles +
         rolePresetStyles
       document.head.append(style)

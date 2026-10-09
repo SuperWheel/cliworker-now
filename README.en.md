@@ -224,6 +224,8 @@ flowchart LR
 
 - Open a task card to enter its conversation. Returning to the overview preserves an unsent draft.
 - Stop a running task from its conversation. Stopping is reported only after managed processes exit.
+- Child conversations match the Harness circular return-to-latest button and historical action-bar fade. Latest-message actions stay visible; older actions appear on hover or keyboard focus.
+- Press Enter to send, Shift+Enter for a newline, or Ctrl/Cmd+Enter to send. IME confirmation does not submit the draft.
 - After a turn finishes, send the next step in the child conversation or tell the main conversation: **“Ask Code Reviewer to continue checking test coverage.”**
 - Follow-ups by name stay within the current main conversation and reuse the same CLI session. Renaming preserves history and the role.
 - Closing the sidebar does not stop background work; completed results still return to the main conversation.
