@@ -725,3 +725,5 @@
 - Desktop 更新前 21 个 Worker、0 活动任务、0 账号或任务桥进程；退出后正式构建、打包和逐文件校验通过。包 282 文件、110 源码文件；源码和 Host 与 preview 相同，Client 仅 node_modules region 注释路径不同，执行文本一致。SHA-256 `f578bb199d50a9e0e864204f230c9a492436558a24b5359ed31094ec9b05445d`；报告 `artifacts/dsh-cliworker-now-0.7.2-verification.json`。
 - 原生 Desktop UI 确认 v0.7.2 启用、1 组件运行，原会话恢复，agy/codex/hermes 短名与 Low 可见，右键菜单及真实旧 9cffdf 的「新建对话」/禁用续聊可见；未在真实会话提交消息或管理修改。数据基线 4189 文件：4174 哈希不变、13 Worker 只改名称/来源/别名、host.lock 重启变化，无文件丢失。`~/.codex/config.toml` 于17:10在正式构建及更新前出现外部配置变化，单列保留；本轮代码不写该路径，其账号认证文件与插件偏好/事件/历史均未变。证据 `desktop-verification.json`、`state-preservation.json`。
 - 本轮无真实模型生成或远端账号查询，不修改 Harness 核心或用户 skill。仅本地提交本轮范围，保留原有图标/文档修改，不推送远程。规格核验及归档在交付收尾完成。
+
+- 交付收尾：实现提交 `1a3cafb`，OpenSpec 7/7 任务完成；新建 `worker-management` 主规格的6条要求，Purpose/要求/场景与增量逐块一致。同步后严格校验10项通过，归档后9个主规格通过、活动变更0；归档 `openspec/changes/archive/2026-10-09-polish-worker-management/`。仅本地提交，原有未提交修改保留。
