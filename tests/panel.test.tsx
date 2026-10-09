@@ -38,6 +38,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   IconSendOutlineRegular: () => createElement('svg'),
   IconCopyOutlineRegular: () => createElement('svg'),
   IconChevronDownOutlineRegular: () => createElement('svg'),
+  IconTrashOutlineRegular: () => createElement('svg'),
   IconRefreshOutlineRegular: () => createElement('svg'),
   IconUserOutlineRegular: () => createElement('svg'),
   IconLinkOutlineRegular: () => createElement('svg'),
@@ -170,18 +171,25 @@ async function setup(openFirst = true, openNativeSettings?: () => void, snapshot
     },
   } as unknown as API
   const feed = { scrollTop: 0, scrollHeight: 1400, clientHeight: 300 }
+  const overviewFocus = vi.fn()
+  const overview = {
+    scrollTop: 0,
+    querySelector: vi.fn((selector: string) => (selector.includes("=''") ? null : { focus: overviewFocus })),
+  }
   let r!: ReactTestRenderer
   await act(async () => {
     r = create(<Panel api={api} sessionId="parent" openNativeSettings={openNativeSettings} />, {
       createNodeMock: (el) =>
         el.props.className === 'cwn-feed'
           ? feed
-          : el.props.className === 'cwn-compose'
-            ? {
-                requestSubmit: () =>
-                  r.root.findByProps({ className: 'cwn-compose' }).props.onSubmit({ preventDefault() {} }),
-              }
-            : null,
+          : el.props.className === 'cwn-overview-list'
+            ? overview
+            : el.props.className === 'cwn-compose'
+              ? {
+                  requestSubmit: () =>
+                    r.root.findByProps({ className: 'cwn-compose' }).props.onSubmit({ preventDefault() {} }),
+                }
+              : null,
     })
     mounted.push(r)
   })
@@ -243,6 +251,8 @@ async function setup(openFirst = true, openNativeSettings?: () => void, snapshot
     followup,
     history,
     feed,
+    overview,
+    overviewFocus,
     push,
     snapshot,
     text,
@@ -453,6 +463,67 @@ it('preserves the overview filters and each draft across back navigation', async
   await t.push('a')
   expect(t.input().props.value).toBe('draft remains')
 })
+it('keeps search and status controls outside the card scroller and restores its reading position', async () => {
+  const t = await setup(false)
+  const scroller = t.r.root.findByProps({ className: 'cwn-overview-list' })
+  expect(scroller.findAllByProps({ 'aria-label': '筛选子 Agent' })).toHaveLength(0)
+  expect(scroller.findAllByProps({ 'aria-label': '任务状态筛选' })).toHaveLength(0)
+  expect(scroller.findAllByProps({ 'data-open-worker-id': 'a' })).toHaveLength(1)
+  t.overview.scrollTop = 275
+  await act(async () => scroller.props.onScroll())
+  await t.select('a')
+  await t.push('a')
+  t.overview.scrollTop = 0
+  await t.goBack()
+  expect(t.overview.scrollTop).toBe(275)
+  expect(t.overview.querySelector).toHaveBeenLastCalledWith("[data-open-worker-id='a']")
+  expect(t.overviewFocus).toHaveBeenCalledWith({ preventScroll: true })
+})
+
+it('toggles the accessible trash entry without changing search or any of the four status filters', async () => {
+  const t = await setup(false)
+  const search = () => t.r.root.findByProps({ 'aria-label': '筛选子 Agent' })
+  await act(async () => search().props.onChange({ target: { value: 'Worker a' } }))
+  await t.click('已完成')
+  const filters = () => t.r.root.findByProps({ 'aria-label': '任务状态筛选' }).findAllByType('button')
+  const selection = () => filters().map((button) => button.props['aria-pressed'])
+  expect(selection()).toEqual([false, false, true, false])
+  await t.click('已删除')
+  expect(t.r.root.findByProps({ 'aria-label': '返回列表' }).props['aria-pressed']).toBe(true)
+  expect(selection()).toEqual([false, false, true, false])
+  expect(search().props.value).toBe('Worker a')
+  expect(t.text()).toContain('没有已删除的对话')
+  expect(t.text()).not.toContain('把想做的事')
+  await t.click('返回列表')
+  expect(selection()).toEqual([false, false, true, false])
+  expect(search().props.value).toBe('Worker a')
+  expect(t.r.root.findAllByProps({ 'data-open-worker-id': 'a' })).toHaveLength(1)
+  expect(t.r.root.findAllByProps({ 'data-open-worker-id': 'b' })).toHaveLength(0)
+})
+
+it('distinguishes the short initial empty page from filtered and deleted empty states and incoming tasks', async () => {
+  const t = await setup(false, undefined, [])
+  const initial = t.r.root.findByProps({ className: 'cwn-empty cwn-start-empty' })
+  expect(initial.findAllByType('h3')[0]!.children).toEqual(['把想做的事，交给合适的伙伴。'])
+  expect(initial.findAllByType('p')[0]!.children).toEqual(['在主对话中发起任务，协作会在这里展开。'])
+  expect(initial.findAllByType('svg')).toHaveLength(0)
+  expect(initial.findAllByType('blockquote')).toHaveLength(0)
+  for (const filter of ['进行中', '已完成', '异常']) {
+    await t.click(filter)
+    expect(t.text()).toContain('没有匹配的任务')
+    expect(t.text()).not.toContain('把想做的事')
+  }
+  await t.click('已删除')
+  expect(t.text()).toContain('没有已删除的对话')
+  expect(t.text()).not.toContain('没有匹配的任务')
+  await t.click('返回列表')
+  await t.click('全部')
+  expect(t.text()).toContain('把想做的事')
+  await act(async () => t.streams.at(-1)!.push({ ...t.snapshot(), workers: [workers[0]!] }))
+  expect(t.text()).not.toContain('把想做的事')
+  expect(t.r.root.findAllByProps({ 'data-open-worker-id': 'a' })).toHaveLength(1)
+})
+
 it('copies the exact current result and reports clipboard refusal honestly', async () => {
   const t = await setup()
   await t.push('a', 2, { lastResult: 'exact result\n' })
@@ -1116,10 +1187,17 @@ it('requires explicit new conversation mode for missing account history and keep
       .push({ ...t.snapshot('a', 2), resumeBlockedReason: '此历史任务缺少账号记录，请新建任务' }),
   )
   expect(t.input().props.disabled).toBe(true)
+  const banner = () => t.r.root.findByProps({ 'aria-label': '对话状态' })
+  expect(banner().parent).toBe(t.r.root.findByProps({ className: 'cwn' }))
+  expect(banner().findByType('span').children).toEqual(['历史账号记录缺失'])
+  expect(
+    t.r.root.findByProps({ className: 'cwn-compose' }).findAllByProps({ 'aria-label': '对话状态' }),
+  ).toHaveLength(0)
   await t.submit()
   expect(t.followup).not.toHaveBeenCalled()
   expect(t.api.cliworker.restartWorker).not.toHaveBeenCalled()
   await t.click('新建对话')
+  expect(banner().findByType('span').children).toEqual(['新对话将沿用原设定'])
   expect(t.input().props.value).toBe('historical draft\nsecond line')
   expect(t.input().props.disabled).toBe(false)
   expect(t.api.cliworker.restartWorker).not.toHaveBeenCalled()
@@ -1137,6 +1215,7 @@ it('requires explicit new conversation mode for missing account history and keep
   expect(t.input().props.value).toBe('historical draft\nsecond line')
   expect(t.text()).toContain('模拟：当前账号模型无效')
   await t.click('取消新建')
+  expect(banner().findByType('span').children).toEqual(['历史账号记录缺失'])
   expect(t.input().props.disabled).toBe(true)
   expect(t.input().props.value).toBe('historical draft\nsecond line')
 })

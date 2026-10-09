@@ -223,10 +223,11 @@ flowchart LR
 ### 6.2 Inspect, stop and continue
 
 - Open a task card to enter its conversation. Returning to the overview preserves an unsent draft.
-- Right-click a task card to edit its chat title or agent name, or delete it. The deleted-items view can restore an idle task and its history.
-- Automatic names use short forms such as `agy-1` and `codex-1`; old default names remain valid references. Click an agent name to copy it.
+- Overview search and status filters stay fixed while the task list scrolls. The trash button beside the attention filter opens deleted conversations; click it again to return.
+- Right-click a task card to edit its chat title or agent name, or delete it. Deleted idle tasks and their history can be restored.
+- Automatic names use short forms such as `agy-1` and `codex-1`; old default names remain valid references. Clicking a name changes its text to “已复制”; the name returns about one second after the pointer leaves.
 - Reasoning efforts display as `Low`, `High`, and similar labels; stored and executed values retain the native CLI spelling.
-- Old tasks without an account record remain readable. Choose “新建对话” to start a fresh conversation with the original model, effort and role under the current own account.
+- Old tasks without an account record remain readable. The notice below the title offers “新建对话” to start a fresh conversation with the original model, effort and role under the current own account.
 - Stop a running task from its conversation. Stopping is reported only after managed processes exit.
 - Child conversations match the Harness circular return-to-latest button and historical action-bar fade. Latest-message actions stay visible; older actions appear on hover or keyboard focus.
 - Press Enter to send, Shift+Enter for a newline, or Ctrl/Cmd+Enter to send. IME confirmation does not submit the draft.

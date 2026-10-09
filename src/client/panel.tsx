@@ -9,6 +9,7 @@ import {
   Tooltip,
   StateDot,
   IconChevronDownOutlineRegular,
+  IconTrashOutlineRegular,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createComposerKeymap } from './composer-keymap.ts'
 import {
@@ -370,6 +371,27 @@ function SessionPanel({
           </>
         )}
       </header>
+      {selected && worker && !retired && !running && (resumeBlocked || startingNew) && (
+        <div className="cwn-resume-banner" role="status" aria-label="对话状态">
+          <span>
+            {startingNew
+              ? '新对话将沿用原设定'
+              : resumeBlocked === '此历史任务缺少账号记录，请新建任务'
+                ? '历史账号记录缺失'
+                : resumeBlocked}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            aria-label={startingNew ? '取消新建' : '新建对话'}
+            disabled={busy || (!startingNew && unavailable)}
+            onClick={() => setRestartFor(startingNew ? '' : worker.id)}
+          >
+            {startingNew ? '取消' : '新建对话'}
+          </Button>
+        </div>
+      )}
       {renaming && (
         <RenameWorker
           key={`${renaming.worker.id}:${renaming.mode}`}
@@ -396,165 +418,174 @@ function SessionPanel({
         initialCli={settingsCli}
       />
       {!selected && (
-        <div
-          className="cwn-overview"
-          ref={overview}
-          onScroll={() => {
-            overviewScroll.current = overview.current?.scrollTop ?? 0
-          }}
-        >
-          <Input
-            className="cwn-search"
-            icon={<Glyph name="search" />}
-            type="search"
-            aria-label="筛选子 Agent"
-            placeholder="搜索智能体、话题或模型…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <div className="cwn-filters" role="group" aria-label="任务状态筛选">
-            {(
-              [
-                ['all', '全部'],
-                ['active', '进行中'],
-                ['completed', '已完成'],
-                ['attention', '异常'],
-              ] as const
-            ).map(([id, label]) => (
-              <Button
-                key={id}
-                type="button"
-                variant="outline"
-                size="md"
-                aria-pressed={filter === id}
-                onClick={() => setFilter(id)}
-              >
-                {label}
-              </Button>
-            ))}
-          </div>
-          <div className="cwn-management-nav">
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              aria-label={showArchived ? '返回列表' : '已删除'}
-              aria-pressed={showArchived}
-              onClick={() => setShowArchived((shown) => !shown)}
-            >
-              {showArchived ? '返回列表' : '已删除'}
-              {!showArchived && archivedWorkers.length > 0 ? `（${archivedWorkers.length}）` : ''}
-            </Button>
-          </div>
-          {(query || filter !== 'all') && (
-            <div className="cwn-filter-info">
-              <span>{visibleWorkers.length ? `${visibleWorkers.length} 个匹配任务` : '没有匹配的任务'}</span>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  setQuery('')
-                  setFilter('all')
-                }}
-              >
-                清除筛选
-              </Button>
-            </div>
-          )}
-          {showArchived ? (
-            <div className="cwn-archived-list" aria-label="已删除对话">
-              {archivedWorkers.length === 0 && <div className="cwn-empty">没有已删除的对话</div>}
-              {archivedWorkers.map((archived) => (
-                <article key={archived.id} className="cwn-archived-row">
-                  <div>
-                    <strong>{archived.title}</strong>
-                    <small>{workerName(archived)}</small>
-                  </div>
+        <div className="cwn-overview">
+          <div className="cwn-overview-controls">
+            <Input
+              className="cwn-search"
+              icon={<Glyph name="search" />}
+              type="search"
+              aria-label="筛选子 Agent"
+              placeholder="搜索智能体、话题或模型…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            <div className="cwn-filter-row">
+              <div className="cwn-filters" role="group" aria-label="任务状态筛选">
+                {(
+                  [
+                    ['all', '全部'],
+                    ['active', '进行中'],
+                    ['completed', '已完成'],
+                    ['attention', '异常'],
+                  ] as const
+                ).map(([id, label]) => (
                   <Button
+                    key={id}
                     type="button"
-                    size="sm"
                     variant="outline"
-                    aria-label={`恢复对话 ${archived.title}`}
-                    disabled={busy || unavailable}
-                    onClick={() => {
-                      void perform(async () => {
-                        const controller = new AbortController()
-                        managementAbort.current = controller
-                        try {
-                          value(await api.cliworker.restoreWorker(sessionId, archived.id, controller.signal))
-                        } finally {
-                          if (managementAbort.current === controller) managementAbort.current = undefined
-                        }
-                      })
-                    }}
+                    size="md"
+                    aria-pressed={filter === id}
+                    onClick={() => setFilter(id)}
                   >
-                    恢复
+                    {label}
                   </Button>
-                </article>
-              ))}
+                ))}
+              </div>
+              <Tooltip label={showArchived ? '返回列表' : '已删除'} side="bottom" portal>
+                <Button
+                  type="button"
+                  size="md"
+                  variant="ghost"
+                  className="cwn-archive-toggle"
+                  aria-label={showArchived ? '返回列表' : '已删除'}
+                  aria-pressed={showArchived}
+                  onClick={() => setShowArchived((shown) => !shown)}
+                >
+                  <IconTrashOutlineRegular />
+                </Button>
+              </Tooltip>
             </div>
-          ) : (
-            <nav aria-label="子 Agent">
-              {([...CLI_IDS, 'harness'] as const).map((cli) => {
-                const rows = visibleWorkers.filter((w) => cliOf(w.preference) === cli)
-                if (!rows.length) return null
-                return (
-                  <section className="cwn-cli-group" key={cli} aria-label={`${CLI_LABELS[cli]} 子 Agent`}>
-                    <button
-                      className="cwn-cli-heading"
-                      type="button"
-                      aria-expanded={!collapsed[cli]}
-                      aria-controls={`${cliGroupId}-${cli}`}
-                      onClick={() => setCollapsed((old) => ({ ...old, [cli]: !old[cli] }))}
-                    >
-                      <BrandIcon cli={cli} />
-                      <strong>{CLI_LABELS[cli]}</strong>
-                      <span>{rows.length} 个 Agent</span>
-                      <Glyph name="chevron" />
-                    </button>
-                    <div
-                      id={`${cliGroupId}-${cli}`}
-                      className="cwn-cli-rows"
-                      data-expanded={!collapsed[cli]}
-                      aria-hidden={!!collapsed[cli]}
-                      {...(collapsed[cli] ? { inert: '' } : {})}
-                    >
-                      <div className="cwn-cli-rows-inner">
-                        {rows.map((w) => (
-                          <WorkerCard
-                            key={w.id}
-                            worker={w}
-                            collapsed={!!collapsed[cli]}
-                            unavailable={unavailable}
-                            busy={busy}
-                            onOpen={() => openWorker(w.id)}
-                            onManage={(action) => manageWorker(w, action)}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  </section>
-                )
-              })}
-            </nav>
-          )}
-          {snapshot.configuring && (
-            <div className="cwn-notice">等待确认设定。请在主对话的问题卡片中选择。</div>
-          )}
-          {!connecting &&
-            !streamError &&
-            !snapshot.workers.length &&
-            !snapshot.configuring &&
-            !showArchived && (
-              <div className="cwn-empty">
-                <BrandIcon size={42} />
-                <h3>让协作过程看得见</h3>
-                <p>在主对话中明确派遣任务：</p>
-                <blockquote>用 ZCode、OMP、Pi、Hermes Agent 或 OpenCode 帮我检查这个项目</blockquote>
-                <p>选择模型、思考强度与智能体预设后，协作过程会实时显示在这里。</p>
+            {!showArchived && (query || filter !== 'all') && (
+              <div className="cwn-filter-info">
+                <span>
+                  {visibleWorkers.length ? `${visibleWorkers.length} 个匹配任务` : '没有匹配的任务'}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setQuery('')
+                    setFilter('all')
+                  }}
+                >
+                  清除筛选
+                </Button>
               </div>
             )}
+          </div>
+          <div
+            className="cwn-overview-list"
+            ref={overview}
+            onScroll={() => {
+              overviewScroll.current = overview.current?.scrollTop ?? 0
+            }}
+          >
+            {showArchived ? (
+              <div className="cwn-archived-list" aria-label="已删除对话">
+                {archivedWorkers.length === 0 && <div className="cwn-empty">没有已删除的对话</div>}
+                {archivedWorkers.map((archived) => (
+                  <article key={archived.id} className="cwn-archived-row">
+                    <div>
+                      <strong>{archived.title}</strong>
+                      <small>{workerName(archived)}</small>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      aria-label={`恢复对话 ${archived.title}`}
+                      disabled={busy || unavailable}
+                      onClick={() => {
+                        void perform(async () => {
+                          const controller = new AbortController()
+                          managementAbort.current = controller
+                          try {
+                            value(
+                              await api.cliworker.restoreWorker(sessionId, archived.id, controller.signal),
+                            )
+                          } finally {
+                            if (managementAbort.current === controller) managementAbort.current = undefined
+                          }
+                        })
+                      }}
+                    >
+                      恢复
+                    </Button>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <nav aria-label="子 Agent">
+                {([...CLI_IDS, 'harness'] as const).map((cli) => {
+                  const rows = visibleWorkers.filter((w) => cliOf(w.preference) === cli)
+                  if (!rows.length) return null
+                  return (
+                    <section className="cwn-cli-group" key={cli} aria-label={`${CLI_LABELS[cli]} 子 Agent`}>
+                      <button
+                        className="cwn-cli-heading"
+                        type="button"
+                        aria-expanded={!collapsed[cli]}
+                        aria-controls={`${cliGroupId}-${cli}`}
+                        onClick={() => setCollapsed((old) => ({ ...old, [cli]: !old[cli] }))}
+                      >
+                        <BrandIcon cli={cli} />
+                        <strong>{CLI_LABELS[cli]}</strong>
+                        <span>{rows.length} 个 Agent</span>
+                        <Glyph name="chevron" />
+                      </button>
+                      <div
+                        id={`${cliGroupId}-${cli}`}
+                        className="cwn-cli-rows"
+                        data-expanded={!collapsed[cli]}
+                        aria-hidden={!!collapsed[cli]}
+                        {...(collapsed[cli] ? { inert: '' } : {})}
+                      >
+                        <div className="cwn-cli-rows-inner">
+                          {rows.map((w) => (
+                            <WorkerCard
+                              key={w.id}
+                              worker={w}
+                              collapsed={!!collapsed[cli]}
+                              unavailable={unavailable}
+                              busy={busy}
+                              onOpen={() => openWorker(w.id)}
+                              onManage={(action) => manageWorker(w, action)}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </section>
+                  )
+                })}
+              </nav>
+            )}
+            {snapshot.configuring && (
+              <div className="cwn-notice">等待确认设定。请在主对话的问题卡片中选择。</div>
+            )}
+            {!connecting &&
+              !streamError &&
+              !snapshot.workers.length &&
+              !snapshot.configuring &&
+              !showArchived &&
+              !query &&
+              filter === 'all' && (
+                <div className="cwn-empty cwn-start-empty">
+                  <h3>把想做的事，交给合适的伙伴。</h3>
+                  <p>在主对话中发起任务，协作会在这里展开。</p>
+                </div>
+              )}
+          </div>
         </div>
       )}
       {streamError && (
@@ -699,34 +730,6 @@ function SessionPanel({
           }}
         >
           {retired && <p className="cwn-resume-hint">{RETIRED_HARNESS_NOTICE}</p>}
-          {!retired && !running && resumeBlocked && !startingNew && (
-            <div className="cwn-resume-block" role="status">
-              <span>{resumeBlocked}</span>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={busy || unavailable}
-                onClick={() => setRestartFor(worker.id)}
-              >
-                新建对话
-              </Button>
-            </div>
-          )}
-          {startingNew && (
-            <div className="cwn-new-conversation">
-              <span>新建对话</span>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                disabled={busy}
-                onClick={() => setRestartFor('')}
-              >
-                取消新建
-              </Button>
-            </div>
-          )}
           {!retired && !running && !worker.conversationId && !resumeBlocked && (
             <p className="cwn-resume-hint">本次运行未建立 CLI 会话，无法续聊。请在主对话重新派遣任务。</p>
           )}

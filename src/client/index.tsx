@@ -25,6 +25,7 @@ import {
 import { BrandIcon } from './icons.tsx'
 import { installNativeJobOverlay } from './native-job-overlay.ts'
 import { workerManagementStyles } from './management-styles.ts'
+import { renameCopyStyles } from './rename-copy-styles.ts'
 
 const ID = 'dsh-cliworker-now'
 
@@ -92,7 +93,8 @@ export function apply(ctx: Context): void {
         conversationInteractionStyles +
         settingsStyles +
         rolePresetStyles +
-        workerManagementStyles
+        workerManagementStyles +
+        renameCopyStyles
       document.head.append(style)
       return () => style.remove()
     })

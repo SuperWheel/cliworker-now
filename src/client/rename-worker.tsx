@@ -23,6 +23,11 @@ export function RenameWorker({
   const [error, setError] = useState('')
   const pending = useRef<AbortController>()
   useEffect(() => () => pending.current?.abort(), [])
+  const close = () => {
+    pending.current?.abort()
+    pending.current = undefined
+    onClose()
+  }
   const save = async () => {
     if (pending.current) return
     if (!name.trim()) {
@@ -52,10 +57,11 @@ export function RenameWorker({
   return (
     <Modal
       open
-      onClose={onClose}
+      onClose={close}
       title={titleMode ? '聊天标题' : '智能体名称'}
       closeLabel={titleMode ? '关闭聊天标题编辑' : '关闭智能体命名'}
       className="cwn-rename-dialog"
+      contentClassName="cwn-rename-content"
     >
       <form
         className="cwn-rename-form"
@@ -65,20 +71,22 @@ export function RenameWorker({
         }}
       >
         <Input
-          className="cwn-control-input"
+          className="cwn-control-input cwn-rename-input"
           aria-label={titleMode ? '新的聊天标题' : '新的智能体名称'}
-          autoFocus
+          data-modal-autofocus
           value={name}
           maxLength={titleMode ? 160 : 60}
           disabled={saving}
           onChange={(event) => setName(event.target.value)}
         />
         {!titleMode && <p>之后可在主对话中通过这个名字继续调用。</p>}
-        <div className="cwn-role-feedback" role="alert">
-          {error}
-        </div>
-        <div className="cwn-role-editor-actions">
-          <Button type="button" size="md" variant="outline" onClick={onClose}>
+        {error && (
+          <div className="cwn-rename-error" role="alert">
+            {error}
+          </div>
+        )}
+        <div className="cwn-rename-actions">
+          <Button type="button" size="md" variant="outline" onClick={close}>
             取消
           </Button>
           <Button type="submit" size="md" variant="primary" disabled={saving}>

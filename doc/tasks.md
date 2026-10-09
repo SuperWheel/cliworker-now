@@ -727,3 +727,12 @@
 - 本轮无真实模型生成或远端账号查询，不修改 Harness 核心或用户 skill。仅本地提交本轮范围，保留原有图标/文档修改，不推送远程。规格核验及归档在交付收尾完成。
 
 - 交付收尾：实现提交 `1a3cafb`，OpenSpec 7/7 任务完成；新建 `worker-management` 主规格的6条要求，Purpose/要求/场景与增量逐块一致。同步后严格校验10项通过，归档后9个主规格通过、活动变更0；归档 `openspec/changes/archive/2026-10-09-polish-worker-management/`。仅本地提交，原有未提交修改保留。
+
+
+## v0.7.3：总览和编辑布局验收（2026-10-09）
+
+- OpenSpec `refine-panel-layout`；固定搜索/四筛选及淡红垃圾桶、独立卡片滚动、紧凑两种编辑弹窗、无图标名称文字复制、标题下历史提示横条和无图标两行空页。只改 Client，保留原 Host/协议、账号隔离、草稿与历史；README 及设计同步。
+- `pnpm typecheck` 通过；完整 Vitest 68 文件通过、1 文件跳过，1295 项通过、7 项跳过；严格规格10项通过，preview 构建通过。组件专项覆盖复制hover/leave/keyboard/慢结果/销毁、编辑保存失败/取消，以及筛选/恢复/旧任务新建，未以CSS断言代替视觉验收。证据 `.test-data/layout-polish-073/{typecheck-final,test-final,spec-final,preview-final}.log`。
+- 最终真实 preview Host/Client + 原生 Harness 界面的隔离模拟验收30项通过。两输入/保存右缘误差0px，标题Modal164px、名称196px；滚动前后搜索/filter坐标相同，列表滚动起于filters下；trash淡红alpha.09、四筛选保留、恢复同ID；名称SVG0、到分隔符7px；hover1300ms保持已复制、leave1018ms恢复，pointer焦点不阻碍。1000/760px窗口无横向溢出，宿主实际右栏仍约543.5px，未冒称验过320px。历史横条位于标题下、不在输入区，显式新建/取消草稿及原事件不变；空页无图标，只有约定两行。最早弹窗截图处于原生进场动画，已在opacity1后重拍，不改core。证据 `ui/ui-verification.json` 和五张最终截图。
+- 模拟账号、目录和followup/restart接收方阻断真实生成/CLI/外网请求；存储管理RPC使用实际插件。18774服务wrapper/Host均退出，自建Tabbit页/任务清理完成，残留页0。实际模型生成、远端账号查询及真实CLI均为0。
+- Desktop更新前只读核对21个Worker、活动任务0、账号/任务桥进程0；原生界面工具随后报告Mac锁定，已请求用户手动解锁。当前仅preview验收完成，正式build/pack与Desktop更新及更新后数据核对仍待解锁；不将该交付任务标为完成、不归档隐藏此缺口。
