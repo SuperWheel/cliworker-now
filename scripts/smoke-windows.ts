@@ -5,6 +5,7 @@ import { LocalSubprocessRuntime } from '@deepseek-ai/dsh-subprocess-local'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { nativeProcessBackend } from '../src/host/native-process.ts'
 import { nativeLaunchArgv } from '../src/host/native-launch.mjs'
 import { inspectPiInstallation } from '../src/host/pi-installation.mjs'
@@ -90,7 +91,26 @@ try {
     }
   }
   const pi = inspectPiInstallation(join(vendor, 'node_modules', '.bin', 'pi.cmd'))
-  const candidates = await queryNativeCandidates('pi', pi.executable, join(root, 'agent'), env)
+  let candidates
+  try {
+    candidates = await queryNativeCandidates('pi', pi.executable, join(root, 'agent'), env)
+  } catch (error) {
+    // CI-only diagnosis, exclusively empty synthetic auth. Product errors stay
+    // generic because real SDK diagnostics can include authentication details.
+    const { ModelRuntime } = await import(pathToFileURL(join(pi.dist, 'core/model-runtime.js')).href)
+    const { AuthStorage } = await import(pathToFileURL(join(pi.dist, 'core/auth-storage.js')).href)
+    const runtime = await ModelRuntime.create({
+      credentials: AuthStorage.inMemory({}),
+      modelsPath: join(root, 'agent', 'models.json'),
+      modelsStorePath: join(root, 'agent', 'models-store.json'),
+      allowModelNetwork: false,
+    })
+    const diagnostic = runtime.getError()
+    if (diagnostic) throw new Error(`Empty-fixture Pi SDK configuration: ${String(diagnostic)}`)
+    const value = runtime.getAvailableSnapshot()
+    console.log(JSON.stringify({ directEmptyFixtureSdkType: typeof value, isArray: Array.isArray(value) }))
+    throw error
+  }
   if (!Array.isArray(candidates)) throw new Error('Native Pi SDK returned invalid metadata')
   await mkdir(resolve('.test-data'), { recursive: true })
   await writeFile(resolve('.test-data/windows-native-smoke.json'), JSON.stringify({
