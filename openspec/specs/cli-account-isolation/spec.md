@@ -7,7 +7,7 @@
 ## Requirements
 
 ### Requirement: 自身账号来源
-所有活跃 CLI SHALL 仅使用自身原生账号目录、插件内该 CLI 登录目录、自己配置的 API Key 和私有环境文件。Host 凭据引用、通用密钥环境、其他 CLI 账号文件和 SDK 跨 CLI 自动导入 MUST 不成为账号来源。原生登录同一服务商属于本 CLI 自身来源，不按服务商名称误判跨 CLI。
+Host SHALL 仅识别各 CLI 自身原生账号目录、插件内该 CLI 登录目录、自己配置的 API Key 和私有环境文件。Host 凭据引用、继承的通用密钥及其他 CLI 账号 MUST 不成为本 CLI 登录证据或由插件注入执行。原生登录同一服务商属于本 CLI 自身来源，不按服务商名称误判跨 CLI；插件不额外提供操作系统级文件禁读隔离。
 
 #### Scenario: 只有其他账号
 - **WHEN** 仅 Harness 或其他 CLI 有账号

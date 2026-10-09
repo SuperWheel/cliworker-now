@@ -429,3 +429,11 @@ Hermes 与角色功能共享同一 WorkerRuntime；名称、角色快照与原�
 - OMP、Pi、Hermes 使用与其他 CLI 相同的退出按钮。新增有限来源 `native/plugin` 及 `accountStartForSource`，旧接口保持兼容；多个来源先由用户选择，取消不启动终端，Host 启动前重读真实来源。Pi 使用所选真实 auth 文件，OMP 仅将真实 SQLite 认证数据库链接进私有运行目录；退出不经过合并认证快照，不清空其他账号来源。
 - 退出进程禁网并保留原有互斥、取消及进程范围清理。Pi/OMP 的原生菜单只删除其支持的已保存凭据，`.env` 或模型配置中的 API 需在原配置管理，保留有效来源时不伪称全部退出。Hermes 使用当前 effective home，不触发登录目录迁移；只给原生认证和环境文件及其锁/原子临时文件写权限，不扩大到配置、历史或整个账号目录。
 - Hermes 原生 `suppressed_sources` 的当前来源标记同时约束账号投影、模型范围、查询结束重检及任务绑定；保留的配置值不能复活已退出账号，独立未停用来源继续核对。打开原生菜单可能规范化凭据池，取消不承诺源文件逐字节不变；本次真实账号验收未执行退出。
+
+## 2026-10-09：v0.6.15 原生保护、Windows 与双语发布
+
+- 用户明确改为采用各 CLI 原生保护，取消插件额外 OS 沙箱；任务、模型查询和账号终端均不再使用 sandbox-exec、SBPL 读写或网络策略。此前版本的 OS 禁读记录保留为历史，不再是当前保证。Host 继续准确识别本 CLI 自身登录/API 来源，过滤继承密钥，不注入 Harness 或其他 CLI 凭据；保存、启动、出队与续聊仍核对账号版本、模型和强度。
+- 原生模式保留：Codex/Antigravity 使用其原生沙箱，Claude 等使用实际权限模式，Grok/Pi/OMP/OpenCode 保留自身工具限制；Kimi 与当前 Hermes 非交互模式没有可核验只读能力，明确拒绝只读派遣，不以普通执行冒充。宿主规划/整体只读边界和已有会话互斥不改变。
+- Windows 统一解析真实官方 Node/Bun npm shim、原生 exe 和 Hermes 固定 Python launcher，以独立 argv 执行，未知 batch/运行时拒绝；不使用 cmd /c。任务经 Harness 普通 spawn 的 Win32 Job 管理后代，账号交互保留原生 ConPTY，并按实际范围确认退出。Windows 路径从盘符/UNC 根解析，私有目录复核不依赖 POSIX 目录 fd，POSIX mode 检查不误用于 Windows。
+- MiMo Windows 登录直接关联当前自身原生认证目录，私有 cwd/DB 单独管理，不复制 auth 或要求 symlink 权限。OMP Windows 退出直接选中真实 agent/DB，配置代理时拒绝；非凭据配置根只在子进程重基，私有/原生账号路径仍明确。认证读取增加文件路径/描述符身份及读取中变更核对，避免取消外层后将链接目标误作自身登录。
+- 默认中文 README 与完整英文页双向切换；首选安装代码块只一行固定 Release URL，macOS/Windows 共用 Desktop dsh 命令。Windows CI 验证真实运行层和临时账号数据，官方 CLI 只执行版本/帮助及 SDK 元数据，不将这类检查描述为真实推理验收。发布包含双语文档和所有动态辅助资产，远端下载与隔离 URL 安装另行核对。
