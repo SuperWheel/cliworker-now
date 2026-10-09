@@ -20,6 +20,8 @@ import {
   CLI_LABELS,
   cliOf,
   workerName,
+  effortLabel,
+  LEGACY_ACCOUNT_RECORD_NOTICE,
   EFFORTS,
   type CliId,
   type Preference,
@@ -324,7 +326,7 @@ export class CliWorkerService extends TypertRemoteService {
             {
               id: 'cliworker_reuse',
               header: '沿用设定',
-              question: `是否沿用 ${modelLabel} · ${saved.preference.effort} · ${saved.role?.name ?? '不使用角色预设'}？`,
+              question: `是否沿用 ${modelLabel} · ${effortLabel(saved.preference.effort)} · ${saved.role?.name ?? '不使用角色预设'}？`,
               options: [{ label: '沿用' }, { label: '重新选择' }],
             },
           ])
@@ -361,7 +363,7 @@ export class CliWorkerService extends TypertRemoteService {
             id: 'cliworker_effort',
             header: '思考强度',
             question: `选择 ${chosen.label} 的思考强度`,
-            options: chosen.efforts.map((effort) => ({ label: effort })),
+            options: chosen.efforts.map((effort) => ({ label: effortLabel(effort) })),
           })
         questions.push(roleQuestion(offered))
         const selection = await ask(questions)
@@ -370,7 +372,7 @@ export class CliWorkerService extends TypertRemoteService {
           chosen.efforts.length === 1
             ? chosen.efforts[0]
             : effortAnswer?.custom === undefined && effortAnswer?.selected.length === 1
-              ? effortAnswer.selected[0]
+              ? chosen.efforts.find((effort) => effortLabel(effort) === effortAnswer.selected[0])
               : undefined
         const preference = resolveModel(preferenceSchema.parse({ cli, model: chosen.id, effort }), models)
         setup = { preference, role: readRoleAnswer(offered, selection) ?? null, binding }
@@ -413,6 +415,7 @@ export class CliWorkerService extends TypertRemoteService {
     workerId?: string,
     identity?: { agentName?: string; role?: RoleSnapshot },
     signal: AbortSignal = this.disposed.signal,
+    restartSourceId?: string,
   ): Promise<string> {
     this.assertExecution(agent)
     this.runtime.assertCliEnabled(cliOf(preference))
@@ -424,7 +427,7 @@ export class CliWorkerService extends TypertRemoteService {
     const expected = workerId
       ? this.runtime.storage.accountBinding(workerId)
       : this.selectionBindings?.get(preference)
-    if (workerId && !expected) throw new Error('此历史任务缺少账号记录，请新建任务')
+    if (workerId && !expected) throw new Error(LEGACY_ACCOUNT_RECORD_NOTICE)
     const { binding, preference: authorizedPreference } = await this.querySelection(
       preference,
       this.backend,
@@ -439,6 +442,7 @@ export class CliWorkerService extends TypertRemoteService {
     this.runtime.assertCliEnabled(cliOf(preference))
     if (this.accounts.isBusy(cliOf(preference))) throw new Error('请先关闭账号终端')
     if (this.project(agent) !== project) throw new Error('项目已变更，请重新选择')
+    if (restartSourceId) this.runtime.assertLegacyRestart(agent.id, restartSourceId)
     let submission: Submission | undefined
     const id = agent.ctx.get('jobs')!.start({
       kind: 'cliworker',
@@ -536,7 +540,7 @@ export class CliWorkerService extends TypertRemoteService {
               agent_name: {
                 type: 'string',
                 description:
-                  'Optional user-requested unique worker name within this parent conversation. Otherwise assigned from the selected role. Use followup by worker_name to reuse an existing named worker.',
+                  'Optional user-requested unique worker name within this parent conversation. Otherwise assigned from the CLI short name and an ordinal. Use followup by worker_name to reuse an existing named worker.',
               },
               read_only: {
                 type: 'boolean',
@@ -748,6 +752,44 @@ export class CliWorkerService extends TypertRemoteService {
       await this.parent(parentSessionId)
       signal.throwIfAborted()
       this.runtime.renameWorker(parentSessionId, workerId, name)
+    } catch (error) {
+      throw failure(error)
+    }
+  }
+  /** @param parentSessionId - Owning parent. @param workerId - Worker identity. @param title - Single-line chat title, at most 160 characters. @param signal - Mutation lifetime. @returns Completion. */
+  @Remote('renameWorkerTitle')
+  async renameWorkerTitle(
+    parentSessionId: string,
+    workerId: string,
+    title: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    try {
+      await this.parent(parentSessionId)
+      signal.throwIfAborted()
+      this.runtime.renameWorkerTitle(parentSessionId, workerId, title)
+    } catch (error) {
+      throw failure(error)
+    }
+  }
+  /** @param parentSessionId - Owning parent. @param workerId - Idle Worker to hide. @param signal - Mutation lifetime. @returns Completion without deleting native data. */
+  @Remote('deleteWorker')
+  async deleteWorker(parentSessionId: string, workerId: string, signal: AbortSignal): Promise<void> {
+    try {
+      await this.parent(parentSessionId)
+      signal.throwIfAborted()
+      this.runtime.deleteWorker(parentSessionId, workerId)
+    } catch (error) {
+      throw failure(error)
+    }
+  }
+  /** @param parentSessionId - Owning parent. @param workerId - Deleted Worker identity. @param signal - Mutation lifetime. @returns Completion with the original ID and history. */
+  @Remote('restoreWorker')
+  async restoreWorker(parentSessionId: string, workerId: string, signal: AbortSignal): Promise<void> {
+    try {
+      await this.parent(parentSessionId)
+      signal.throwIfAborted()
+      this.runtime.restoreWorker(parentSessionId, workerId)
     } catch (error) {
       throw failure(error)
     }
@@ -965,6 +1007,8 @@ export class CliWorkerService extends TypertRemoteService {
       const worker = this.runtime.get(agent.id, workerId)
       const preference = preferenceSchema.parse(JSON.parse(selection))
       if (cliOf(preference) !== cliOf(worker.preference)) throw new Error('已有会话不能切换 CLI')
+      const expected = this.runtime.storage.accountBinding(workerId)
+      if (!expected) throw new Error(LEGACY_ACCOUNT_RECORD_NOTICE)
       this.runtime.assertCliEnabled(cliOf(preference))
       const { catalog } = await this.querySelection(
         preference,
@@ -972,8 +1016,7 @@ export class CliWorkerService extends TypertRemoteService {
         this.options,
         worker.project,
         signal,
-        this.runtime.storage.accountBinding(workerId) ??
-          this.displayedBindings?.get(JSON.stringify([parentSessionId, cliOf(preference)])),
+        expected,
       )
       validatePreference(preference, catalog)
       signal.throwIfAborted()
@@ -1008,6 +1051,35 @@ export class CliWorkerService extends TypertRemoteService {
         workerId,
         undefined,
         signal,
+      )
+    } catch (error) {
+      throw failure(error)
+    }
+  }
+  /** @param parentSessionId - Owning parent. @param workerId - Idle legacy history without an account binding. @param prompt - Explicit new-dialog task. @param signal - Admission lifetime. @returns JSON background receipt for a fresh Worker. */
+  @Remote('restartWorker')
+  async restartWorker(
+    parentSessionId: string,
+    workerId: string,
+    prompt: string,
+    signal: AbortSignal,
+  ): Promise<string> {
+    try {
+      const agent = await this.parent(parentSessionId)
+      signal.throwIfAborted()
+      this.assertExecution(agent)
+      const worker = this.runtime.assertLegacyRestart(agent.id, workerId)
+      if (this.project(agent) !== worker.project) throw new Error('项目已变更，请在原项目新建对话')
+      return await this.launch(
+        agent,
+        worker.title,
+        prompt,
+        { ...worker.preference },
+        worker.mode,
+        undefined,
+        { role: worker.role ? structuredClone(worker.role) : undefined },
+        signal,
+        workerId,
       )
     } catch (error) {
       throw failure(error)

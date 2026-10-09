@@ -471,3 +471,13 @@ Hermes 与角色功能共享同一 WorkerRuntime；名称、角色快照与原�
 - 原生核查绑定 Harness 0.2.0-rc.2。ui-chat 的返回按钮、ScrollFollow、MessageIconActions 与 ui-conversation 的 Lexical composer/keymap 均是私有实现；公开 InputHub 会发送主会话，不能用于 Worker。复用 primitives 公开向下图标、现有 Button/Tooltip 和宿主主题 token；私有规则在 Client 的局部适配器中注明源码来源，不修改 Harness 核心。
 - 返回按钮使用原生 34×34、100px 圆角、14px 图标、浮层边距及 floating/elevation 主题；原生没有入出场或平滑动画，点击即时回底。跟随阈值为原生 25px，历史阅读遇新消息保留位置。历史功能条整体使用 opacity 80ms；用户整条消息、AI 回复尾部 hover/focus-within 显示，触屏常显。实时 timeline 决定真正最新消息，历史分页不产生假最新，进行中的流式尾部不提前常显 AI 功能条。
 - Enter 与单独 Ctrl/Cmd+Enter 经原表单和所选 Worker 续聊入口提交，Shift+Enter 换行；保留 IME/isComposing/229、确认后 10ms、repeat 和修饰键规则。同步提交锁防止连续按键重复发送，失败保留草稿。原生 busyEnter 控制运行中 queue/steer，与本插件仅空闲续聊的规则不相同，本轮不新增运行中发送行为或设置桥。
+
+
+## v0.7.2：智能体管理与历史新建入口（2026-10-09）
+
+- 默认名称改为 CLI 短名及序号：`agy-1`、`codex-1` 等。加载时仅迁移缺名、严格旧 CLI「助手-正整数」格式或明确 `auto` 的名称；自定义与角色名称不推断。旧精确名称保留别名并继续占用，Worker ID、角色、会话和历史不变。
+- `effortLabel` 在卡片、输入框、菜单、设置及原生选型问题统一首字母大写；选项按支持能力反向映射，实际协议仍为 `low`、`high` 等。
+- 卡片使用独立打开、名称复制及原生 `Menu` 控件，右键/Shift+F10 提供标题编辑、名称编辑和删除。标题与名称分别原子保存。删除为持久可恢复隐藏，保留账号绑定/原生会话/事件；跨父会话、活动任务或未完成清理不能删除/恢复。名称悬停与聚焦使用主题、100ms 反馈，复制结果如实显示，按钮不触发打开，异步结果和定时器随组件清理。
+- 缺账号绑定的旧 Worker 在输入前阻止原会话续聊，提供明确「新建对话」。新建保留原 CLI/模型/强度/角色，核对当前自身账号、权限和目录后使用全新 Worker，不复制旧 conversationId；失败保留草稿和原历史。旧 Antigravity raw/init、摘要库没有足够账号证据，不猜测补绑。
+- rc.2 原生后台任务菜单内联在标题行，其 stacking context 与中央列裁剪导致侧栏遮挡。插件保留原组件与事件，仅在 CLI Worker 可见和原菜单展开时放开实际裁剪祖先并提升标题层级；关闭、隐藏及卸载恢复，observer/resize/rAF 完整清理；不改 Harness 核心。
+- 所有明确进程清理未确认的源头写 Host 私有 `cleanup-blocked.json`（只有 policy/state，0600），重启仍阻止任务、账号及删除恢复。损坏或不安全记录继续阻塞，无可信退出证据不自动清除，不从旧错误文案推测隔离。磁盘完全不可写时当前 Host 仍阻塞并报告保存失败，不能声称跨重启已经持久保存。

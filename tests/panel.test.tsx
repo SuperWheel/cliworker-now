@@ -146,6 +146,13 @@ async function setup(openFirst = true, openNativeSettings?: () => void, snapshot
     cliworker: {
       followup,
       history,
+      restartWorker: vi
+        .fn()
+        .mockResolvedValue({ ok: true, value: JSON.stringify({ workerId: 'new-worker-fixture' }) }),
+      renameWorkerTitle: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
+      renameWorker: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
+      deleteWorker: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
+      restoreWorker: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
       cliSettings: vi.fn(async () => ({
         ok: true,
         value: JSON.stringify({ enabled: Object.fromEntries(CLI_IDS.map((id) => [id, true])) }),
@@ -195,7 +202,7 @@ async function setup(openFirst = true, openNativeSettings?: () => void, snapshot
   await push()
   if (openFirst) {
     await act(async () => {
-      r.root.findByProps({ 'data-worker-id': 'a' }).props.onClick()
+      r.root.findByProps({ 'data-open-worker-id': 'a' }).props.onClick()
     })
     await push('a')
   }
@@ -221,7 +228,7 @@ async function setup(openFirst = true, openNativeSettings?: () => void, snapshot
   const select = async (id: string) => {
     if (r.root.findAllByProps({ 'aria-label': '返回子 Agent 列表' }).length) await goBack()
     await act(async () => {
-      r.root.findByProps({ 'data-worker-id': id }).props.onClick()
+      r.root.findByProps({ 'data-open-worker-id': id }).props.onClick()
     })
   }
   const submit = async () => {
@@ -282,7 +289,9 @@ it('shows and searches worker names alongside model metadata and the conversatio
   const t = await setup(false, undefined, named)
   expect(t.r.root.findByType('h2').findByType('span').children).toEqual(['CLI Worker'])
   const meta = t.r.root.findByProps({ 'data-worker-id': 'a' }).findByProps({ className: 'cwn-worker-meta' })
-  expect(JSON.stringify(meta.children.map((node: any) => node.children))).toContain('因果审稿人')
+  expect(meta.findByProps({ className: 'cwn-worker-name' }).findByType('span').children).toEqual([
+    '因果审稿人',
+  ])
   await act(async () => t.r.root.findByType('input').props.onChange({ target: { value: '因果' } }))
   expect(t.r.root.findAllByProps({ 'data-worker-id': 'b' })).toHaveLength(0)
   await t.select('a')
@@ -427,7 +436,7 @@ it('preserves the overview filters and each draft across back navigation', async
   await act(async () =>
     t.r.root.findByProps({ 'aria-label': '筛选子 Agent' }).props.onChange({ target: { value: 'worker A' } }),
   )
-  const list = () => t.r.root.findAll((n) => n.type === 'button' && n.props['data-worker-id'])
+  const list = () => t.r.root.findAll((n) => n.type === 'button' && n.props['data-open-worker-id'])
   expect(list()).toHaveLength(1)
   await t.select('a')
   await t.push('a')
@@ -477,7 +486,7 @@ it('selects defaults per CLI and limits effort choices to the selected model', a
   await f.click('Codex 设置')
   await f.click('默认模型')
   await f.click('model-b')
-  expect(f.text()).toContain('high')
+  expect(f.text()).toContain('High')
   await f.click('Kimi 设置')
   expect(f.text()).toContain('沿用 CLI 配置')
   expect(f.r.root.findAllByType('button').find((b) => b.children.includes('保存默认值'))?.props.type).toBe(
@@ -552,7 +561,7 @@ it('starts on grouped overview without auto-opening a worker and keeps collapsed
   expect(line.children[1].props.className).toContain('cwn-worker-status')
   const codexHeading = () => groups()[1]!.findByProps({ className: 'cwn-cli-heading' })
   const codexRows = () => groups()[1]!.findByProps({ className: 'cwn-cli-rows' })
-  const codexWorker = () => groups()[1]!.findByProps({ 'data-worker-id': 'c' })
+  const codexWorker = () => groups()[1]!.findByProps({ 'data-open-worker-id': 'c' })
   const rowsId = codexHeading().props['aria-controls']
   expect(codexRows().props.id).toBe(rowsId)
   expect(codexWorker().props.tabIndex).toBeUndefined()
@@ -642,7 +651,7 @@ it('simplifies a historical full model route in task cards and the composer with
   await t.push('a')
   const compose = t.r.root.findByProps({ 'aria-label': '模型与强度' })
   expect(compose.findAllByType('span')[0]!.children).toEqual(['GLM-5.3-Flash'])
-  expect(compose.props.title).toBe('GLM-5.3-Flash · low')
+  expect(compose.props.title).toBe('GLM-5.3-Flash · Low')
   expect(t.text()).not.toContain('account:bigmodel')
 })
 
@@ -1014,4 +1023,202 @@ it('keeps an unfinished streaming reply tail on native hover until its run compl
     t.r.root.findByProps({ 'data-message-id': 'stream:reply' }).findByProps({ className: 'cwn-message-tail' })
       .props['data-actions-reveal'],
   ).toBe('always')
+})
+
+it('offers native portaled card management with pointer and keyboard access without nested buttons', async () => {
+  const t = await setup(false)
+  const card = t.r.root.findByProps({ 'data-worker-id': 'a' })
+  const prevented = vi.fn()
+  await act(async () =>
+    card.props.onContextMenu({ preventDefault: prevented, stopPropagation() {}, clientX: 91, clientY: 127 }),
+  )
+  expect(prevented).toHaveBeenCalledOnce()
+  const menu = card.findAll((node) => typeof node.type === 'function' && node.props.getAnchorRect)[0]!
+  expect(menu.props.portal).toBe(true)
+  expect(menu.props.autoFocus).toBe(true)
+  await t.click('title')
+  expect(t.r.root.findByProps({ 'aria-label': '新的聊天标题' }).props.value).toBe('Worker a')
+  await t.click('关闭聊天标题编辑')
+  await act(async () =>
+    card.props.onKeyDown({ key: 'F10', shiftKey: true, preventDefault: prevented, stopPropagation() {} }),
+  )
+  await t.click('name')
+  expect(t.r.root.findByProps({ 'aria-label': '新的智能体名称' }).props.value).toBe('智能体-a')
+  for (const button of card.findAllByType('button')) expect(button.findAllByType('button')).toHaveLength(1)
+  expect(t.r.root.findAllByType('textarea')).toHaveLength(0)
+})
+
+it('copies a card name independently and reports actual clipboard failure', async () => {
+  const t = await setup(false, undefined, [{ ...workers[0]!, agentName: 'hermes-1' }])
+  const before = t.streams.length
+  await t.click('复制名称 hermes-1')
+  expect(clipboard).toHaveBeenLastCalledWith('hermes-1')
+  expect(t.text()).toContain('已复制')
+  expect(t.streams).toHaveLength(before)
+  clipboard.mockResolvedValue(false)
+  await t.click('复制名称 hermes-1')
+  expect(t.text()).toContain('复制失败，请选择文本手动复制')
+  expect(t.r.root.findAllByType('textarea')).toHaveLength(0)
+})
+
+it('deletes only the chosen card, retains four main filters and restores from the persistent deleted view', async () => {
+  const t = await setup(false)
+  await act(async () =>
+    t.r.root
+      .findByProps({ 'data-worker-id': 'a' })
+      .props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 1, clientY: 2 }),
+  )
+  await t.click('delete')
+  expect(t.api.cliworker.deleteWorker).toHaveBeenCalledOnce()
+  expect(vi.mocked(t.api.cliworker.deleteWorker).mock.calls[0]!.slice(0, 2)).toEqual(['parent', 'a'])
+  const archived = { ...workers[0]!, archivedAt: '2026-10-09T08:00:00Z' }
+  await act(async () =>
+    t.streams.at(-1)!.push({ ...t.snapshot(), workers: [workers[1]!], archivedWorkers: [archived] }),
+  )
+  expect(t.r.root.findByProps({ 'aria-label': '任务状态筛选' }).findAllByType('button')).toHaveLength(4)
+  expect(t.r.root.findByProps({ 'aria-label': '已删除对话' }).findAllByType('article')).toHaveLength(1)
+  await t.click('恢复对话 Worker a')
+  expect(vi.mocked(t.api.cliworker.restoreWorker).mock.calls[0]!.slice(0, 2)).toEqual(['parent', 'a'])
+  await t.click('返回列表')
+  expect(t.r.root.findAllByProps({ 'data-worker-id': 'a' })).toHaveLength(0)
+  await t.click('已删除')
+  expect(t.text()).toContain('Worker a')
+})
+
+it('does not offer deletion of an active card and leaves a failed deletion visible', async () => {
+  const t = await setup(false, undefined, [{ ...workers[0]!, status: 'running' }, workers[1]!])
+  await act(async () =>
+    t.r.root
+      .findByProps({ 'data-worker-id': 'a' })
+      .props.onKeyDown({ key: 'ContextMenu', preventDefault() {}, stopPropagation() {} }),
+  )
+  expect(t.r.root.findByProps({ 'aria-label': 'delete' }).props.disabled).toBe(true)
+  const other = t.r.root.findByProps({ 'data-worker-id': 'b' })
+  await act(async () =>
+    other.props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 0, clientY: 0 }),
+  )
+  vi.mocked(t.api.cliworker.deleteWorker).mockResolvedValueOnce({
+    ok: false,
+    error: { message: '清理尚未确认' },
+  } as any)
+  await act(async () => other.findByProps({ 'aria-label': 'delete' }).props.onClick())
+  expect(t.text()).toContain('清理尚未确认')
+  expect(t.r.root.findAllByProps({ 'data-worker-id': 'b' })).toHaveLength(1)
+  expect(t.r.root.findAllByProps({ 'aria-label': '已删除对话' })).toHaveLength(0)
+})
+
+it('requires explicit new conversation mode for missing account history and keeps the draft on failure', async () => {
+  const t = await setup()
+  await t.edit('historical draft\nsecond line')
+  await act(async () =>
+    t.streams
+      .at(-1)!
+      .push({ ...t.snapshot('a', 2), resumeBlockedReason: '此历史任务缺少账号记录，请新建任务' }),
+  )
+  expect(t.input().props.disabled).toBe(true)
+  await t.submit()
+  expect(t.followup).not.toHaveBeenCalled()
+  expect(t.api.cliworker.restartWorker).not.toHaveBeenCalled()
+  await t.click('新建对话')
+  expect(t.input().props.value).toBe('historical draft\nsecond line')
+  expect(t.input().props.disabled).toBe(false)
+  expect(t.api.cliworker.restartWorker).not.toHaveBeenCalled()
+  vi.mocked(t.api.cliworker.restartWorker).mockResolvedValueOnce({
+    ok: false,
+    error: { message: '模拟：当前账号模型无效' },
+  } as any)
+  await t.submit()
+  expect(t.followup).not.toHaveBeenCalled()
+  expect(vi.mocked(t.api.cliworker.restartWorker).mock.calls[0]!.slice(0, 3)).toEqual([
+    'parent',
+    'a',
+    'historical draft\nsecond line',
+  ])
+  expect(t.input().props.value).toBe('historical draft\nsecond line')
+  expect(t.text()).toContain('模拟：当前账号模型无效')
+  await t.click('取消新建')
+  expect(t.input().props.disabled).toBe(true)
+  expect(t.input().props.value).toBe('historical draft\nsecond line')
+})
+
+it('selects the new worker after restart and never sends to the old native conversation', async () => {
+  const t = await setup()
+  await t.edit('new account task')
+  await act(async () =>
+    t.streams
+      .at(-1)!
+      .push({ ...t.snapshot('a', 2), resumeBlockedReason: '此历史任务缺少账号记录，请新建任务' }),
+  )
+  await t.click('新建对话')
+  const streamCount = t.streams.length
+  await t.submit()
+  expect(t.api.cliworker.restartWorker).toHaveBeenCalledOnce()
+  expect(t.followup).not.toHaveBeenCalled()
+  expect(t.streams.length).toBe(streamCount + 1)
+  const newWorker = { ...workers[0]!, id: 'new-worker-fixture', agentName: 'hermes-2' }
+  await act(async () =>
+    t.streams.at(-1)!.push({ ...t.snapshot(), workers: [...workers, newWorker], selected: newWorker }),
+  )
+  expect(t.input().props.value).toBe('')
+  expect(t.r.root.findByType('h2').children).toEqual(['hermes-2｜Worker a'])
+  await t.goBack()
+  await t.select('a')
+  await t.push('a', 3)
+  expect(t.text()).toContain('answer-a')
+})
+
+it('opens bare card metadata and ignores control and portal menu clicks without double opening', async () => {
+  const t = await setup(false)
+  const card = t.r.root.findByProps({ 'data-worker-id': 'a' })
+  const before = t.streams.length
+  await act(async () => card.props.onClick({ target: { closest: () => ({}) } }))
+  expect(t.streams.length).toBe(before)
+  await act(async () => card.props.onClick({ target: { closest: () => null } }))
+  expect(t.streams.length).toBe(before + 1)
+  await t.push('a')
+  await t.goBack()
+  const next = t.r.root.findByProps({ 'data-worker-id': 'a' })
+  const after = t.streams.length
+  await act(async () => {
+    next.findByProps({ 'data-open-worker-id': 'a' }).props.onClick()
+    next.props.onClick({ target: { closest: () => ({}) } })
+  })
+  expect(t.streams.length).toBe(after + 1)
+})
+
+it('retains the old draft when restart does not identify a distinct new worker', async () => {
+  const t = await setup()
+  await t.edit('must retain draft')
+  await act(async () =>
+    t.streams.at(-1)!.push({ ...t.snapshot('a'), resumeBlockedReason: '此历史任务缺少账号记录，请新建任务' }),
+  )
+  await t.click('新建对话')
+  vi.mocked(t.api.cliworker.restartWorker).mockResolvedValueOnce({
+    ok: true,
+    value: JSON.stringify({ workerId: 'a' }),
+  } as any)
+  await t.submit()
+  expect(t.text()).toContain('新对话未返回有效的智能体记录')
+  expect(t.input().props.value).toBe('must retain draft')
+  expect(t.followup).not.toHaveBeenCalled()
+})
+
+it('cancels a pending management request when its panel unmounts', async () => {
+  const t = await setup(false)
+  const waiting = deferred()
+  vi.mocked(t.api.cliworker.deleteWorker).mockReturnValueOnce(waiting.promise)
+  await act(async () =>
+    t.r.root
+      .findByProps({ 'data-worker-id': 'a' })
+      .props.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: 1, clientY: 2 }),
+  )
+  await t.click('delete')
+  const signal = vi.mocked(t.api.cliworker.deleteWorker).mock.calls[0]![2]!
+  expect(signal.aborted).toBe(false)
+  await act(async () => t.r.unmount())
+  expect(signal.aborted).toBe(true)
+  waiting.resolve({ ok: false, error: { message: '模拟：已取消' } })
+  await act(async () => {
+    await waiting.promise
+  })
 })

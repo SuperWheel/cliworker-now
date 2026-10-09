@@ -457,7 +457,7 @@ it('deduplicates route names and puts proven free models first without combining
   ])
   expect(visibleText(menu)).not.toMatch(/source|[()（）]/u)
   await t.click('GLM-5.3-Flash')
-  expect(visibleText(t.button('默认思考强度')).trim()).toBe('medium')
+  expect(visibleText(t.button('默认思考强度')).trim()).toBe('Medium')
   await t.submit()
   expect(JSON.parse(t.configure.mock.calls[0]![1])).toEqual({
     cli: 'zcode',
@@ -480,7 +480,7 @@ it('retains the exact valid saved paid route when a free duplicate is available'
   })
   await t.click('Pi 设置')
   expect(visibleText(t.button('默认模型')).trim()).toBe('Chat')
-  expect(visibleText(t.button('默认思考强度')).trim()).toBe('high')
+  expect(visibleText(t.button('默认思考强度')).trim()).toBe('High')
   expect(t.configure).not.toHaveBeenCalled()
   await t.click('默认模型')
   expect(t.r.root.findByProps({ role: 'menu' }).findAllByType('button')).toHaveLength(1)

@@ -11,6 +11,7 @@ const singleLine = (max: number) =>
     .max(max)
     .refine((value) => !/[\r\n\u0000-\u001f\u007f]/.test(value), '名称不能包含换行或控制字符')
 export const agentNameSchema = singleLine(60)
+export const workerTitleSchema = singleLine(160)
 export const roleSnapshotSchema = z.object({
   presetId: z.string().min(1).max(100).optional(),
   name: agentNameSchema,
@@ -76,7 +77,8 @@ export function availableAgentName(workers: Iterable<Worker>, parent: string, ba
   const names = new Set(
     [...workers]
       .filter((worker) => worker.parentSessionId === parent)
-      .map((worker) => workerName(worker).toLocaleLowerCase()),
+      .flatMap((worker) => [workerName(worker), ...(worker.nameAliases ?? [])])
+      .map((name) => name.toLocaleLowerCase()),
   )
   const stem = agentNameSchema.parse(base).slice(0, 48)
   let number = 1

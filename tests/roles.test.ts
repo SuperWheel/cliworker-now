@@ -188,7 +188,7 @@ describe('named conversations and frozen roles', () => {
       { role },
     )
     role.prompt = 'external mutation must not reach worker'
-    expect(initial.worker.agentName).toBe('逻辑审稿-1')
+    expect(initial.worker.agentName).toBe('agy-1')
     expect(storage.history(initial.worker.id)[0]?.text).toBe('请检查第八章')
     storage.saveRolePreset({ ...preset, prompt: '后续修改' })
     storage.deleteRolePreset(preset.id)
@@ -210,7 +210,7 @@ describe('named conversations and frozen roles', () => {
     expect(calls[1]!.spec.argv).toContain('任务：\n继续检查第九章')
     expect(calls[1]!.spec.argv.some((arg) => arg.includes(fixtureRole.prompt))).toBe(false)
     expect(followup.worker.role?.prompt).toBe(fixtureRole.prompt)
-    expect(followup.worker.agentName).toBe('逻辑审稿-1')
+    expect(followup.worker.agentName).toBe('agy-1')
     calls[1]!.finish('synthetic-original-conversation')
     await followup.done
     const persisted = JSON.parse(
@@ -226,15 +226,15 @@ describe('named conversations and frozen roles', () => {
     const second = runtime.submit('parent', project, 'B', 'task', preference, 'accept-edits', undefined, {
       role: roleSnapshot(fixtureRole),
     })
-    expect(second.worker.agentName).toBe('逻辑审稿-2')
-    expect(runtime.resolveWorker('parent', undefined, '逻辑审稿-1').id).toBe(first.worker.id)
+    expect(second.worker.agentName).toBe('agy-2')
+    expect(runtime.resolveWorker('parent', undefined, 'agy-1').id).toBe(first.worker.id)
     expect(() => runtime.resolveWorker('other-parent', first.worker.id)).toThrow('does not belong')
-    expect(() => runtime.resolveWorker('other-parent', undefined, '逻辑审稿-1')).toThrow('没有此名称')
-    expect(() => runtime.resolveWorker('parent', first.worker.id, '逻辑审稿-2')).toThrow('不匹配')
-    expect(() => runtime.renameWorker('parent', second.worker.id, '逻辑审稿-1')).toThrow('同名')
+    expect(() => runtime.resolveWorker('other-parent', undefined, 'agy-1')).toThrow('没有此名称')
+    expect(() => runtime.resolveWorker('parent', first.worker.id, 'agy-2')).toThrow('不匹配')
+    expect(() => runtime.renameWorker('parent', second.worker.id, 'agy-1')).toThrow('同名')
     runtime.renameWorker('parent', first.worker.id, '小林')
     expect(runtime.resolveWorker('parent', undefined, '小林').id).toBe(first.worker.id)
-    expect(() => runtime.resolveWorker('parent', undefined, '逻辑审稿-1')).toThrow('没有此名称')
+    expect(() => runtime.resolveWorker('parent', undefined, 'agy-1')).toThrow('没有此名称')
     expect(() => runtime.renameWorker('other-parent', first.worker.id, '小李')).toThrow('does not belong')
     const save = vi.spyOn(storage, 'save').mockImplementationOnce(() => {
       throw new Error('Synthetic disk failure')

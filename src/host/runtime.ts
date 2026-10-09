@@ -5,6 +5,8 @@ import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import {
   active,
   CLI_LABELS,
+  CLI_SHORT_NAMES,
+  LEGACY_ACCOUNT_RECORD_NOTICE,
   isRetiredCli,
   RETIRED_HARNESS_NOTICE,
   cliOf,
@@ -19,7 +21,13 @@ import {
   type CliId,
   type RoleSnapshot,
 } from '../shared/types.ts'
-import { agentNameSchema, availableAgentName, promptForWorker, roleSnapshotSchema } from './roles.ts'
+import {
+  agentNameSchema,
+  availableAgentName,
+  promptForWorker,
+  roleSnapshotSchema,
+  workerTitleSchema,
+} from './roles.ts'
 import { protocolFor, resolveCliExecutable, workerArguments, captureCatalogMetadata } from './adapters.ts'
 import { spawnManagedAgent } from './managed-agent.ts'
 import {
@@ -64,7 +72,14 @@ export class WorkerRuntime {
     readonly storage: WorkerStorage,
     private backend: ProcessBackend,
     readonly config: RuntimeConfig,
-  ) {}
+  ) {
+    const cleanup = storage.cleanupBlockState()
+    if (cleanup !== 'none')
+      this.blocked =
+        cleanup === 'invalid'
+          ? '进程清理隔离记录无法核验，已暂停任务和账号操作'
+          : '无法确认 CLI 进程已清理，已暂停后续派遣，请先核查进程退出状态'
+  }
   subscribe(callback: () => void): () => void {
     this.listeners.add(callback)
     return () => {
@@ -83,8 +98,18 @@ export class WorkerRuntime {
       throw new Error(`${CLI_LABELS[cli]} 已关闭，请先在 CLI Worker 设置中开启`)
   }
   blockOnCleanup(error: ProcessCleanupUnconfirmedError): void {
-    this.blocked = `无法确认 CLI 进程已清理，已暂停后续派遣：${error.message}`
+    this.markCleanupBlocked(error)
     this.drain()
+  }
+  private markCleanupBlocked(error: unknown): void {
+    this.blocked = `无法确认 CLI 进程已清理，已暂停后续派遣：${error instanceof Error ? error.message : String(error)}`
+    try {
+      // The private marker contains no CLI output, paths, identities or credentials.
+      this.storage.blockCleanup()
+    } catch {
+      // Keep this Host closed even when its storage cannot record the quarantine.
+      this.blocked += '；清理隔离记录保存失败'
+    }
   }
   setCliEnabled(cli: CliId, enabled: boolean) {
     if (isRetiredCli(cli)) throw new Error(RETIRED_HARNESS_NOTICE)
@@ -109,6 +134,7 @@ export class WorkerRuntime {
     const worker = this.storage.workers.get(id)
     if (!worker || worker.parentSessionId !== parent)
       throw new Error('Worker does not belong to this conversation')
+    if (worker.archivedAt) throw new Error('此任务已删除，请先恢复')
     return worker
   }
   /** Exact names are scoped to the owning parent; never select a partial or cross-session match. */
@@ -117,11 +143,13 @@ export class WorkerRuntime {
     const normalized = name === undefined ? undefined : agentNameSchema.parse(name)
     if (id) {
       const worker = this.get(parent, id)
-      if (normalized && workerName(worker) !== normalized) throw new Error('worker_id 与 worker_name 不匹配')
+      if (normalized && !this.matchesName(worker, normalized))
+        throw new Error('worker_id 与 worker_name 不匹配')
       return worker
     }
     const matches = [...this.storage.workers.values()].filter(
-      (worker) => worker.parentSessionId === parent && workerName(worker) === normalized,
+      (worker) =>
+        worker.parentSessionId === parent && !worker.archivedAt && this.matchesName(worker, normalized!),
     )
     if (matches.length !== 1)
       throw new Error(
@@ -131,6 +159,9 @@ export class WorkerRuntime {
       )
     return matches[0]!
   }
+  private matchesName(worker: Worker, name: string): boolean {
+    return workerName(worker) === name || (worker.nameAliases ?? []).includes(name)
+  }
   private checkAgentName(parent: string, name: string, excludingId?: string): string {
     const clean = agentNameSchema.parse(name)
     if (
@@ -138,7 +169,9 @@ export class WorkerRuntime {
         (worker) =>
           worker.parentSessionId === parent &&
           worker.id !== excludingId &&
-          workerName(worker).toLocaleLowerCase() === clean.toLocaleLowerCase(),
+          [workerName(worker), ...(worker.nameAliases ?? [])].some(
+            (name) => name.toLocaleLowerCase() === clean.toLocaleLowerCase(),
+          ),
       )
     )
       throw new Error('当前对话已有同名智能体，请换一个名称或续用已有智能体')
@@ -150,16 +183,63 @@ export class WorkerRuntime {
     const agentName = this.checkAgentName(parent, name, id)
     // Publish the new name only after persistence succeeds. Keep a running task's
     // shared worker reference in sync so its next process event cannot revert it.
-    this.storage.save({ ...worker, agentName })
+    this.storage.save({ ...worker, agentName, agentNameOrigin: 'custom' })
     worker.agentName = agentName
+    worker.agentNameOrigin = 'custom'
     this.storage.workers.set(id, worker)
     this.changed()
   }
+  renameWorkerTitle(parent: string, id: string, title: string): void {
+    if (this.disposed) throw new Error('CLI Worker is shutting down')
+    const worker = this.get(parent, id)
+    const clean = workerTitleSchema.parse(title)
+    this.storage.save({ ...worker, title: clean })
+    worker.title = clean
+    this.storage.workers.set(id, worker)
+    this.changed()
+  }
+  /** Management cannot hide an in-flight task or a process whose cleanup is unresolved. */
+  private assertManagedIdle(worker: Worker): void {
+    if (this.disposed) throw new Error('CLI Worker is shutting down')
+    if (this.blocked) throw new Error(this.blocked)
+    if (active(worker.status) || this.tasks.has(worker.id))
+      throw new Error('请等待任务结束并完成进程清理后再管理此任务')
+  }
+  assertLegacyRestart(parent: string, id: string): Worker {
+    const worker = this.get(parent, id)
+    this.assertManagedIdle(worker)
+    this.assertCliEnabled(cliOf(worker.preference))
+    if (!worker.conversationId || this.storage.accountBinding(id))
+      throw new Error('只有缺少账号记录的历史任务可通过此操作新建对话')
+    return worker
+  }
+  deleteWorker(parent: string, id: string): void {
+    const worker = this.get(parent, id)
+    this.assertManagedIdle(worker)
+    this.storage.save({ ...worker, archivedAt: new Date().toISOString() })
+    this.changed()
+  }
+  restoreWorker(parent: string, id: string): void {
+    const worker = this.storage.workers.get(id)
+    if (!worker || worker.parentSessionId !== parent)
+      throw new Error('Worker does not belong to this conversation')
+    this.assertManagedIdle(worker)
+    if (!worker.archivedAt) throw new Error('此任务尚未删除')
+    const restored = { ...worker }
+    delete restored.archivedAt
+    this.storage.save(restored)
+    this.changed()
+  }
   snapshot(parent: string, selected?: string): WorkerSnapshot {
-    const workers = [...this.storage.workers.values()]
+    const owned = [...this.storage.workers.values()]
       .filter((w) => w.parentSessionId === parent)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
-    const worker = selected ? this.get(parent, selected) : undefined
+    const workers = owned.filter((worker) => !worker.archivedAt)
+    const archivedWorkers = owned.filter((worker) => !!worker.archivedAt)
+    const selectedWorker = selected ? this.storage.workers.get(selected) : undefined
+    if (selected && (!selectedWorker || selectedWorker.parentSessionId !== parent))
+      throw new Error('Worker does not belong to this conversation')
+    const worker = selectedWorker?.archivedAt ? undefined : selectedWorker
     const timeline = worker ? this.timeline(worker) : []
     const telemetry = worker ? this.runTelemetry(worker, worker.runId) : undefined
     const context =
@@ -177,7 +257,12 @@ export class WorkerRuntime {
             }
           : undefined,
       workers,
+      archivedWorkers,
       selected: worker,
+      resumeBlockedReason:
+        worker?.conversationId && !this.storage.accountBinding(worker.id)
+          ? LEGACY_ACCOUNT_RECORD_NOTICE
+          : undefined,
       timeline: timeline.slice(-this.config.maxTimelineItems),
       revision: this.revision,
       truncated: timeline.length > this.config.maxTimelineItems,
@@ -252,8 +337,7 @@ export class WorkerRuntime {
       throw new Error('This CLI conversation already has a running or queued turn')
     if (previous && !previous.conversationId)
       throw new Error('No CLI conversation_id was received; start a new worker')
-    if (previous && !this.storage.accountBinding(previous.id))
-      throw new Error('此历史任务缺少账号记录，请新建任务')
+    if (previous && !this.storage.accountBinding(previous.id)) throw new Error(LEGACY_ACCOUNT_RECORD_NOTICE)
     if (previous && previous.project !== canonical)
       throw new Error('Cannot resume a worker in another workspace')
     if (cliOf(effective) === 'kimi' && (previous?.mode ?? mode) === 'plan')
@@ -266,11 +350,8 @@ export class WorkerRuntime {
       title: title.slice(0, 160),
       agentName: identity?.agentName
         ? this.checkAgentName(parent, identity.agentName)
-        : availableAgentName(
-            this.storage.workers.values(),
-            parent,
-            identity?.role?.name ?? `${CLI_LABELS[cliOf(preference)]}助手`,
-          ),
+        : availableAgentName(this.storage.workers.values(), parent, CLI_SHORT_NAMES[cliOf(preference)]),
+      agentNameOrigin: identity?.agentName ? 'custom' : 'auto',
       role: identity?.role ? roleSnapshotSchema.parse(structuredClone(identity.role)) : undefined,
       preference: { ...preference },
       mode,
@@ -300,7 +381,7 @@ export class WorkerRuntime {
       : readCliAccountBinding(cliOf(effective), this.backend, this.config, canonical, controller.signal)
     void admission.catch((error) => {
       if (error instanceof ProcessCleanupUnconfirmedError) {
-        this.blocked = `无法确认 CLI 进程已清理，已暂停后续派遣：${error.message}`
+        this.markCleanupBlocked(error)
         this.drain()
       }
     })
@@ -351,8 +432,7 @@ export class WorkerRuntime {
     try {
       await task.admission
     } catch (error) {
-      if (error instanceof ProcessCleanupUnconfirmedError)
-        this.blocked = `无法确认 CLI 进程已清理，已暂停后续派遣：${error.message}`
+      if (error instanceof ProcessCleanupUnconfirmedError) this.markCleanupBlocked(error)
     }
     this.finish(task, this.blocked ? 'failed' : status, this.blocked ?? reason)
   }
@@ -541,8 +621,7 @@ export class WorkerRuntime {
       worker.lastResult = protocol.result.response
     } catch (error) {
       failure = error
-      if (error instanceof ProcessCleanupUnconfirmedError)
-        this.blocked = `无法确认 CLI 进程已清理，已暂停后续派遣：${error.message}`
+      if (error instanceof ProcessCleanupUnconfirmedError) this.markCleanupBlocked(error)
     } finally {
       clearTimeout(timeout)
       if (handle) {
@@ -552,7 +631,7 @@ export class WorkerRuntime {
           quiescent = true
         } catch (error) {
           failure = error
-          this.blocked = `无法确认 CLI 进程已清理，已暂停后续派遣：${String(error)}`
+          this.markCleanupBlocked(error)
         }
         await Promise.allSettled([...readers, handle.done])
       }
@@ -561,6 +640,7 @@ export class WorkerRuntime {
       if ((!handle || quiescent) && !this.blocked) await release?.()
     } catch (error) {
       failure ??= error
+      if (error instanceof ProcessCleanupUnconfirmedError) this.markCleanupBlocked(error)
     }
     if (stderr.trim()) this.storage.append(worker, { kind: 'diagnostic', text: 'CLI 诊断', detail: stderr })
     const error =

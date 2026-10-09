@@ -147,3 +147,36 @@ it('renames through its owning parent session and keeps a conflicting name edita
   expect(renameWorker.mock.calls[1].slice(0, 3)).toEqual(['parent-fixture', 'worker-fixture', '因果审稿人'])
   expect(onClose).toHaveBeenCalledOnce()
 })
+
+it('edits the conversation title through its own RPC and leaves a failed title editable', async () => {
+  const renameWorkerTitle = vi
+    .fn()
+    .mockResolvedValueOnce({ ok: false, error: { message: '模拟保存失败' } })
+    .mockResolvedValue({ ok: true, value: undefined })
+  const renameWorker = vi.fn()
+  const api = { cliworker: { renameWorkerTitle, renameWorker } } as unknown as API
+  const worker = { id: 'worker-fixture', title: '原聊天标题', agentName: 'hermes-1' } as Worker
+  const onClose = vi.fn()
+  let r!: ReactTestRenderer
+  await act(async () => {
+    r = create(
+      <RenameWorker api={api} sessionId="parent-fixture" worker={worker} mode="title" onClose={onClose} />,
+    )
+    mounted.push(r)
+  })
+  const t = controls(r)
+  expect(r.root.findByProps({ 'aria-label': '新的聊天标题' }).props.maxLength).toBe(160)
+  await t.edit('新的聊天标题', ' 新聊天标题 ')
+  await t.submit()
+  expect(t.text()).toContain('模拟保存失败')
+  expect(onClose).not.toHaveBeenCalled()
+  expect(renameWorker).not.toHaveBeenCalled()
+  await t.submit()
+  expect(renameWorkerTitle.mock.calls[1]!.slice(0, 3)).toEqual([
+    'parent-fixture',
+    'worker-fixture',
+    '新聊天标题',
+  ])
+  expect(onClose).toHaveBeenCalledOnce()
+  expect(worker.agentName).toBe('hermes-1')
+})

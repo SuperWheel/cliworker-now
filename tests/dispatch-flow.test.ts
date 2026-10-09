@@ -97,7 +97,7 @@ function fixture() {
     respond(offset, { cliworker_model: model })
     await ready(offset + 2)
     respond(offset + 1, {
-      ...(model === 'Fixture A' ? { cliworker_effort: 'high' } : {}),
+      ...(model === 'Fixture A' ? { cliworker_effort: 'High' } : {}),
       cliworker_role: role,
     })
   }
@@ -141,7 +141,7 @@ it('first use asks model then only its actual efforts with role, with no detail 
     'cliworker_effort',
     'cliworker_role',
   ])
-  expect(f.requests[1]!.request.questions[0].options).toEqual([{ label: 'low' }, { label: 'high' }])
+  expect(f.requests[1]!.request.questions[0].options).toEqual([{ label: 'Low' }, { label: 'High' }])
   for (const { request } of f.requests)
     for (const question of request.questions) {
       expect(question).not.toHaveProperty('detail')
@@ -255,7 +255,7 @@ it('account change during questions rejects without writing partial defaults or 
   f.respond(0, { cliworker_model: 'Fixture A' })
   await f.ready(2)
   f.setBinding('synthetic-account-b')
-  f.respond(1, { cliworker_effort: 'high', cliworker_role: NO_ROLE_LABEL })
+  f.respond(1, { cliworker_effort: 'High', cliworker_role: NO_ROLE_LABEL })
   await rejected
   expect(f.storage.preference(f.project)).toBeUndefined()
   expect(f.storage.conversationSetup('parent', f.project, 'antigravity')).toBeUndefined()
@@ -331,7 +331,7 @@ it('role cancellation and missing role never save the already selected model', a
     f.respond(0, { cliworker_model: 'Fixture A' })
     await f.ready(2)
     if (cancel) abort.abort(new Error('role cancelled'))
-    else f.respond(1, { cliworker_effort: 'high' })
+    else f.respond(1, { cliworker_effort: 'High' })
     await rejected
     expect(f.storage.preference(f.project)).toBeUndefined()
     expect(f.storage.dispatchSetup(f.project, 'antigravity')).toBeUndefined()
@@ -467,7 +467,7 @@ it('replays omitted CLI then explicit Hermes without consuming the previous Anti
     const pending = start.execute({ ...request, cli: 'hermes' }, exec)
     await f.ready(1)
     expect(f.requests[0]!.request.questions).toMatchObject([
-      { id: 'cliworker_reuse', question: '是否沿用 Fixture B · default · 不使用角色预设？' },
+      { id: 'cliworker_reuse', question: '是否沿用 Fixture B · 沿用 CLI 配置 · 不使用角色预设？' },
     ])
     expect(f.service.queryCatalog.mock.calls.map((args: any[]) => args[0])).toEqual(['hermes'])
     expect(launch).not.toHaveBeenCalled()

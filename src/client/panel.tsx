@@ -18,11 +18,11 @@ import {
   isRetiredCli,
   RETIRED_HARNESS_NOTICE,
   cliOf,
-  effortLabel,
   workerName,
   type CliId,
   type WorkerStatus,
   type HistoryPage,
+  type Worker,
 } from '../shared/types.ts'
 import { useWorkers, value, type API } from './workers.ts'
 import { CopyText } from './copy-text.tsx'
@@ -30,6 +30,7 @@ import { BrandIcon, Glyph } from './icons.tsx'
 import { WorkerModelMenu } from './worker-model-menu.tsx'
 import { SettingsDialog } from './settings-dialog.tsx'
 import { RenameWorker } from './rename-worker.tsx'
+import { WorkerCard, type WorkerManagementAction } from './worker-card.tsx'
 
 const status: Record<WorkerStatus, string> = {
   queued: '排队中',
@@ -83,7 +84,7 @@ function SessionPanel({
     else if (overview.current) {
       overview.current.scrollTop = overviewScroll.current
       overview.current
-        .querySelector<HTMLButtonElement>(`[data-worker-id='${lastWorker.current}']`)
+        .querySelector<HTMLButtonElement>(`[data-open-worker-id='${lastWorker.current}']`)
         ?.focus({ preventScroll: true })
     }
   }, [selected])
@@ -94,6 +95,7 @@ function SessionPanel({
   }
   const [query, setQuery] = useState(''),
     [filter, setFilter] = useState('all')
+  const [showArchived, setShowArchived] = useState(false)
   const [historyPage, setHistoryPage] = useState<HistoryPage>()
   const history = historyPage?.workerId === selected ? historyPage : undefined
   const { snapshot, error: streamError, connecting, reconnect } = useWorkers(api, sessionId, selected)
@@ -102,6 +104,7 @@ function SessionPanel({
   const error = errors[selected] ?? ''
   const setError = (text: string) => setErrors((old) => ({ ...old, [selected]: text }))
   const pendingAction = useRef(false)
+  const managementAbort = useRef<AbortController>()
   const [following, setFollowing] = useState(true)
   const alive = useRef(true),
     currentSelection = useRef(selected)
@@ -110,11 +113,13 @@ function SessionPanel({
     alive.current = true
     return () => {
       alive.current = false
+      managementAbort.current?.abort()
     }
   }, [])
   const [settingsCli, setSettingsCli] = useState<CliId>('antigravity')
   const [settings, setSettings] = useState(false)
-  const [renaming, setRenaming] = useState(false)
+  const [renaming, setRenaming] = useState<{ worker: Worker; mode: 'name' | 'title' }>()
+  const [restartFor, setRestartFor] = useState('')
   const nativeSettingsRequested = useRef(false)
   useEffect(() => {
     // The native command must run after our Modal releases its focus/inert seat.
@@ -153,7 +158,11 @@ function SessionPanel({
     stick.current = true
     setFollowing(true)
     setHistoryPage(undefined)
+    setRestartFor('')
   }, [selected])
+  useEffect(() => {
+    if (restartFor) composerInput.current?.focus({ preventScroll: true })
+  }, [restartFor])
   useEffect(() => {
     if (!history && stick.current && feed.current) feed.current.scrollTop = feed.current.scrollHeight
   }, [snapshot.timeline, selected, history])
@@ -178,7 +187,10 @@ function SessionPanel({
   }
   const running = worker && active(worker.status)
   const unavailable = connecting || !!streamError
-  const canResume = worker?.conversationId && !retired && !running && !unavailable
+  const startingNew = !!worker && restartFor === worker.id
+  const resumeBlocked = snapshot.resumeBlockedReason
+  const canResume =
+    (startingNew || (worker?.conversationId && !resumeBlocked)) && !retired && !running && !unavailable
   submitEnabled.current = !!prompt.trim() && !!canResume && !busy
   const jumpToLatest = () => {
     setHistoryPage(undefined)
@@ -201,6 +213,26 @@ function SessionPanel({
             : w.status === 'completed'))
     )
   })
+  const archivedWorkers = snapshot.archivedWorkers ?? []
+  const manageWorker = (target: Worker, action: WorkerManagementAction) => {
+    if (action === 'name' || action === 'title') {
+      setRenaming({ worker: target, mode: action })
+      return
+    }
+    void perform(async (isCurrent) => {
+      const controller = new AbortController()
+      managementAbort.current = controller
+      try {
+        value(await api.cliworker.deleteWorker(sessionId, target.id, controller.signal))
+      } finally {
+        if (managementAbort.current === controller) managementAbort.current = undefined
+      }
+      if (isCurrent()) {
+        if (selected === target.id) select('')
+        setShowArchived(true)
+      }
+    })
+  }
   const displayedTimeline = history?.items ?? snapshot.timeline
   const loadHistory = (direction: 'before' | 'after') => {
     const anchor = direction === 'before' ? displayedTimeline[0]?.id : displayedTimeline.at(-1)?.id
@@ -261,10 +293,28 @@ function SessionPanel({
                       type="button"
                       size="sm"
                       variant="ghost"
-                      onClick={() => setRenaming(true)}
-                      disabled={unavailable}
+                      onClick={() => manageWorker(worker, 'name')}
+                      disabled={unavailable || busy}
                     >
                       修改智能体名称
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => manageWorker(worker, 'title')}
+                      disabled={unavailable || busy}
+                    >
+                      修改聊天标题
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => manageWorker(worker, 'delete')}
+                      disabled={unavailable || busy || !!running}
+                    >
+                      删除
                     </Button>
                     {worker.observedModel && worker.observedModel !== worker.preference.model && (
                       <p>
@@ -320,13 +370,14 @@ function SessionPanel({
           </>
         )}
       </header>
-      {renaming && worker && (
+      {renaming && (
         <RenameWorker
-          key={worker.id}
+          key={`${renaming.worker.id}:${renaming.mode}`}
           api={api}
           sessionId={sessionId}
-          worker={worker}
-          onClose={() => setRenaming(false)}
+          worker={renaming.worker}
+          mode={renaming.mode}
+          onClose={() => setRenaming(undefined)}
         />
       )}
       <SettingsDialog
@@ -382,6 +433,19 @@ function SessionPanel({
               </Button>
             ))}
           </div>
+          <div className="cwn-management-nav">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              aria-label={showArchived ? '返回列表' : '已删除'}
+              aria-pressed={showArchived}
+              onClick={() => setShowArchived((shown) => !shown)}
+            >
+              {showArchived ? '返回列表' : '已删除'}
+              {!showArchived && archivedWorkers.length > 0 ? `（${archivedWorkers.length}）` : ''}
+            </Button>
+          </div>
           {(query || filter !== 'all') && (
             <div className="cwn-filter-info">
               <span>{visibleWorkers.length ? `${visibleWorkers.length} 个匹配任务` : '没有匹配的任务'}</span>
@@ -398,88 +462,99 @@ function SessionPanel({
               </Button>
             </div>
           )}
-          <nav aria-label="子 Agent">
-            {([...CLI_IDS, 'harness'] as const).map((cli) => {
-              const rows = visibleWorkers.filter((w) => cliOf(w.preference) === cli)
-              if (!rows.length) return null
-              return (
-                <section className="cwn-cli-group" key={cli} aria-label={`${CLI_LABELS[cli]} 子 Agent`}>
-                  <button
-                    className="cwn-cli-heading"
-                    type="button"
-                    aria-expanded={!collapsed[cli]}
-                    aria-controls={`${cliGroupId}-${cli}`}
-                    onClick={() => setCollapsed((old) => ({ ...old, [cli]: !old[cli] }))}
-                  >
-                    <BrandIcon cli={cli} />
-                    <strong>{CLI_LABELS[cli]}</strong>
-                    <span>{rows.length} 个 Agent</span>
-                    <Glyph name="chevron" />
-                  </button>
-                  <div
-                    id={`${cliGroupId}-${cli}`}
-                    className="cwn-cli-rows"
-                    data-expanded={!collapsed[cli]}
-                    aria-hidden={!!collapsed[cli]}
-                    {...(collapsed[cli] ? { inert: '' } : {})}
-                  >
-                    <div className="cwn-cli-rows-inner">
-                      {rows.map((w) => (
-                        <button
-                          key={w.id}
-                          type="button"
-                          className="cwn-worker"
-                          data-worker-id={w.id}
-                          tabIndex={collapsed[cli] ? -1 : undefined}
-                          onClick={() => {
-                            if (!collapsed[cli]) openWorker(w.id)
-                          }}
-                        >
-                          <span className="cwn-worker-content">
-                            <span className="cwn-worker-line">
-                              <span className="cwn-worker-title">{w.title}</span>
-                              <span className={`cwn-worker-status ${w.status}`}>
-                                <span className={`cwn-dot ${w.status}`} />
-                                {status[w.status]}
-                              </span>
-                            </span>
-                            <span className="cwn-worker-meta">
-                              <span className="cwn-worker-name" title={workerName(w)}>
-                                {workerName(w)}
-                              </span>
-                              <span className="cwn-meta-divider" aria-hidden="true">
-                                ｜
-                              </span>
-                              <span className="cwn-worker-model" title={displayModelName(w.preference)}>
-                                {displayModelName(w.preference)}
-                              </span>
-                              <span className="cwn-meta-divider" aria-hidden="true">
-                                ·
-                              </span>
-                              <span>{effortLabel(w.preference.effort)}</span>
-                            </span>
-                          </span>
-                          <Glyph name="chevron" />
-                        </button>
-                      ))}
-                    </div>
+          {showArchived ? (
+            <div className="cwn-archived-list" aria-label="已删除对话">
+              {archivedWorkers.length === 0 && <div className="cwn-empty">没有已删除的对话</div>}
+              {archivedWorkers.map((archived) => (
+                <article key={archived.id} className="cwn-archived-row">
+                  <div>
+                    <strong>{archived.title}</strong>
+                    <small>{workerName(archived)}</small>
                   </div>
-                </section>
-              )
-            })}
-          </nav>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    aria-label={`恢复对话 ${archived.title}`}
+                    disabled={busy || unavailable}
+                    onClick={() => {
+                      void perform(async () => {
+                        const controller = new AbortController()
+                        managementAbort.current = controller
+                        try {
+                          value(await api.cliworker.restoreWorker(sessionId, archived.id, controller.signal))
+                        } finally {
+                          if (managementAbort.current === controller) managementAbort.current = undefined
+                        }
+                      })
+                    }}
+                  >
+                    恢复
+                  </Button>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <nav aria-label="子 Agent">
+              {([...CLI_IDS, 'harness'] as const).map((cli) => {
+                const rows = visibleWorkers.filter((w) => cliOf(w.preference) === cli)
+                if (!rows.length) return null
+                return (
+                  <section className="cwn-cli-group" key={cli} aria-label={`${CLI_LABELS[cli]} 子 Agent`}>
+                    <button
+                      className="cwn-cli-heading"
+                      type="button"
+                      aria-expanded={!collapsed[cli]}
+                      aria-controls={`${cliGroupId}-${cli}`}
+                      onClick={() => setCollapsed((old) => ({ ...old, [cli]: !old[cli] }))}
+                    >
+                      <BrandIcon cli={cli} />
+                      <strong>{CLI_LABELS[cli]}</strong>
+                      <span>{rows.length} 个 Agent</span>
+                      <Glyph name="chevron" />
+                    </button>
+                    <div
+                      id={`${cliGroupId}-${cli}`}
+                      className="cwn-cli-rows"
+                      data-expanded={!collapsed[cli]}
+                      aria-hidden={!!collapsed[cli]}
+                      {...(collapsed[cli] ? { inert: '' } : {})}
+                    >
+                      <div className="cwn-cli-rows-inner">
+                        {rows.map((w) => (
+                          <WorkerCard
+                            key={w.id}
+                            worker={w}
+                            collapsed={!!collapsed[cli]}
+                            unavailable={unavailable}
+                            busy={busy}
+                            onOpen={() => openWorker(w.id)}
+                            onManage={(action) => manageWorker(w, action)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </section>
+                )
+              })}
+            </nav>
+          )}
           {snapshot.configuring && (
             <div className="cwn-notice">等待确认设定。请在主对话的问题卡片中选择。</div>
           )}
-          {!connecting && !streamError && !snapshot.workers.length && !snapshot.configuring && (
-            <div className="cwn-empty">
-              <BrandIcon size={42} />
-              <h3>让协作过程看得见</h3>
-              <p>在主对话中明确派遣任务：</p>
-              <blockquote>用 ZCode、OMP、Pi、Hermes Agent 或 OpenCode 帮我检查这个项目</blockquote>
-              <p>选择模型、思考强度与智能体预设后，协作过程会实时显示在这里。</p>
-            </div>
-          )}
+          {!connecting &&
+            !streamError &&
+            !snapshot.workers.length &&
+            !snapshot.configuring &&
+            !showArchived && (
+              <div className="cwn-empty">
+                <BrandIcon size={42} />
+                <h3>让协作过程看得见</h3>
+                <p>在主对话中明确派遣任务：</p>
+                <blockquote>用 ZCode、OMP、Pi、Hermes Agent 或 OpenCode 帮我检查这个项目</blockquote>
+                <p>选择模型、思考强度与智能体预设后，协作过程会实时显示在这里。</p>
+              </div>
+            )}
         </div>
       )}
       {streamError && (
@@ -596,6 +671,27 @@ function SessionPanel({
             e.preventDefault()
             if (!prompt.trim() || !canResume || busy) return
             void perform(async (isCurrent) => {
+              if (startingNew) {
+                const controller = new AbortController()
+                managementAbort.current = controller
+                let receipt: { workerId?: string }
+                try {
+                  receipt = JSON.parse(
+                    value(await api.cliworker.restartWorker(sessionId, worker.id, prompt, controller.signal)),
+                  )
+                } finally {
+                  if (managementAbort.current === controller) managementAbort.current = undefined
+                }
+                if (!receipt.workerId || receipt.workerId === worker.id)
+                  throw new Error('新对话未返回有效的智能体记录')
+                clearSubmitted(worker.id, prompt)
+                if (isCurrent()) {
+                  lastWorker.current = receipt.workerId
+                  setRestartFor('')
+                  select(receipt.workerId)
+                }
+                return
+              }
               value(await api.cliworker.followup(sessionId, worker.id, prompt))
               clearSubmitted(worker.id, prompt)
               if (isCurrent()) jumpToLatest()
@@ -603,13 +699,41 @@ function SessionPanel({
           }}
         >
           {retired && <p className="cwn-resume-hint">{RETIRED_HARNESS_NOTICE}</p>}
-          {!retired && !running && !worker.conversationId && (
+          {!retired && !running && resumeBlocked && !startingNew && (
+            <div className="cwn-resume-block" role="status">
+              <span>{resumeBlocked}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy || unavailable}
+                onClick={() => setRestartFor(worker.id)}
+              >
+                新建对话
+              </Button>
+            </div>
+          )}
+          {startingNew && (
+            <div className="cwn-new-conversation">
+              <span>新建对话</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => setRestartFor('')}
+              >
+                取消新建
+              </Button>
+            </div>
+          )}
+          {!retired && !running && !worker.conversationId && !resumeBlocked && (
             <p className="cwn-resume-hint">本次运行未建立 CLI 会话，无法续聊。请在主对话重新派遣任务。</p>
           )}
           <div className="cwn-compose-box">
             <textarea
               ref={composerInput}
-              aria-label="继续对话"
+              aria-label={startingNew ? '新建对话内容' : '继续对话'}
               value={prompt}
               onChange={(e) => editDraft(worker.id, e.target.value)}
               onKeyDown={composerKeys.onKeyDown}
@@ -617,7 +741,13 @@ function SessionPanel({
               onCompositionEnd={composerKeys.onCompositionEnd}
               disabled={!canResume || busy}
               maxLength={100000}
-              placeholder={running ? '本轮完成后可以继续对话' : '给这个子 Agent 分配下一步…'}
+              placeholder={
+                startingNew
+                  ? '输入新对话的任务…'
+                  : running
+                    ? '本轮完成后可以继续对话'
+                    : '给这个子 Agent 分配下一步…'
+              }
               rows={1}
             />
             <div className="cwn-compose-bottom">
@@ -626,7 +756,7 @@ function SessionPanel({
                 worker={worker}
                 api={api}
                 sessionId={sessionId}
-                disabled={retired || busy || unavailable || !!running}
+                disabled={retired || busy || unavailable || !!running || startingNew || !!resumeBlocked}
               />
               {running ? (
                 <Button
@@ -649,8 +779,8 @@ function SessionPanel({
                 <button
                   type="submit"
                   className="cwn-send"
-                  aria-label="继续对话"
-                  title="继续对话"
+                  aria-label={startingNew ? '新建对话并发送' : '继续对话'}
+                  title={startingNew ? '新建对话并发送' : '继续对话'}
                   disabled={!canResume || busy || !prompt.trim()}
                   onMouseDown={(e) => {
                     e.preventDefault()

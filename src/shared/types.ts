@@ -43,8 +43,25 @@ export const CLI_LABELS: Record<CliId, string> = {
   harness: 'Harness（已移除）',
   opencode: 'OpenCode',
 }
+/** Short CLI stems used for automatic Worker names; protocol IDs remain unchanged. */
+export const CLI_SHORT_NAMES: Record<CliId, string> = {
+  antigravity: 'agy',
+  codex: 'codex',
+  claude: 'claude',
+  kimi: 'kimi',
+  mimo: 'mimo',
+  zcode: 'zcode',
+  grok: 'grok',
+  omp: 'omp',
+  pi: 'pi',
+  hermes: 'hermes',
+  harness: 'harness',
+  opencode: 'opencode',
+}
 export const cliOf = (preference: Preference): CliId => preference.cli ?? 'antigravity'
-export const effortLabel = (effort: string) => (effort === 'default' ? '沿用 CLI 配置' : effort)
+export const effortLabel = (effort: string) =>
+  effort === 'default' ? '沿用 CLI 配置' : effort.charAt(0).toUpperCase() + effort.slice(1)
+export const LEGACY_ACCOUNT_RECORD_NOTICE = '此历史任务缺少账号记录，请新建任务'
 export type Effort = (typeof EFFORTS)[number]
 export type WorkerStatus = 'queued' | 'running' | 'stopping' | 'completed' | 'failed' | 'interrupted'
 export type TaskMode = 'plan' | 'accept-edits'
@@ -85,6 +102,12 @@ export interface Worker {
   project: string
   title: string
   agentName?: string
+  /** Provenance distinguishes automatic names from user-supplied lookalikes. */
+  agentNameOrigin?: 'auto' | 'custom'
+  /** Exact former automatic names reserved for compatible historical references. */
+  nameAliases?: string[]
+  /** Reversible deletion keeps the original Worker, native session and account binding. */
+  archivedAt?: string
   role?: RoleSnapshot
   preference: Preference
   mode: TaskMode
@@ -128,7 +151,10 @@ export interface TimelineItem {
 export interface WorkerSnapshot {
   telemetry?: Telemetry
   workers: Worker[]
+  archivedWorkers?: Worker[]
   selected?: Worker
+  /** Safe selected-Worker admission information; never exposes account identities. */
+  resumeBlockedReason?: string
   timeline: TimelineItem[]
   revision: number
   truncated: boolean

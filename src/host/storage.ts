@@ -1,9 +1,15 @@
 import {
   appendFileSync,
+  closeSync,
+  constants,
   chmodSync,
   existsSync,
+  fstatSync,
+  lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  readSync,
   readdirSync,
   renameSync,
   rmSync,
@@ -16,6 +22,7 @@ import type { CliSettings } from '../shared/cli-settings.ts'
 import { BUILTIN_ROLE_PRESETS } from '../shared/builtin-presets.ts'
 import {
   agentNameSchema,
+  availableAgentName,
   NO_ROLE_LABEL,
   rolePresetInputSchema,
   rolePresetSchema,
@@ -23,8 +30,12 @@ import {
 } from './roles.ts'
 import {
   CLI_IDS,
+  CLI_LABELS,
+  CLI_SHORT_NAMES,
   EFFORTS,
   active,
+  cliOf,
+  workerName,
   isRetiredCli,
   RETIRED_HARNESS_NOTICE,
   type CliId,
@@ -47,6 +58,12 @@ export interface DispatchSetup {
   binding: string
 }
 const dispatchBindingSchema = z.string().min(1).max(256)
+const cleanupBlockSchema = z
+  .object({
+    policy: z.literal(1),
+    state: z.literal('cleanup-unconfirmed'),
+  })
+  .strict()
 const projectPreferenceSchema = preferenceSchema.extend({
   dispatchRole: roleSnapshotSchema.nullable().optional(),
   dispatchBinding: dispatchBindingSchema.optional(),
@@ -74,6 +91,9 @@ const workerSchema = z.object({
   project: z.string().min(1),
   title: z.string(),
   agentName: agentNameSchema.optional(),
+  agentNameOrigin: z.enum(['auto', 'custom']).optional(),
+  nameAliases: z.array(agentNameSchema).max(32).optional(),
+  archivedAt: z.string().datetime().optional(),
   role: roleSnapshotSchema.optional(),
   preference: storedPreferenceSchema,
   mode: z.enum(['plan', 'accept-edits']),
@@ -131,6 +151,64 @@ export class WorkerStorage {
     z.string().min(1).max(256).parse(binding)
     atomicJSON(join(this.directory, `${id}.account-binding.json`), { policy: 1, binding })
   }
+  /** Private quarantine survives Host restart; absence alone means no recorded quarantine. */
+  cleanupBlockState(): 'none' | 'blocked' | 'invalid' {
+    const path = join(this.directory, 'cleanup-blocked.json')
+    let handle: number | undefined
+    let buffer: Buffer | undefined
+    try {
+      let entry
+      try {
+        entry = lstatSync(path)
+      } catch (error) {
+        return (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'none' : 'invalid'
+      }
+      if (entry.isSymbolicLink() || !entry.isFile() || entry.nlink !== 1 || entry.size > 1024)
+        return 'invalid'
+      handle = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+      const before = fstatSync(handle)
+      if (
+        !before.isFile() ||
+        before.nlink !== 1 ||
+        before.dev !== entry.dev ||
+        before.ino !== entry.ino ||
+        before.size > 1024
+      )
+        return 'invalid'
+      buffer = Buffer.alloc(1025)
+      let offset = 0
+      while (offset < buffer.length) {
+        const size = readSync(handle, buffer, offset, buffer.length - offset, null)
+        if (!size) break
+        offset += size
+      }
+      const after = fstatSync(handle),
+        current = lstatSync(path)
+      if (
+        offset !== before.size ||
+        before.size !== after.size ||
+        before.mtimeMs !== after.mtimeMs ||
+        current.isSymbolicLink() ||
+        current.nlink !== 1 ||
+        current.dev !== before.dev ||
+        current.ino !== before.ino ||
+        current.size !== after.size ||
+        current.mtimeMs !== after.mtimeMs
+      )
+        return 'invalid'
+      cleanupBlockSchema.parse(JSON.parse(buffer.subarray(0, offset).toString('utf8')))
+      return 'blocked'
+    } catch {
+      return 'invalid'
+    } finally {
+      buffer?.fill(0)
+      if (handle !== undefined) closeSync(handle)
+    }
+  }
+  /** No automatic clearing: only trustworthy process-exit recovery can release a quarantine. */
+  blockCleanup(): void {
+    atomicJSON(join(this.directory, 'cleanup-blocked.json'), { policy: 1, state: 'cleanup-unconfirmed' })
+  }
   constructor(readonly directory: string) {
     mkdirSync(directory, { recursive: true, mode: 0o700 })
     chmodSync(directory, 0o700)
@@ -187,9 +265,52 @@ export class WorkerStorage {
           this.append(worker, { kind: 'status', text: worker.error, state: 'interrupted' })
         }
       }
+      this.migrateAutomaticNames()
     } catch (error) {
       this.close()
       throw error
+    }
+  }
+  /** Only the former CLI-default format and unnamed histories establish legacy automatic names. */
+  private migrateAutomaticNames(): void {
+    const ordered = [...this.workers.values()].sort(
+      (a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+    )
+    for (const worker of ordered) {
+      const cli = cliOf(worker.preference)
+      if (isRetiredCli(cli) || worker.agentNameOrigin === 'custom') continue
+      const previousName = workerName(worker)
+      const stem = CLI_SHORT_NAMES[cli]
+      const isNumbered = (name: string, prefix: string) =>
+        name.startsWith(`${prefix}-`) && /^[1-9]\d*$/.test(name.slice(prefix.length + 1))
+      if (worker.agentName && isNumbered(worker.agentName, stem)) continue
+      if (
+        worker.agentName &&
+        worker.agentNameOrigin !== 'auto' &&
+        !isNumbered(worker.agentName, `${CLI_LABELS[cli]}助手`)
+      )
+        continue
+      // A malformed old duplicate cannot safely acquire a compatibility alias.
+      if (
+        ordered.some(
+          (other) =>
+            other.id !== worker.id &&
+            other.parentSessionId === worker.parentSessionId &&
+            [workerName(other), ...(other.nameAliases ?? [])].some(
+              (name) => name.toLocaleLowerCase() === previousName.toLocaleLowerCase(),
+            ),
+        )
+      )
+        continue
+      const migrated: Worker = {
+        ...worker,
+        agentName: availableAgentName(this.workers.values(), worker.parentSessionId, stem),
+        agentNameOrigin: 'auto',
+        nameAliases: [...new Set([...(worker.nameAliases ?? []), previousName])],
+      }
+      // Validate the additional compatibility data before its atomic write.
+      workerSchema.parse(migrated)
+      this.save(migrated)
     }
   }
   cliSettings(): CliSettings {

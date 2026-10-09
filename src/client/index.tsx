@@ -23,6 +23,8 @@ import {
   rolePresetStyles,
 } from './styles.ts'
 import { BrandIcon } from './icons.tsx'
+import { installNativeJobOverlay } from './native-job-overlay.ts'
+import { workerManagementStyles } from './management-styles.ts'
 
 const ID = 'dsh-cliworker-now'
 
@@ -89,10 +91,12 @@ export function apply(ctx: Context): void {
         hoverFeedbackStyles +
         conversationInteractionStyles +
         settingsStyles +
-        rolePresetStyles
+        rolePresetStyles +
+        workerManagementStyles
       document.head.append(style)
       return () => style.remove()
     })
+    scope.effect(() => installNativeJobOverlay(document))
     scope.effect(() =>
       scope.sidebarRightTabs.register({
         id: ID,
