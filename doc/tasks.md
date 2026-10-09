@@ -746,3 +746,13 @@
 - 先前Mac锁定的交付缺口已补齐；实现已按阶段提交为 `b4db1a2`，保留原有未提交改动；本轮不推送。现可完成OpenSpec最后交付任务，随后同步和归档本change。
 
 - OpenSpec最后交付任务已核对完成（5/5）；主worker-management规格完整替换2块、增加3块，Purpose和其余4块及全部旧场景保持。同步后严格10/10，归档到 `openspec/changes/archive/2026-10-09-refine-panel-layout/` 后严格9/9、活动change0。本次交付补验和归档另作阶段提交，不推送。
+
+## v0.7.4：卡片与回收站修复实施（2026-10-09）
+
+- OpenSpec `fix-worker-overview-regressions`，对应用户六项回归：首卡顶部边缘、名称按钮包围、整行箭头和移除省略号、回收站四筛选返回及选中颜色、多层模型名称、默认强度文字。源头分别为列表顶部零内边距、filter与showArchived转换缺失、箭头仅属于标题行、名称水平padding为0，以及展示函数只去掉一层路径。
+- Panel/name-copy专项72项通过，覆盖四种筛选从回收站返回、query与旧筛选保留、右键/键盘菜单、独立复制、删除恢复。模型展示/Worker管理/设置/派遣展示专项181项通过，覆盖多层Hermes tuple与同名不同组织ID/能力不变、default标签和保存值；不以CSS断言替代最终视觉验收。日志 `.test-data/card-regressions-074/{targeted-tests,presentation-tests}.log`。
+- README中英及设计同步；前三项实施已完成，完整集成检查、preview原生UI及Desktop更新仍需实际完成后追加记录，不将专项结果当作整体交付完成。
+
+- 集成检查：`pnpm typecheck`通过；完整Vitest 68文件通过、1文件跳过，1304项通过、7项跳过；严格规格10/10通过；`pnpm build:preview`通过。独立源码审查确认显示清理不改原生分组身份/执行ID，Menu实际anchor保留原生焦点恢复。
+- 最终preview+原生Harness隔离UI35项通过：首卡顶缘8px留白、名称左右4px、整行箭头中心差0、无省略号；回收站四筛选正确返回且query保留，浅暗主题深红白图标；右键/键盘菜单与Escape还焦、正常打开和复制隔离；复制hover1250ms保留、leave1029ms恢复；Hermes卡/详情/菜单/设置只显示ling-3.1-flash和默认，两次模型选择RPC都保留完整tuple及default，原模拟Hermes/legacy Worker和events四文件不变；长列表scrollTop500进入/返回保持500，滚回顶部仍完整，旧缺绑定任务仍禁发。1000×780px窄窗口实际右栏543.5px、宽窗口右栏656.5px，无横向溢出且固定控件不动，未冒称320px已验。
+- 18775隔离wrapper/Host均退出，自建Tabbit页面0、任务finish无issues。启动时一次subprocess尝试被guard拒绝，真实CLI、远端请求和模型生成均0。原账号/偏好/历史4189文件更新前哈希全部相同。证据 `.test-data/card-regressions-074/ui/{ui-verification,model-id-verification,cleanup-verification}.json`及六张截图。

@@ -467,7 +467,7 @@ it('replays omitted CLI then explicit Hermes without consuming the previous Anti
     const pending = start.execute({ ...request, cli: 'hermes' }, exec)
     await f.ready(1)
     expect(f.requests[0]!.request.questions).toMatchObject([
-      { id: 'cliworker_reuse', question: '是否沿用 Fixture B · 沿用 CLI 配置 · 不使用角色预设？' },
+      { id: 'cliworker_reuse', question: '是否沿用 Fixture B · 默认 · 不使用角色预设？' },
     ])
     expect(f.service.queryCatalog.mock.calls.map((args: any[]) => args[0])).toEqual(['hermes'])
     expect(launch).not.toHaveBeenCalled()

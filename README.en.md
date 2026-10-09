@@ -187,7 +187,7 @@ Each explicit CLI request includes routing guidance in that same model request: 
 
 All 11 CLIs use only their own native login or an API key configured in that CLI's own settings or private `.env`. Selectable models and reasoning efforts are the intersection of CLI capabilities and the current account's available scope. A public catalog, old cache, fixed alias or anonymous free model alone does not establish availability. If access cannot be confirmed, the list stays empty with a short reason. Permission discovery uses read-only metadata, rather than generation requests.
 
-Model menus show readable names without provider prefixes or parenthesized notes, and deduplicate the same native model. Saved choices and execution retain the full route ID. For a new choice, models with confirmed available free allowance appear first; missing prices and default zero-cost metadata are not treated as proof of free access. Existing valid choices remain, and a failed free route never silently becomes a paid request.
+Model menus show readable names without provider or organization path prefixes or parenthesized notes, and deduplicate the same native model. Distinct models with the same short name remain separate options. Saved choices and execution retain the full route ID. For a new choice, models with confirmed available free allowance appear first; missing prices and default zero-cost metadata are not treated as proof of free access. Existing valid choices remain, and a failed free route never silently becomes a paid request.
 
 **OMP (Oh My Pi) and Pi Coding Agent are separate CLIs.** Their installations, accounts, models and sessions are managed independently. The plugin checks executable identity and does not silently replace an installation with another version.
 
@@ -223,9 +223,9 @@ flowchart LR
 ### 6.2 Inspect, stop and continue
 
 - Open a task card to enter its conversation. Returning to the overview preserves an unsent draft.
-- Overview search and status filters stay fixed while the task list scrolls. The trash button beside the attention filter opens deleted conversations; click it again to return.
-- Right-click a task card to edit its chat title or agent name, or delete it. Deleted idle tasks and their history can be restored.
-- Automatic names use short forms such as `agy-1` and `codex-1`; old default names remain valid references. Clicking a name changes its text to “已复制”; the name returns about one second after the pointer leaves.
+- Overview search and status filters stay fixed while the task list scrolls, with room for the first card's top border. The trash button beside the attention filter opens deleted conversations; click it again or select any status filter to return. While viewing deleted conversations, all four filters are gray and the trash button has a dark red background with a white icon.
+- Right-click a task card to edit its chat title or agent name, or delete it; `Shift+F10` or the menu key on its open button also opens management. Cards have no ellipsis button, and the right arrow centers across the whole row. Deleted idle tasks and their history can be restored.
+- Automatic names use short forms such as `agy-1` and `codex-1`; old default names remain valid references. The name button has room around its text. Clicking changes its text to “已复制”; the name returns about one second after the pointer leaves.
 - Reasoning efforts display as `Low`, `High`, and similar labels; stored and executed values retain the native CLI spelling.
 - Old tasks without an account record remain readable. The notice below the title offers “新建对话” to start a fresh conversation with the original model, effort and role under the current own account.
 - Stop a running task from its conversation. Stopping is reported only after managed processes exit.
@@ -291,7 +291,7 @@ Subscriptions, API billing and model permissions are set by each provider. A log
 <details>
 <summary><strong>Why are there no reasoning-effort options or context percentage?</strong></summary>
 
-Only explicitly supported effort options are offered. Without that capability, the CLI's configuration applies. Unavailable context measurements display `—`; they are not guessed from a model name or cumulative usage.
+Only explicitly supported effort options are offered. The native `default` value displays as “默认” and retains the CLI's default behavior. Unavailable context measurements display `—`; they are not guessed from a model name or cumulative usage.
 
 </details>
 

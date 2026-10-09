@@ -60,7 +60,7 @@ export const CLI_SHORT_NAMES: Record<CliId, string> = {
 }
 export const cliOf = (preference: Preference): CliId => preference.cli ?? 'antigravity'
 export const effortLabel = (effort: string) =>
-  effort === 'default' ? '沿用 CLI 配置' : effort.charAt(0).toUpperCase() + effort.slice(1)
+  effort === 'default' ? '默认' : effort.charAt(0).toUpperCase() + effort.slice(1)
 export const LEGACY_ACCOUNT_RECORD_NOTICE = '此历史任务缺少账号记录，请新建任务'
 export type Effort = (typeof EFFORTS)[number]
 export type WorkerStatus = 'queued' | 'running' | 'stopping' | 'completed' | 'failed' | 'interrupted'

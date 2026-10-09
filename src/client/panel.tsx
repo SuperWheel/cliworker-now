@@ -444,8 +444,11 @@ function SessionPanel({
                     type="button"
                     variant="outline"
                     size="md"
-                    aria-pressed={filter === id}
-                    onClick={() => setFilter(id)}
+                    aria-pressed={!showArchived && filter === id}
+                    onClick={() => {
+                      setShowArchived(false)
+                      setFilter(id)
+                    }}
                   >
                     {label}
                   </Button>

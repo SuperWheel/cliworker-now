@@ -4,6 +4,40 @@ import { resolveModel } from '../src/shared/models.ts'
 import type { ModelChoice, Preference } from '../src/shared/types.ts'
 
 describe('pure model presentation (synthetic catalog metadata)', () => {
+  it('shortens nested provider and organization display paths while preserving Hermes identity', () => {
+    const preference: Preference = {
+      cli: 'hermes',
+      model: JSON.stringify(['nous', 'inclusionai/ling-3.1-flash']),
+      effort: 'default',
+    }
+    const original = structuredClone(preference)
+    expect(displayModelName(preference)).toBe('ling-3.1-flash')
+    expect(displayModelName('openrouter/inclusionai/ling-3.1-flash')).toBe('ling-3.1-flash')
+    expect(displayModelName({ id: preference.model, label: 'inclusionai/ling-3.1-flash（Nous）' })).toBe(
+      'ling-3.1-flash',
+    )
+    expect(preference).toEqual(original)
+    expect(nativeModelName(preference.model)).toBe('inclusionai/ling-3.1-flash')
+  })
+
+  it('keeps same leaf names from different organizations independently selectable with their capabilities', () => {
+    const raw: ModelChoice[] = [
+      { id: 'provider/organization-a/chat-model', label: 'organization-a/chat-model', efforts: ['default'] },
+      { id: 'provider/organization-b/chat-model', label: 'organization-b/chat-model', efforts: ['high'] },
+    ]
+    const original = structuredClone(raw)
+    const visible = visibleModelChoices(raw)
+    expect(visible.map((model) => model.label)).toEqual(['chat-model', 'chat-model · 2'])
+    expect(visible.map((model) => model.id)).toEqual(raw.map((model) => model.id))
+    expect(visible.map((model) => model.efforts)).toEqual([['default'], ['high']])
+    for (const model of visible)
+      expect(resolveModel({ cli: 'hermes', model: model.id, effort: model.efforts![0]! }, raw).model).toBe(
+        model.id,
+      )
+    expect(() => resolveModel({ model: visible[0]!.id, effort: 'high' }, raw)).toThrow('不可用')
+    expect(raw).toEqual(original)
+  })
+
   it('handles long nested untrusted annotations without repeatedly rescanning them', () => {
     const model: ModelChoice = {
       id: 'native/model-v1',

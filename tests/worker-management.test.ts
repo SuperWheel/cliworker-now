@@ -240,7 +240,7 @@ describe('short default names and exact legacy references', () => {
   it('keeps protocol effort values while formatting display labels', () => {
     expect(effortLabel('low')).toBe('Low')
     expect(effortLabel('xhigh')).toBe('Xhigh')
-    expect(effortLabel('default')).toBe('沿用 CLI 配置')
+    expect(effortLabel('default')).toBe('默认')
   })
 })
 

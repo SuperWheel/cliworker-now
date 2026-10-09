@@ -10,7 +10,7 @@ export const renameCopyStyles = `
 .cwn-rename-error{font-size:var(--dsw-font-xxs-12-font-size);line-height:20px;color:var(--dsw-alias-state-error-primary);overflow-wrap:anywhere}
 .cwn-rename-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 .cwn-name-copy{min-width:0;max-width:38%;display:inline-flex;position:relative;flex-shrink:1}
-.cwn .cwn-worker-name{display:inline-flex;align-items:center;max-width:100%;min-width:0;gap:0;border:0;border-radius:var(--dsw-radius-sm);padding:1px 0;margin:0;background:transparent;color:inherit;font:inherit;user-select:text;transition:background-color .1s,color .1s}
+.cwn .cwn-worker-name{display:inline-flex;align-items:center;max-width:100%;min-width:0;gap:0;border:0;border-radius:var(--dsw-radius-sm);padding:2px 4px;margin:0;background:transparent;color:inherit;font:inherit;user-select:text;transition:background-color .1s,color .1s}
 .cwn-worker-name>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cwn .cwn-worker-name:hover,.cwn .cwn-worker-name:focus-visible{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}
 .cwn-name-copy-failure{position:absolute;top:100%;left:0;z-index:1;max-width:260px;width:max-content;padding:4px 8px;border-radius:var(--dsw-radius-sm);background:var(--dsw-specific-menu);color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px;white-space:normal}

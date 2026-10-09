@@ -29,13 +29,25 @@ function withoutAnnotations(name: string): string {
   return visible.join('').replace(/\s+/gu, ' ').trim()
 }
 
+/** Short visible text only; native identity/grouping retains organization namespaces. */
+function visibleModelName(name: string): string {
+  const native = nativeModelName(name)
+  const parts = native.split('/')
+  return parts.length > 1 && parts.slice(0, -1).every((part) => /^[A-Za-z0-9_.:-]+$/u.test(part))
+    ? parts.at(-1)!.trim() || native
+    : native
+}
+
 /** A presentation-only name. Never use the returned text as an execution/lookup ID. */
 export function displayModelName(value: string | Preference | ModelChoice): string {
   // A raw ID has no provider annotation field. Parentheses can be part of its
   // legal native name, so strip annotations only from the catalog's label.
-  if (typeof value === 'string') return nativeModelName(value) || '模型'
+  if (typeof value === 'string') return visibleModelName(value) || '模型'
   if ('model' in value) return displayModelName(modelName(value))
-  const label = withoutAnnotations(nativeModelName(value.label ?? '')).replace(/^Claude 官方模型别名\s+/u, '')
+  const label = withoutAnnotations(visibleModelName(value.label ?? '')).replace(
+    /^Claude 官方模型别名\s+/u,
+    '',
+  )
   return label || displayModelName(value.id)
 }
 

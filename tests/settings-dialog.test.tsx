@@ -447,7 +447,7 @@ it('deduplicates route names and puts proven free models first without combining
   })
   await t.click('ZCode 设置')
   expect(visibleText(t.button('默认模型')).trim()).toBe('GLM-5.3')
-  expect(visibleText(t.button('默认思考强度'))).toContain('沿用 CLI 配置')
+  expect(visibleText(t.button('默认思考强度'))).toContain('默认')
   expect(t.configure).not.toHaveBeenCalled()
   await t.click('默认模型')
   const menu = t.r.root.findByProps({ role: 'menu' })
@@ -527,7 +527,7 @@ it('uses Kimi supported default effort without a saved preference and can persis
   })
   await t.click('Kimi 设置')
   expect(t.text()).toContain('kimi-simulation')
-  expect(t.text()).toContain('沿用 CLI 配置')
+  expect(t.text()).toContain('默认')
   expect(t.button('保存默认值').props.disabled).toBe(false)
   await t.click('默认思考强度')
   expect(
@@ -535,8 +535,8 @@ it('uses Kimi supported default effort without a saved preference and can persis
       .findAllByProps({ role: 'menu' })[0]!
       .findAllByType('button')
       .map((item) => item.children.join('')),
-  ).toEqual(['沿用 CLI 配置'])
-  await t.click('沿用 CLI 配置')
+  ).toEqual(['默认'])
+  await t.click('默认')
   await t.submit()
   expect(JSON.parse(t.configure.mock.calls[0]![1])).toEqual({
     cli: 'kimi',

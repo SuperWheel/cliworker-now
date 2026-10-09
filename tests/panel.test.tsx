@@ -490,7 +490,7 @@ it('toggles the accessible trash entry without changing search or any of the fou
   expect(selection()).toEqual([false, false, true, false])
   await t.click('已删除')
   expect(t.r.root.findByProps({ 'aria-label': '返回列表' }).props['aria-pressed']).toBe(true)
-  expect(selection()).toEqual([false, false, true, false])
+  expect(selection()).toEqual([false, false, false, false])
   expect(search().props.value).toBe('Worker a')
   expect(t.text()).toContain('没有已删除的对话')
   expect(t.text()).not.toContain('把想做的事')
@@ -500,6 +500,68 @@ it('toggles the accessible trash entry without changing search or any of the fou
   expect(t.r.root.findAllByProps({ 'data-open-worker-id': 'a' })).toHaveLength(1)
   expect(t.r.root.findAllByProps({ 'data-open-worker-id': 'b' })).toHaveLength(0)
 })
+
+it.each([
+  ['全部', ['queued', 'running', 'stopping', 'completed', 'failed', 'interrupted']],
+  ['进行中', ['queued', 'running', 'stopping']],
+  ['已完成', ['completed']],
+  ['异常', ['failed', 'interrupted']],
+] as const)(
+  'leaves the recycle view through %s while preserving the search and applying the requested filter',
+  async (label, expectedIds) => {
+    const source: Worker[] = (
+      ['queued', 'running', 'stopping', 'completed', 'failed', 'interrupted'] as const
+    ).map((state) => ({
+      ...workers[0]!,
+      id: state,
+      title: `needle ${state}`,
+      status: state,
+    }))
+    source.push({
+      ...workers[1]!,
+      id: 'outside',
+      title: 'outside search',
+      preference: { model: 'other', effort: 'low' },
+    })
+    const t = await setup(false, undefined, source)
+    await act(async () =>
+      t.streams.at(-1)!.push({
+        ...t.snapshot(),
+        archivedWorkers: [
+          {
+            ...workers[0]!,
+            id: 'deleted',
+            title: 'needle deleted',
+            archivedAt: '2026-10-09T08:00:00Z',
+          },
+        ],
+      }),
+    )
+    const search = () => t.r.root.findByProps({ 'aria-label': '筛选子 Agent' })
+    await act(async () => search().props.onChange({ target: { value: 'needle' } }))
+    await t.click('已完成')
+    await t.click('已删除')
+    const filters = () => t.r.root.findByProps({ 'aria-label': '任务状态筛选' }).findAllByType('button')
+    expect(filters().every((button) => !button.props['aria-pressed'] && !button.props.disabled)).toBe(true)
+    expect(t.r.root.findAllByProps({ 'aria-label': '已删除对话' })).toHaveLength(1)
+    await t.click(label)
+    expect(t.r.root.findAllByProps({ 'aria-label': '已删除对话' })).toHaveLength(0)
+    expect(search().props.value).toBe('needle')
+    expect(
+      filters()
+        .filter((button) => button.props['aria-pressed'])
+        .map((button) => button.children[0]),
+    ).toEqual([label])
+    expect(t.r.root.findByProps({ 'aria-label': '已删除' }).props['aria-pressed']).toBe(false)
+    expect(
+      t.r.root
+        .findAll((node) => node.type === 'button' && node.props['data-open-worker-id'])
+        .map((node) => node.props['data-open-worker-id']),
+    ).toEqual([...expectedIds])
+    expect(t.api.cliworker.followup).not.toHaveBeenCalled()
+    expect(t.api.cliworker.restartWorker).not.toHaveBeenCalled()
+  },
+)
 
 it('distinguishes the short initial empty page from filtered and deleted empty states and incoming tasks', async () => {
   const t = await setup(false, undefined, [])
@@ -559,7 +621,7 @@ it('selects defaults per CLI and limits effort choices to the selected model', a
   await f.click('model-b')
   expect(f.text()).toContain('High')
   await f.click('Kimi 设置')
-  expect(f.text()).toContain('沿用 CLI 配置')
+  expect(f.text()).toContain('默认')
   expect(f.r.root.findAllByType('button').find((b) => b.children.includes('保存默认值'))?.props.type).toBe(
     'submit',
   )
@@ -1111,13 +1173,59 @@ it('offers native portaled card management with pointer and keyboard access with
   expect(t.r.root.findByProps({ 'aria-label': '新的聊天标题' }).props.value).toBe('Worker a')
   await t.click('关闭聊天标题编辑')
   await act(async () =>
-    card.props.onKeyDown({ key: 'F10', shiftKey: true, preventDefault: prevented, stopPropagation() {} }),
+    card.findByProps({ 'data-open-worker-id': 'a' }).props.onKeyDown({
+      key: 'F10',
+      shiftKey: true,
+      preventDefault: prevented,
+      stopPropagation() {},
+    }),
   )
   await t.click('name')
   expect(t.r.root.findByProps({ 'aria-label': '新的智能体名称' }).props.value).toBe('智能体-a')
   for (const button of card.findAllByType('button')) expect(button.findAllByType('button')).toHaveLength(1)
   expect(t.r.root.findAllByType('textarea')).toHaveLength(0)
 })
+
+it('has only independent open and name-copy controls, with a decorative arrow outside both content rows', async () => {
+  const t = await setup(false)
+  const card = t.r.root.findByProps({ 'data-worker-id': 'a' })
+  const open = card.findByProps({ 'data-open-worker-id': 'a' })
+  expect(card.findAllByType('button')).toHaveLength(2)
+  expect(card.findAllByProps({ className: 'cwn-worker-manage' })).toHaveLength(0)
+  expect(open.findAllByType('svg')).toHaveLength(0)
+  const arrow = card.findByProps({ className: 'cwn-worker-chevron' })
+  expect(arrow.props['aria-hidden']).toBe('true')
+  expect(arrow.findAllByType('svg')).toHaveLength(1)
+  const layout = card.findByProps({ className: 'cwn-worker-layout' })
+  expect(layout.findByProps({ className: 'cwn-worker-meta' })).toBeDefined()
+  expect(open.props['aria-haspopup']).toBe('menu')
+  expect(open.props['aria-keyshortcuts']).toBe('Shift+F10')
+})
+
+it.each([{ key: 'ContextMenu' }, { key: 'F10', shiftKey: true }])(
+  'opens and closes native card management from its open control (%j) without dispatching a conversation',
+  async (key) => {
+    const t = await setup(false)
+    const card = t.r.root.findByProps({ 'data-worker-id': 'a' })
+    const before = t.streams.length
+    const event = { ...key, preventDefault: vi.fn(), stopPropagation: vi.fn() }
+    await act(async () => card.findByProps({ 'data-open-worker-id': 'a' }).props.onKeyDown(event))
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(event.stopPropagation).toHaveBeenCalledOnce()
+    expect(t.streams).toHaveLength(before)
+    const menu = card.findAll((node) => typeof node.type === 'function' && node.props.getAnchorRect)[0]!
+    expect(menu.props.portal).toBe(true)
+    expect(menu.props.autoFocus).toBe(true)
+    expect(menu.props.anchor.props.className).toBe('cwn-worker-layout')
+    // The native Menu owns the actual open button, so its focus-return mechanism
+    // can find the keyboard trigger instead of an empty or removed ellipsis anchor.
+    expect(menu.findByProps({ 'data-open-worker-id': 'a' }).props['aria-expanded']).toBe(true)
+    await act(async () => menu.props.onClose())
+    expect(card.findByProps({ 'data-open-worker-id': 'a' }).props['aria-expanded']).toBe(false)
+    await act(async () => card.findByProps({ 'data-open-worker-id': 'a' }).props.onClick())
+    expect(t.streams).toHaveLength(before + 1)
+  },
+)
 
 it('copies a card name independently and reports actual clipboard failure', async () => {
   const t = await setup(false, undefined, [{ ...workers[0]!, agentName: 'hermes-1' }])
@@ -1161,6 +1269,7 @@ it('does not offer deletion of an active card and leaves a failed deletion visib
   await act(async () =>
     t.r.root
       .findByProps({ 'data-worker-id': 'a' })
+      .findByProps({ 'data-open-worker-id': 'a' })
       .props.onKeyDown({ key: 'ContextMenu', preventDefault() {}, stopPropagation() {} }),
   )
   expect(t.r.root.findByProps({ 'aria-label': 'delete' }).props.disabled).toBe(true)
