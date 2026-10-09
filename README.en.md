@@ -48,7 +48,7 @@ These features improve task organization and continuity. The model's quality and
 
 ## 3. Features in the interface
 
-The screenshots below were captured in **DeepSeek Harness Desktop 0.2.0-rc.2 with CLI Worker Now v0.6.5**. A separate public demo conversation used Antigravity's `gemini-3.8-flash / low` for a real greeting task. They contain no private conversation history; settings screenshots avoid email addresses, account identifiers and keys. The displayed timing, status and usage come from that demo, rather than a performance benchmark.
+The screenshots below were captured in **DeepSeek Harness Desktop 0.2.0-rc.2 with CLI Worker Now v0.6.5**. A separate public demo conversation used Antigravity's `gemini-3.8-flash / low` for a real greeting task.
 
 The current version uses the selected [sky-blue split logo](doc/assets/project-icon/official-v4/README.md). The entry icon is blue; titles use the same silhouette in black or white according to the theme. The screenshots remain historical v0.6.5 examples.
 
@@ -84,13 +84,14 @@ The plugin follows Harness themes, with expandable cards, hover states, native m
 
 | Component | Requirement |
 | --- | --- |
-| Harness and plugin installation | **macOS and Windows**; see the execution limits below |
+| Operating system | **macOS / Windows**; each external CLI needs its native installation for that system |
 | Host | **DeepSeek Harness 0.2.0-rc.2** |
 | Node.js | **22.19.0 or newer** |
-| External CLIs | Install only those you need, with their own account or API access |
+| External CLIs | Install only those you need, with their own account or API access; the OMP npm package needs Bun ≥ 1.3.14 |
+| Install command | Enable `dsh` from Desktop’s Manage dsh Command menu; macOS and Windows share the same syntax |
 | Source development | pnpm **11.25.0**, as pinned in the repository |
 
-The plugin package and Harness UI are not restricted to macOS. Worker execution uses each CLI's native protection and permission options; the plugin adds no operating-system process sandbox. macOS has live historical acceptance. Windows runtime verification is in progress; individual CLI installations and live model access must be checked separately.
+The plugin package and Harness UI are not restricted to macOS. Worker execution uses each CLI's native protection and permission options; the plugin adds no operating-system process sandbox. macOS has live historical acceptance. Windows x64 passed runtime and own-account source tests for all 11 CLIs, plus actual Codex/Pi/OMP startup and Pi SDK metadata checks. Individual CLI installations and live model access remain separate requirements.
 
 ### 4.2 Adapter coverage and verification
 
@@ -116,48 +117,42 @@ Probe records: [ZCode](doc/zcode-probe.md) · [Grok](doc/grok-probe.md) · [Pi /
 
 ## 5. Installation and updates
 
-### 5.1 Install a release
-
-Open DeepSeek Harness once to initialize its Desktop profile, enable the `dsh` command from the Desktop menu, and finish active tasks and account terminals before closing Harness and installing.
+### 5.1 One-line install
 
 ```sh
 dsh plugin --profile desktop add https://github.com/SuperWheel/cliworker-now/releases/download/v0.6.15/dsh-cliworker-now-0.6.15.tgz
 ```
 
-Reopen Harness and confirm that `dsh-cliworker-now` is enabled in Plugins. Open **CLI Worker** from the conversation title bar or a new tab in the right sidebar. The release package is prebuilt; local compilation is not required. Installation may download dependencies.
-
 <details>
-<summary><strong>Install in the web profile</strong></summary>
+<summary>Web, source installation and updates</summary>
+
+For the Web profile:
 
 ```sh
 dsh plugin --profile web add https://github.com/SuperWheel/cliworker-now/releases/download/v0.6.15/dsh-cliworker-now-0.6.15.tgz
 ```
 
-</details>
+Finish active tasks and fully quit Harness before installation or updates, then reopen it. The release package is prebuilt and needs no manual extraction or compilation. You can also paste the same package URL into the plugin manager's Add Plugin dialog.
 
-The [release page](https://github.com/SuperWheel/cliworker-now/releases/tag/v0.6.15) also includes the package and `SHA256SUMS.txt` for manual download and checksum verification.
-
-### 5.2 Install from source
+For source development:
 
 ```sh
 git clone https://github.com/SuperWheel/cliworker-now.git
 cd cliworker-now
 pnpm install --frozen-lockfile
-pnpm --config.verify-deps-before-run=false build
+pnpm --config.verifyDepsBeforeRun=false build
 dsh plugin --profile desktop add .
 ```
 
-A source installation links to the local checkout, so retain that directory. Finish active tasks and close Harness before installing or rebuilding the installed checkout. The plugin uses Harness's plugin mechanism and does not require changes to the Harness core.
-
-### 5.3 Update or uninstall
-
-For an update, finish CLI Worker tasks and account terminals, close Harness, run the command for the new release, and reopen Harness. A source installation requires updating dependencies and rebuilding its retained checkout. Refreshing the plugin list alone does not reload Host interfaces.
+Source installation links the local checkout, so retain that directory. To uninstall:
 
 ```sh
 dsh plugin --profile desktop remove dsh-cliworker-now
 ```
 
-Uninstalling retains local history and account data.
+Uninstalling retains local accounts, history and preferences. Each release includes a `SHA256SUMS.txt` checksum file.
+
+</details>
 
 ## 6. Using CLI Worker Now
 
@@ -248,7 +243,7 @@ An empty model directory for an unconfigured CLI stays gray. Account reads finis
 
 - **Explicit execution:** a missing or failed CLI does not trigger fallback to another CLI. The plugin does not take over independently started CLI processes.
 - **Scheduling:** two concurrent tasks by default, one active turn per native session, and serial write tasks in the same directory. The hierarchy is main conversation → direct child agent. Running-task interjections and recursive dispatch are not supported.
-- **Permissions:** Harness planning mode or read-only host permissions prevent task startup. Once execution is allowed, supported CLIs can receive read-only tasks. Kimi and Hermes noninteractive modes do not support read-only dispatch and are rejected for such tasks. See probe documents for CLI-specific sandbox and tool limits.
+- **Permissions:** Harness planning mode or read-only host permissions prevent task startup. Once execution is allowed, supported CLIs can receive read-only tasks. Kimi and Hermes noninteractive modes do not support read-only dispatch and are rejected for such tasks. See probe documents for native CLI permission and tool capabilities.
 - **Local records:** plugin records live under `$DSH_HOME/cliworker-now`, normally `~/.dsh/cliworker-now`. On POSIX systems, directories use `0700` and files `0600`. External CLIs still send model requests according to their services and configuration.
 - **Sourced usage:** only CLI-reported or verifiable statistics are shown; unavailable values display `—`. Context usage is distinct from cumulative token usage. Antigravity's estimate source is explained in the details.
 - **Own accounts:** valid native sessions display green; own API configuration identifies its source, and models are scoped to the account. API keys are not displayed. Some account sources are shared with native terminals, so logging out can affect that CLI in other terminals.
@@ -302,7 +297,7 @@ Live CLI acceptance is separate and uses the selected account's model allowance:
 pnpm --config.verify-deps-before-run=false smoke:extended --help
 ```
 
-Automated checks do not establish live model access or Windows execution. Historical live verification and remaining limits are listed in section 4 and [verification records](doc/tasks.md).
+v0.6.15 passed type checking, 1,112 local regression tests and actual Windows runtime checks. See the [Windows workflow](https://github.com/SuperWheel/cliworker-now/actions/workflows/windows.yml). Runtime checks do not establish live model access; historical model verification is listed in section 4 and [verification records](doc/tasks.md).
 
 Development changes use **OpenSpec** proposals, delta specifications and tasks. Specifications are expanded as their areas change, while design decisions and acceptance history are retained. The project pins its OpenSpec dependency:
 

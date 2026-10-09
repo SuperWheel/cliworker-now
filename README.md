@@ -2,13 +2,15 @@
 
 # CLI Worker Now
 
+**简体中文** | [English](README.en.md)
+
 **在 DeepSeek Harness 里，给不同 CLI 一个共同的协作空间。**
 
 选择 CLI、模型和角色，派出有名字的智能体；在侧栏查看过程、接收结果，并继续同一个任务。
 
 [![Release](https://img.shields.io/github/v/release/SuperWheel/cliworker-now?color=4176e6)](https://github.com/SuperWheel/cliworker-now/releases/latest)
 [![Harness](https://img.shields.io/badge/DeepSeek_Harness-0.2.0--rc.2-555)](https://github.com/deepseek-ai/deepseek-harness)
-[![Platform](https://img.shields.io/badge/平台-macOS-555)](#4-环境与-cli-支持)
+[![Platform](https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows-555)](#4-环境与-cli-支持)
 [![License](https://img.shields.io/badge/License-MIT-555)](LICENSE)
 
 [下载安装包](https://github.com/SuperWheel/cliworker-now/releases/latest) · [安装方法](#5-安装与更新) · [开始使用](#6-使用方法) · [反馈问题](https://github.com/SuperWheel/cliworker-now/issues)
@@ -17,7 +19,7 @@
 
 **阅读导航**
 
-[1. 项目定位](#1-项目是什么) · [2. 特点与优势](#2-特点与优势) · [3. 界面效果](#3-功能与界面效果) · [4. 支持范围](#4-环境与-cli-支持) · [5. 安装更新](#5-安装与更新) · [6. 使用方法](#6-使用方法) · [7. 常见问题](#7-权限数据与常见问题) · [8. 开发验证](#8-开发与验证) · [9. 文档与反馈](#9-文档反馈与许可)
+[1. 项目定位](#1-项目定位) · [2. 特点与优势](#2-特点与优势) · [3. 界面效果](#3-功能与界面效果) · [4. 支持范围](#4-环境与-cli-支持) · [5. 安装更新](#5-安装与更新) · [6. 使用方法](#6-使用方法) · [7. 常见问题](#7-权限数据与常见问题) · [8. 开发验证](#8-开发与验证) · [9. 文档与反馈](#9-文档反馈与许可)
 
 ## 1. 项目定位
 
@@ -48,7 +50,7 @@ CLI Worker Now 是 **DeepSeek Harness 的独立多 CLI 智能体插件**。它�
 
 以下效果图均直接拍摄于 **DeepSeek Harness Desktop 0.2.0-rc.2 + CLI Worker Now v0.6.5**。为公开展示新建了独立演示会话，使用 Antigravity 的 `gemini-3.8-flash / low` 真实执行一条欢迎语任务。
 
-当前源码 v0.6.6 更新为用户选定的[天蓝平切 Logo](doc/assets/project-icon/official-v4/README.md)：入口使用原彩色图，标题随浅色／深色主题显示相同轮廓的黑／白版。下面的历史截图仍为 v0.6.5。
+当前版本使用用户选定的[天蓝平切 Logo](doc/assets/project-icon/official-v4/README.md)：入口使用原彩色图，标题随浅色／深色主题显示相同轮廓的黑／白版。下面的历史截图仍为 v0.6.5。
 
 ### 3.1 任务总览与独立对话
 
@@ -83,15 +85,16 @@ CLI Worker Now 是 **DeepSeek Harness 的独立多 CLI 智能体插件**。它�
 
 | 项目 | 要求 |
 | --- | --- |
-| 操作系统 | 当前验证基线为 **macOS**；部分适配器依赖 macOS Seatbelt |
+| 操作系统 | **macOS / Windows**；外部 CLI 需安装对应系统的原生版本 |
 | 宿主 | **DeepSeek Harness 0.2.0-rc.2** |
 | Node.js | **≥ 22.19.0** |
-| 外部 CLI | 按需安装，无需把全部 CLI 都装上；准备好对应账号或 API 权限 |
+| 外部 CLI | 按需安装，并准备该 CLI 自己的登录或 API 配置；OMP 的 npm 版本需 Bun ≥ 1.3.14 |
+| 安装命令 | 在 Desktop 菜单“管理 dsh 命令…”中启用 `dsh`，macOS 与 Windows 使用相同命令 |
 | 源码开发 | pnpm **11.25.0**，以仓库锁文件为准 |
 
 ### 4.2 支持范围与验证边界
 
-“已接入”表示有对应适配器，并不等于所有模型、套餐或平台都已实测。下表保留历史真实验收；v0.6.11 另行收紧账号隔离与模型权限，历史成功不代表当前选项仍可用。本轮没有重新执行模型生成任务。
+插件使用各 CLI 原生的保护和权限模式，不再附加操作系统进程沙箱。Windows x64 已通过运行层和 11 个 CLI 的账号来源测试，并实测 Codex/Pi/OMP 启动及 Pi SDK 元数据；下表区分接入版本与实际模型调用记录。模型列表只展示当前 CLI 自身账号可用的选项。
 
 | CLI | 已核验版本 | 当前验证范围 |
 | --- | --- | --- |
@@ -113,52 +116,42 @@ MiMo 指 [XiaomiMiMo/MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code)。Herme
 
 ## 5. 安装与更新
 
-### 5.1 从 Release 安装（推荐）
-
-1. 安装并打开一次 **DeepSeek Harness 0.2.0-rc.2**，初始化 Desktop profile；准备好要使用的 CLI。
-2. 前往 [v0.6.5 发布页](https://github.com/SuperWheel/cliworker-now/releases/tag/v0.6.5)，下载 `dsh-cliworker-now-0.6.5.tgz` 和 `SHA256SUMS.txt`。
-3. 结束活动任务并完整退出 Harness。若文件保存在“下载”目录，执行：
+### 5.1 一行安装
 
 ```sh
-cd "$HOME/Downloads"
-shasum -a 256 -c SHA256SUMS.txt
-
-DSH='/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh'
-"$DSH" plugin --profile desktop add \
-  "$HOME/Downloads/dsh-cliworker-now-0.6.5.tgz"
+dsh plugin --profile desktop add https://github.com/SuperWheel/cliworker-now/releases/download/v0.6.15/dsh-cliworker-now-0.6.15.tgz
 ```
 
-4. 重新打开 Harness，在插件页确认 `dsh-cliworker-now` 已启用；必要时点击“刷新”。
-5. 在主会话标题栏点击 Finder 左侧的 **CLI Worker Logo**，或在右侧栏新标签页选择 **CLI Worker**。
+<details>
+<summary>Web、源码安装与更新</summary>
 
-安装命令由 Harness 转交包管理器处理本地 `.tgz`，无需手动解压；首次安装可能需要联网下载依赖。如果 Harness 不在默认应用目录，请把 `DSH` 改成实际路径。
+使用 Web profile 时：
 
-### 5.2 从源码安装
+```sh
+dsh plugin --profile web add https://github.com/SuperWheel/cliworker-now/releases/download/v0.6.15/dsh-cliworker-now-0.6.15.tgz
+```
+
+安装或更新前先结束活动任务并完整退出 Harness，完成后重新打开。预构建包无需手动解压或编译。也可以在插件页“添加插件”中粘贴同一安装包 URL。
+
+从源码开发：
 
 ```sh
 git clone https://github.com/SuperWheel/cliworker-now.git
 cd cliworker-now
 pnpm install --frozen-lockfile
-pnpm --config.verify-deps-before-run=false build
-
-DSH='/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh'
-"$DSH" plugin --profile desktop add "$PWD"
+pnpm --config.verifyDepsBeforeRun=false build
+dsh plugin --profile desktop add .
 ```
 
-从源码目录安装会建立本地目录链接，因此源码目录需要保留；执行安装前应结束活动任务并完整退出 Harness。该插件通过 Harness 插件机制安装，**不是独立桌面应用，也无需修改 Harness 核心源码**。
-
-### 5.3 更新与卸载
-
-更新前结束正在运行的 CLI Worker 任务和账号终端。下载新版本安装包，完整退出 Harness 后按上面的安装命令安装，再重新打开 Harness。源码安装则在保留的源码目录中更新依赖和构建。仅刷新插件列表不足以重新加载 Host 接口。
-
-卸载命令：
+源码安装会链接本地目录，因此该目录需要保留。卸载使用：
 
 ```sh
-DSH='/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh'
-"$DSH" plugin --profile desktop remove dsh-cliworker-now
+dsh plugin --profile desktop remove dsh-cliworker-now
 ```
 
-卸载保留本机历史状态，不会自动删除会话与账号数据。
+卸载保留本机账号、历史会话和偏好。每个 Release 提供 `SHA256SUMS.txt` 校验文件。
+
+</details>
 
 ## 6. 使用方法
 
@@ -202,7 +195,7 @@ Antigravity 使用自身原生登录和实时 `agy models` 目录，只展示原
 
 Kimi 已有有效或可续期的自身原生登录时显示“已登录”及可确认的简短账号 ID；原生未保存邮箱或昵称时不编造，点击“管理登录”打开原生终端；切换账号由用户输入 `/logout` 后再输入 `/login`。账号终端使用独立空目录，不加载用户项目 MCP；原生若显示 Trust 提示，由用户自行确认。只有提供商配置而没有对应令牌时显示未登录，不会自动退出原账号。
 
-Hermes 首次明确打开登录设置后使用插件内独立原生账号目录，自动导入关闭，状态、模型、任务统一绑定该目录；之后退出不会回退到全局旧账号。原全局账号和历史保留，登录菜单禁止借用 Codex、Claude、GitHub CLI、Qwen 的凭据。现有官方安装的已选依赖环境可直接复用，账号操作不触发重新安装。
+Hermes 首次明确打开登录设置后使用插件内独立原生账号目录，自动导入关闭，状态、模型、任务统一绑定该目录；之后退出不会回退到全局旧账号。原全局账号和历史保留，Host 不把其他 CLI 导入凭据作为自身登录证据，不注入 Harness 认证；原生进程按自身权限运行。现有官方安装的已选依赖环境可直接复用，账号操作不触发重新安装。
 
 Hermes 的 Nous 登录按当前原生授权识别，模型来自该账号认证的官方目录及访问权限；无付费权限时仅开放明确免费的可用模型。目录查询不自动续期或生成，当前认证不足原生执行所需的有效期时提示重新登录；不会用旧快照恢复账号。
 
@@ -253,8 +246,8 @@ CLI 连接的状态点含义：
 
 - **按明确选择执行**：CLI 缺失或失败时不会自动换用另一个 CLI；不接管在插件外启动的 CLI。
 - **调度有边界**：默认两个并发；同一 CLI 会话单轮互斥，同一目录的写任务串行。仅支持主对话 → 直接子智能体两层结构，不支持运行中插话或递归派遣。
-- **权限按原生能力处理**：Harness 规划模式或只读权限下拒绝启动。允许执行后，支持的 CLI 可按只读任务模式派遣；Kimi 非交互模式不支持此能力。不同 CLI 的沙箱和工具限制请看专项文档。
-- **记录保存在本机**：默认位于 `$DSH_HOME/cliworker-now`（通常为 `~/.dsh/cliworker-now`），目录权限 `0700`、文件 `0600`。外部 CLI 仍会按自己的服务与配置发送模型请求，不能据此认为任务完全离线。
+- **权限按原生能力处理**：Harness 规划模式或只读权限下拒绝启动。允许执行后，支持的 CLI 可按只读任务模式派遣；Kimi 和 Hermes 非交互模式不支持只读派遣。插件不附加 OS 沙箱，各 CLI 的原生权限与工具限制见专项文档。
+- **记录保存在本机**：默认位于 `$DSH_HOME/cliworker-now`（通常为 `~/.dsh/cliworker-now`），POSIX 系统中目录权限 `0700`、文件 `0600`。外部 CLI 仍会按自己的服务与配置发送模型请求，不能据此认为任务完全离线。
 - **用量有来源**：只展示 CLI 提供或可核查的统计，缺失显示 `—`；上下文占用与累计 Token 不是同一指标。Antigravity 的估算来源会在详情中说明。
 - **账号有边界**：原生已登录会话正确显示绿色；自身 API 配置单独标记，模型权限按当前账号筛选。插件不在页面展示 API 密钥；部分 CLI 与原生终端共用账号，退出操作可能同时影响该 CLI 的其他终端。
 
@@ -307,7 +300,7 @@ pnpm --config.verify-deps-before-run=false build:preview
 pnpm --config.verify-deps-before-run=false smoke:extended --help
 ```
 
-v0.6.5 的 Logo 与界面改动通过类型检查、27 项界面与注册测试、隔离构建、正式构建及打包校验，并做过亮暗界面检查。各 CLI 的真实验收范围请看第 4 节和 [实际验证记录](doc/tasks.md)。
+v0.6.15 通过类型检查、1112 项本机回归及真实 Windows 运行层检查；Windows CI 的源码与日志可从 [验证工作流](https://github.com/SuperWheel/cliworker-now/actions/workflows/windows.yml) 查看。各 CLI 的真实验收范围请看第 4 节和 [实际验证记录](doc/tasks.md)。
 
 开发变更使用 **OpenSpec** 管理方案、增量规格与任务；按变更逐步补齐规格，保留现有设计和验收历史。依赖已固定在项目中，安装后可运行：
 
