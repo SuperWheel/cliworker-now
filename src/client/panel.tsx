@@ -468,24 +468,6 @@ function SessionPanel({
                 </Button>
               </Tooltip>
             </div>
-            {!showArchived && (query || filter !== 'all') && (
-              <div className="cwn-filter-info">
-                <span>
-                  {visibleWorkers.length ? `${visibleWorkers.length} 个匹配任务` : '没有匹配的任务'}
-                </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setQuery('')
-                    setFilter('all')
-                  }}
-                >
-                  清除筛选
-                </Button>
-              </div>
-            )}
           </div>
           <div
             className="cwn-overview-list"

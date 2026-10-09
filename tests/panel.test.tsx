@@ -474,12 +474,44 @@ it('preserves the overview filters and each draft across back navigation', async
   expect(t.r.root.findByProps({ 'aria-label': '筛选子 Agent' }).props.value).toBe('worker A')
   await t.click('进行中')
   expect(list()).toHaveLength(0)
-  expect(t.text()).toContain('没有匹配的任务')
-  await t.click('清除筛选')
+  expect(t.text()).not.toContain('没有匹配的任务')
+  expect(t.text()).not.toContain('清除筛选')
+  await act(async () => t.r.root.findByProps({ 'aria-label': '筛选子 Agent' }).props.onChange({ target: { value: '' } }))
+  await t.click('全部')
   expect(list()).toHaveLength(2)
   await t.select('a')
   await t.push('a')
   expect(t.input().props.value).toBe('draft remains')
+})
+it.each([
+  ['进行中', 'running'],
+  ['已完成', 'completed'],
+  ['异常', 'failed'],
+] as const)('keeps %s filtering and search usable without summary or reset text', async (label, selectedStatus) => {
+  const history: Worker[] = (['running', 'completed', 'failed'] as const).map((status, index) => ({
+    ...workers[0]!, id: `status-${index}`, status, title: `Task ${status}`,
+  }))
+  const t = await setup(false, undefined, history)
+  const cards = () => t.r.root.findAll((node) => node.type === 'button' && node.props['data-open-worker-id'])
+  const search = async (value: string) => act(async () =>
+    t.r.root.findByProps({ 'aria-label': '筛选子 Agent' }).props.onChange({ target: { value } }),
+  )
+  await t.click(label)
+  expect(cards().map((card) => card.props['data-open-worker-id'])).toEqual([
+    history.find((worker) => worker.status === selectedStatus)!.id,
+  ])
+  expect(t.text()).not.toContain('个匹配任务')
+  expect(t.text()).not.toContain('清除筛选')
+  await search('no matching task')
+  expect(cards()).toHaveLength(0)
+  expect(t.text()).not.toContain('没有匹配的任务')
+  expect(t.text()).not.toContain('清除筛选')
+  await search('')
+  expect(cards()).toHaveLength(1)
+  await t.click('全部')
+  expect(cards()).toHaveLength(3)
+  expect(t.followup).not.toHaveBeenCalled()
+  expect(t.api.cliworker.restartWorker).not.toHaveBeenCalled()
 })
 it('keeps search and status controls outside the card scroller and restores its reading position', async () => {
   const t = await setup(false)
@@ -590,8 +622,10 @@ it('distinguishes the short initial empty page from filtered and deleted empty s
   expect(initial.findAllByType('blockquote')).toHaveLength(0)
   for (const filter of ['进行中', '已完成', '异常']) {
     await t.click(filter)
-    expect(t.text()).toContain('没有匹配的任务')
+    expect(t.text()).not.toContain('没有匹配的任务')
+    expect(t.text()).not.toContain('清除筛选')
     expect(t.text()).not.toContain('把想做的事')
+    expect(t.r.root.findByProps({ 'aria-label': '子 Agent' }).children).toHaveLength(0)
   }
   await t.click('已删除')
   expect(t.text()).toContain('没有已删除的对话')

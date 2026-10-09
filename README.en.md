@@ -223,7 +223,7 @@ flowchart LR
 ### 6.2 Inspect, stop and continue
 
 - Open a task card to enter its conversation. Returning to the overview preserves an unsent draft.
-- Overview search and status filters stay fixed while the task list scrolls, with room for the first card's top border. The trash button beside the attention filter opens deleted conversations; click it again or select any status filter to return. While viewing deleted conversations, all four filters are gray and the trash button has a dark red background with a white icon.
+- Overview search and status filters stay fixed while the task list scrolls, with room for the first card's top border. Match summaries and a separate clear-filter action are omitted. The trash button beside the attention filter opens deleted conversations; click it again or select any status filter to return. While viewing deleted conversations, all four filters are gray and the trash button has a dark red background with a white icon.
 - Right-click a task card to edit its chat title or agent name, or delete it; `Shift+F10` or the menu key on its open button also opens management. Cards have no ellipsis button, and the right arrow centers across the whole row. Deleted idle tasks and their history can be restored.
 - Automatic names use short forms such as `agy-1` and `codex-1`; old default names remain valid references. The name button is wider while its text stays in place; text on both sides has equal spacing from the divider. Clicking changes its text to “已复制”; the name returns about one second after the pointer leaves.
 - Reasoning efforts display as `Low`, `High`, and similar labels; stored and executed values retain the native CLI spelling.

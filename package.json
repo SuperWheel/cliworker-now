@@ -1,6 +1,6 @@
 {
   "name": "dsh-cliworker-now",
-  "version": "0.7.5",
+  "version": "0.7.6",
   "private": true,
   "description": "Multiple agent CLI conversations in the DeepSeek Harness sidebar",
   "type": "module",
