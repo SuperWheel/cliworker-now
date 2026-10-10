@@ -120,7 +120,7 @@ Probe records: [ZCode](doc/zcode-probe.md) · [Grok](doc/grok-probe.md) · [Pi /
 ### 5.1 One-line install
 
 ```sh
-dsh plugin --profile desktop add https://github.com/SuperWheel/cliworker-now/releases/download/v0.7.6/dsh-cliworker-now-0.7.6.tgz
+dsh plugin --profile desktop add dsh-cliworker-now@0.7.6
 ```
 
 <details>
@@ -129,10 +129,16 @@ dsh plugin --profile desktop add https://github.com/SuperWheel/cliworker-now/rel
 For the Web profile:
 
 ```sh
-dsh plugin --profile web add https://github.com/SuperWheel/cliworker-now/releases/download/v0.7.6/dsh-cliworker-now-0.7.6.tgz
+dsh plugin --profile web add dsh-cliworker-now@0.7.6
 ```
 
-Finish active tasks and fully quit Harness before installation or updates, then reopen it. The release package is prebuilt and needs no manual extraction or compilation. You can also paste the same package URL into the plugin manager's Add Plugin dialog.
+Finish active tasks and fully quit Harness before installation or updates, then reopen it. The npm package is prebuilt and needs no manual extraction or compilation. You can also enter `dsh-cliworker-now@0.7.6` in the plugin manager's Add Plugin dialog.
+
+GitHub Release fallback:
+
+```sh
+dsh plugin --profile desktop add https://github.com/SuperWheel/cliworker-now/releases/download/v0.7.6/dsh-cliworker-now-0.7.6.tgz
+```
 
 For source development:
 

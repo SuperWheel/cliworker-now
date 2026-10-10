@@ -799,3 +799,7 @@
 - GitHub公开v0.7.6 Release，完整commit741495a21cafe8952155739f06e24ad232e033d3；下载包与本地公开包一致，SHA256 654d5f128fd7aff6f24bb7e37a5cf4091461c77cdb322fb2572ce7f3acd20f7e。Windows CI 37956748796成功。独立profile实际GitHub URL安装/版本列表及全新Host graph通过，280 lib/19 helper一致，Agent/模型/CLI/账号查询0，服务18780已清理；这不是npm registry验收。
 - npm官方登录已成功。首次发布EOTP；旧CLI大上传超时；npm12标准web流程和gzip传输均维持二次验证，gzip将首次PUT401响应缩短至4885ms，tarball不变。网页停在Security key，用户尚未完成安全密钥验证，各验证链接最终过期（done接口404）。registry对应包仍404；未重复覆盖已发布版本，临时userconfig和日志留在0700/0600私有目录且不入Git。
 - 本次仅任务1.1实际完成。任务2.1的npm发布、2.2的registry实际安装及3.1的npm推荐/页面验收待账号安全密钥验证；活动OpenSpec保持，不归档或虚勾。GitHub README中英临时推荐使用已验证v0.7.6 Release URL，56字符npm短命令仅留私有候选，原131字符推荐不宣称已缩短。用户完成验证后继续相同公开包发布和registry验收。
+
+- 2026-10-10续办：用户准备完成验证后，自动在同一PTY控制器中打开npm官方链接，安全密钥验证成功，普通publish返回PUT202；短时公开元数据仅占位0.0.0-stage而owner元数据已见0.7.6/latest。官方stage list和网页待审批均空；显式stage请求拒绝已有版本，未重复写入。随后匿名元数据更新为0.7.6/latest，匿名tarball下载SHA256/SHA512与GitHub相同，确认实际公开，不再误把CLI受理当公开成功。
+- 公开npm0.7.6与GitHub Release共用同一包，SHA256 654d5f128fd7aff6f24bb7e37a5cf4091461c77cdb322fb2572ce7f3acd20f7e。独立无认证HOME/DSH_HOME/profile真实执行native add固定包名、native ls、全新Host图与退出：依赖和resolved来源为registry，280lib/19helpers全匹配，Agent/Worker/模型/CLI/账号查询0，端口18780及进程和锁清理完成，未改Desktop。证据install/install-verification.json和registry-cleanup.json。
+- 中英README推荐改为56字符 dsh plugin --profile desktop add dsh-cliworker-now@0.7.6，原命令131字符，单行无上下备注，Web及GitHub备用保持折叠段。npm/root源码版本未改，原开发manifest仍private:true。前述待安全密钥事项已解除；后续页面核对与最终规格同步按实际结果追加。
