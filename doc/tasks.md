@@ -803,3 +803,7 @@
 - 2026-10-10续办：用户准备完成验证后，自动在同一PTY控制器中打开npm官方链接，安全密钥验证成功，普通publish返回PUT202；短时公开元数据仅占位0.0.0-stage而owner元数据已见0.7.6/latest。官方stage list和网页待审批均空；显式stage请求拒绝已有版本，未重复写入。随后匿名元数据更新为0.7.6/latest，匿名tarball下载SHA256/SHA512与GitHub相同，确认实际公开，不再误把CLI受理当公开成功。
 - 公开npm0.7.6与GitHub Release共用同一包，SHA256 654d5f128fd7aff6f24bb7e37a5cf4091461c77cdb322fb2572ce7f3acd20f7e。独立无认证HOME/DSH_HOME/profile真实执行native add固定包名、native ls、全新Host图与退出：依赖和resolved来源为registry，280lib/19helpers全匹配，Agent/Worker/模型/CLI/账号查询0，端口18780及进程和锁清理完成，未改Desktop。证据install/install-verification.json和registry-cleanup.json。
 - 中英README推荐改为56字符 dsh plugin --profile desktop add dsh-cliworker-now@0.7.6，原命令131字符，单行无上下备注，Web及GitHub备用保持折叠段。npm/root源码版本未改，原开发manifest仍private:true。前述待安全密钥事项已解除；后续页面核对与最终规格同步按实际结果追加。
+
+- GitHub默认中文首页实际渲染推荐命令56字符，npm官方页面实际显示0.7.6、完整README及同一短命令，截图github-install-proof.png/npm-install-proof.png已查看。npm标题包含TypeScript图标替代文本，调整可访问名称匹配后核对成功，不将先前选择器超时当发布失败。Host/Client typecheck与严格规格检查通过；仅发版元数据/说明/打包脚本改变，运行lib仍与原已验包逐字相同，未再次宣称重跑1307项。
+
+- OpenSpec四项任务4/4均完成，package-distribution主规格完整更新2块并保留Purpose/旧场景；同步后严格10/10，归档到openspec/changes/archive/2026-10-10-publish-prebuilt-registry-package/后严格9/9、活动change0。主页/包页、远端字节及真实registry profile安装均验证完成；本地提交并按本轮授权推送GitHub，原未提交修改继续排除。
